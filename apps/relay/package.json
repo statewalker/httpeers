@@ -1,0 +1,41 @@
+{
+  "name": "@statewalker/httpeers-relay",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "The httpeers circuit relay \u2014 a stock libp2p Circuit Relay v2 server, and nothing else.",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+ssh://git@github.com/statewalker/httpeers.git"
+  },
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "test": "vitest run --no-file-parallelism",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "lint": "biome check src tests",
+    "start": "node dist/main.js",
+    "dev": "tsx src/main.ts",
+    "bootstrap": "tsx src/bootstrap.ts"
+  },
+  "dependencies": {
+    "@chainsafe/libp2p-noise": "17.0.0",
+    "@chainsafe/libp2p-yamux": "8.0.1",
+    "@libp2p/circuit-relay-v2": "4.2.11",
+    "@libp2p/crypto": "5.1.22",
+    "@libp2p/identify": "4.1.12",
+    "@libp2p/interface": "3.2.5",
+    "@libp2p/peer-id": "6.0.14",
+    "@libp2p/websockets": "10.1.19",
+    "@multiformats/multiaddr": "13.0.3",
+    "libp2p": "3.3.8"
+  },
+  "devDependencies": {
+    "@types/node": "catalog:",
+    "tsx": "catalog:",
+    "typescript": "catalog:",
+    "vitest": "catalog:"
+  }
+}

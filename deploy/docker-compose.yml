@@ -1,0 +1,63 @@
+# The deployment: a reverse proxy holding the certificates, and the relay.
+#
+# Neither application container binds a host port. They are reachable only
+# from Caddy over this network, which is what makes the Host header Caddy
+# forwards trustworthy for the static-site app later -- publishing port 3000
+# "just to debug" would quietly end that.
+
+name: httpeers
+
+networks:
+  edge:
+    name: httpeers_edge
+
+volumes:
+  # Certificates and ACME account state. On a host volume so that recreating
+  # the container does NOT re-issue: Let's Encrypt's rate limits are per
+  # registered domain, and a redeploy loop that re-issues each time will
+  # exhaust them.
+  caddy_data:
+  caddy_config:
+  # The relay's identity. The single most important piece of state here: lose
+  # it and every client's configuration, which embeds this peerId, breaks.
+  relay_key:
+
+services:
+  caddy:
+    image: ghcr.io/statewalker/httpeers-ingress:latest
+    container_name: httpeers_caddy
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    environment:
+      # Gandi Personal Access Token, scoped to this zone's DNS records only.
+      GANDI_BEARER_TOKEN: ${GANDI_BEARER_TOKEN:?set GANDI_BEARER_TOKEN in deploy/.env}
+      ACME_EMAIL: ${ACME_EMAIL:?set ACME_EMAIL in deploy/.env}
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    networks:
+      - edge
+    depends_on:
+      - relay
+
+  relay:
+    image: ghcr.io/statewalker/httpeers-relay:latest
+    container_name: httpeers_relay
+    restart: unless-stopped
+    environment:
+      RELAY_PORT: "9090"
+      RELAY_KEY_PATH: /data/.httpeers/relay.key
+      # What peers dial. NOT what the process binds -- see
+      # apps/relay/src/addresses.ts. The relay refuses to start if this is
+      # unset, because a relay advertising its container-internal address runs,
+      # looks healthy, and is undialable.
+      RELAY_ANNOUNCE_ADDRS: ${RELAY_ANNOUNCE_ADDRS:?set RELAY_ANNOUNCE_ADDRS in deploy/.env}
+      # Optional, and consumed only when the volume holds no key yet.
+      RELAY_KEY: ${RELAY_KEY:-}
+    volumes:
+      - relay_key:/data
+    networks:
+      - edge

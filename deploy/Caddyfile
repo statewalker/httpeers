@@ -1,0 +1,35 @@
+# The reverse proxy and the certificates. That is the whole job.
+#
+# ROUTING DOES NOT GROW WITH THE NUMBER OF SITES. Caddy chooses the most
+# specific matching site block regardless of the order they appear in, so the
+# exact hostname below always beats the wildcard beneath it. Because the
+# wildcard certificate already covers every subdomain, publishing
+# abc.httpeers.net needs no edit here, no DNS record (the zone has a wildcard
+# A record) and no reload -- the static-site app resolves the Host header to a
+# storage prefix on its own.
+{
+	email {$ACME_EMAIL}
+	# DNS-01, because HTTP-01 cannot issue a wildcard. The token is a Gandi
+	# Personal Access Token -- Gandi's older API Key auth is discontinued and
+	# this module does not accept one.
+	acme_dns gandi {$GANDI_BEARER_TOKEN}
+}
+
+relay.httpeers.net {
+	# The relay speaks plain ws here; this block is where TLS stops. The relay
+	# must therefore advertise THIS address, not the one it binds --
+	# RELAY_ANNOUNCE_ADDRS in .env, and apps/relay/src/addresses.ts for why.
+	reverse_proxy relay:9090
+}
+
+*.httpeers.net {
+	# Deliberately present before the static-site app exists.
+	#
+	# This block is what makes Caddy obtain the *.httpeers.net certificate at
+	# all. Deleting it until there is something to proxy to would defer the
+	# first DNS-01 issuance to the day that app ships -- which is the worst
+	# possible moment to discover a credential or zone problem. So it answers
+	# 503 for now, and this one directive becomes
+	# `reverse_proxy sites:3000` when the static-site host lands.
+	respond "no site is published at this address yet" 503
+}

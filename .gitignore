@@ -1,0 +1,10 @@
+node_modules/
+dist/
+.turbo/
+*.tsbuildinfo
+
+# Secrets and runtime state. The relay's signing key is its identity --
+# see apps/relay/src/key.ts. It must never reach the repository or an image.
+.env
+*.key
+data/
