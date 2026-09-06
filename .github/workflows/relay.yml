@@ -73,6 +73,15 @@ jobs:
     needs: publish
     runs-on: ubuntu-latest
     environment: production
+    # Off until the server exists. Without this the deploy fails on every push
+    # for want of secrets, main sits permanently red, and a red main that
+    # everyone knows to ignore is worse than no signal at all -- it is the
+    # state in which a REAL failure goes unnoticed.
+    #
+    # Turn it on with:
+    #   gh variable set DEPLOY_ENABLED --body true
+    # once DEPLOY_HOST / DEPLOY_USER / DEPLOY_SSH_KEY / DEPLOY_PATH are set.
+    if: vars.DEPLOY_ENABLED == 'true'
     steps:
       - name: Pull and restart on the server
         uses: appleboy/ssh-action@v1
