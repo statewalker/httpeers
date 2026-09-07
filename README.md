@@ -1,7 +1,9 @@
 # httpeers
 
-The httpeers mesh's deployable services. Today: the **circuit relay**, and the
-ingress that fronts it.
+The httpeers mesh's deployable services. Today: the **circuit relay**, the
+**static-site host**, and the ingress that fronts both.
+
+Live at `relay.httpeers.net`, `s3.httpeers.net` and `*.httpeers.net`.
 
 Design and decisions live in the umbrella repository:
 `docs/superpowers/specs/2026-09-06-httpeers-relay-production-design.md`, and the
@@ -11,6 +13,7 @@ mesh's own vocabulary in `docs/httpeers/CONTEXT.md`.
 
 ```
 apps/relay/        the circuit relay, and its image
+apps/sites/        the static-site host -- one site per storage prefix
 deploy/            the compose stack, the Caddyfile, the ingress image
 .github/workflows/ ci, and one image-publishing workflow per deployable
 ```
@@ -128,6 +131,27 @@ patterns; it cannot read what flows through.
 
 **This reasoning does not transfer to the hub**, whose peerId is the mesh
 identity. A hub bootstrap document would need its own argument, not this one.
+
+## What the static-site host is
+
+A site is a **first-level prefix in an S3 bucket, named after its domain**:
+`sites/abc.httpeers.net/index.html`. Publishing is writing files — no DNS record, no
+certificate, no ingress edit, no restart. The `Host` header resolves directly to a
+prefix, so there is no index to build, nothing to invalidate, and collisions are
+impossible because storage enforces key uniqueness.
+
+Two behaviours worth knowing, both easy to get wrong:
+
+- **`/foo` matching `/foo/index.html` returns 301 to `/foo/`.** Serving the body at the
+  un-slashed URL breaks every relative link in the document — `img.png` resolves to
+  `/img.png`, not `/foo/img.png` — and the symptom is missing images, not anything that
+  looks like routing.
+- **A missing file is a 404, never a 200 with an empty body.** `FilesApi.read()` returns
+  an empty iterable for a path that does not exist rather than throwing, so existence is
+  always established with `stats()` first.
+
+Storage is chosen by environment (`s3` | `node` | `mem`) in `apps/sites/src/store.ts`,
+which is the only module that knows which backend is in use.
 
 ## Development
 
