@@ -52,15 +52,23 @@ require_rclone
 # rather than half-starting something.
 # ---------------------------------------------------------------------------
 missing=0
-if ! rclone_has_serve_nfs; then
-  err "this rclone has no \"serve nfs\" subcommand."
-  info "    installed: $(rclone_version); \`serve nfs\` was added in rclone 1.65."
-  info "    It offers only: $(rclone serve --help 2>&1 | awk '/^Available Commands:/{f=1;next} /^$/{f=0} f {printf "%s ", $1}')"
-  info "    Fix:  curl https://rclone.org/install.sh | sudo bash"
+# The NFS SERVER now runs in a container (docker-compose.yml beside this script),
+# so the host's own rclone is irrelevant to this mode -- this machine's is
+# v1.60.1-DEV and has no `serve nfs` at all, while the image pins v1.74.4 which
+# does. What a container cannot supply is the CLIENT: mounting is a kernel
+# operation on the host, so mount.nfs and root are still required out here.
+if ! command -v docker >/dev/null 2>&1; then
+  err "docker is not installed -- the NFS server runs as a container."
+  info "    Fix:  https://docs.docker.com/engine/install/"
+  missing=1
+elif ! docker compose version >/dev/null 2>&1; then
+  err "docker compose (v2) is not available."
+  info "    Fix:  install the docker compose plugin"
   missing=1
 fi
 if ! have_mount_nfs; then
   err "mount.nfs is missing -- the NFS client utilities are not installed."
+  info "    This one cannot be containerised: mounting happens in the host kernel."
   info "    Fix:  sudo apt install nfs-common"
   missing=1
 fi
@@ -80,43 +88,65 @@ pidfile="$run/serve-nfs.pid"
 logfile="$run/serve-nfs.log"
 mkdir -p "$run"
 
-serve_args=(serve nfs "$HTTPEERS_TARGET" --addr "$addr")
-# `serve nfs` defaults to --vfs-cache-mode off, under which writes to the
-# mount fail outright. The whole premise here is a writable folder, so this is
-# not tuning -- without it the mode does not work at all.
-serve_args+=(--vfs-cache-mode writes)
-[ "$read_only" = 1 ] && serve_args+=(--read-only)
+# ---------------------------------------------------------------------------
+# The server -- a container.
+#
+# Credentials reach it as RCLONE_CONFIG_* environment variables rather than a
+# config file, so nothing secret is written into this directory. The port is
+# published on 127.0.0.1 only: an rclone NFS export is unauthenticated, and one
+# reachable from the network would hand over the whole bucket.
+# ---------------------------------------------------------------------------
+compose_file="$PUBLISH_ROOT/docker-compose.yml"
+[ -f "$compose_file" ] || die "missing $compose_file"
+
+require_var() {
+  [ -n "${!1:-}" ] || die "$1 is not set. Copy publish.env.example to publish.env and fill it in;
+    the credentials are on the server:  ssh kotelnikov@163.172.46.87 'grep S3_ /opt/httpeers/.env'"
+}
+require_var HTTPEERS_S3_ACCESS_KEY_ID
+require_var HTTPEERS_S3_SECRET_ACCESS_KEY
+
+export HTTPEERS_NFS_PORT="$port"
+export HTTPEERS_NFS_READ_ONLY=$([ "$read_only" = 1 ] && echo true || echo false)
+[ "$read_only" = 1 ] && info "serving READ-ONLY: writes to the mount will be refused."
+compose=(docker compose -f "$compose_file")
 
 if [ "$foreground" = 1 ]; then
-  info "rclone ${serve_args[*]}"
-  exec rclone "${serve_args[@]}"
+  info "${compose[*]} up nfs   (Ctrl-C to stop; the mount is not made in this mode)"
+  exec "${compose[@]}" up nfs
 fi
 
-# ---------------------------------------------------------------------------
-# The server. Idempotent: a live pidfile means it is already up.
-# ---------------------------------------------------------------------------
-if [ -f "$pidfile" ] && kill -0 "$(cat "$pidfile")" 2>/dev/null; then
-  info "nfs server already running (pid $(cat "$pidfile")) on $addr"
+if [ "$("${compose[@]}" ps -q nfs 2>/dev/null | wc -l)" -gt 0 ] \
+   && [ "$("${compose[@]}" ps --status running -q nfs 2>/dev/null | wc -l)" -gt 0 ]; then
+  info "nfs server container already running on $addr"
 else
-  rm -f "$pidfile"
-  nohup rclone "${serve_args[@]}" >"$logfile" 2>&1 &
-  echo $! > "$pidfile"
-  # Give it a moment and then check it is actually alive. A server that died
-  # on startup (bad credentials, port in use) would otherwise be discovered
-  # only by a mount error that says nothing about the cause.
-  for _ in 1 2 3 4 5 6 7 8 9 10; do
-    kill -0 "$(cat "$pidfile")" 2>/dev/null || break
-    if command -v ss >/dev/null 2>&1 && ss -ltn 2>/dev/null | grep -q ":$port "; then break; fi
-    sleep 0.3
-  done
-  if ! kill -0 "$(cat "$pidfile")" 2>/dev/null; then
-    rm -f "$pidfile"
-    err "the nfs server exited immediately. Its output:"
-    sed 's/^/    /' "$logfile" >&2
+  info "starting the nfs server container ..."
+  "${compose[@]}" up -d nfs >/dev/null 2>&1 || {
+    err "the nfs server container failed to start. Its output:"
+    "${compose[@]}" logs --tail=30 nfs 2>&1 | sed 's/^/    /' >&2
+    exit 1
+  }
+fi
+
+# Wait for the port rather than for the container, and check the container is
+# still alive each round: a server that exits on bad credentials would otherwise
+# be discovered only by a mount error that says nothing about the cause.
+ready=0
+for _ in $(seq 1 40); do
+  if [ "$("${compose[@]}" ps --status running -q nfs 2>/dev/null | wc -l)" -eq 0 ]; then
+    err "the nfs server container exited. Its output:"
+    "${compose[@]}" logs --tail=30 nfs 2>&1 | sed 's/^/    /' >&2
     exit 1
   fi
-  info "nfs server started (pid $(cat "$pidfile")) on $addr; log: $logfile"
+  if (echo > "/dev/tcp/$host/$port") 2>/dev/null; then ready=1; break; fi
+  sleep 0.5
+done
+if [ "$ready" != 1 ]; then
+  err "the nfs server is not accepting connections on $addr after 20s."
+  "${compose[@]}" logs --tail=30 nfs 2>&1 | sed 's/^/    /' >&2
+  exit 1
 fi
+info "nfs server listening on $addr (container httpeers_publish_nfs)"
 
 # ---------------------------------------------------------------------------
 # The mount

@@ -364,13 +364,26 @@ echo "== 13. the mount preflight refuses on this machine, and starts nothing =="
 scenario mountpf
 site a.httpeers.net
 rc="$(run "$BIN/httpeers-mount")"
-if rclone serve --help 2>&1 | grep -qE '^[[:space:]]+nfs[[:space:]]'; then
-  echo "  skip  this rclone HAS serve nfs; the negative preflight cannot be tested here"
+# The SERVER is containerised, so the host's rclone version no longer gates this
+# mode. The only host requirement left is the NFS client, which cannot be
+# containerised: mounting is a kernel operation out here.
+if command -v mount.nfs >/dev/null 2>&1 || [ -x /sbin/mount.nfs ]; then
+  echo "  skip  mount.nfs is present; the negative preflight cannot be tested here"
 else
-  if [ "$rc" != 0 ] && grep -q 'serve nfs' "$TMP/out" && grep -q 'Nothing was started' "$TMP/out"; then
-    ok "httpeers-mount refused, named the missing subcommand, and started nothing"
+  if [ "$rc" != 0 ] && grep -q 'nfs-common' "$TMP/out" && grep -q 'Nothing was started' "$TMP/out"; then
+    ok "httpeers-mount refused, named nfs-common, and started nothing"
   else
     notok "mount preflight refuses (rc=$rc)" "$(cat "$TMP/out")"
+  fi
+  if ! grep -qi 'rclone.org/install' "$TMP/out"; then
+    ok "it no longer demands a host rclone upgrade -- the image supplies it"
+  else
+    notok "should not ask for a host rclone upgrade" "$(cat "$TMP/out")"
+  fi
+  if [ -z "$(docker ps -aq --filter name=httpeers_publish_nfs 2>/dev/null)" ]; then
+    ok "no container was left behind by the refusal"
+  else
+    notok "a refused mount must not leave a container" "$(docker ps -a --filter name=httpeers_publish_nfs)"
   fi
   [ ! -e "$ROOT/.run/serve-nfs.pid" ] && ok "no pidfile was created" || notok "no pidfile was created"
 fi
@@ -393,8 +406,13 @@ else
   fi
   grep -q 'nfs-common' "$TMP/out" && ok "setup names the exact apt package" \
     || notok "setup names nfs-common" "$(cat "$TMP/out")"
-  grep -q 'rclone.org/install.sh' "$TMP/out" && ok "setup names the exact rclone upgrade command" \
-    || notok "setup names the rclone upgrade command" "$(cat "$TMP/out")"
+  # The server is containerised now, so a host rclone upgrade is no longer a
+  # prerequisite for live mode -- asking for one would be misleading.
+  grep -qi 'containerised' "$TMP/out" && ok "setup reports the nfs server as containerised" \
+    || notok "setup should report the containerised server" "$(cat "$TMP/out")"
+  grep -qi 'rclone.org/install' "$TMP/out" \
+    && notok "setup must no longer demand a host rclone upgrade" "$(cat "$TMP/out")" \
+    || ok "setup no longer demands a host rclone upgrade" 
 fi
 rc="$(run "$BIN/httpeers-setup" --sync-only)"
 if [ "$rc" = 0 ]; then ok "setup --sync-only passes (sync mode needs nothing extra)"
@@ -417,5 +435,42 @@ else
 fi
 
 echo
+echo "== 16. the containerised nfs server =="
+COMPOSE="$ROOT/docker-compose.yml"
+[ -f "$COMPOSE" ] && ok "docker-compose.yml exists" || notok "missing docker-compose.yml" ""
+grep -qE 'image:\s*rclone/rclone:[0-9]' "$COMPOSE" \
+  && ok "the rclone image is pinned to a version, not :latest" \
+  || notok "image must be pinned" "$(grep image: "$COMPOSE")"
+grep -q '127.0.0.1:' "$COMPOSE" \
+  && ok "the nfs port is published on loopback only (it is unauthenticated)" \
+  || notok "nfs must not be exposed beyond loopback" "$(grep -A3 ports: "$COMPOSE")"
+grep -q -- '--vfs-cache-mode=writes' "$COMPOSE" \
+  && ok "--vfs-cache-mode=writes is set (without it the mount is read-only)" \
+  || notok "vfs cache mode missing" "$(cat "$COMPOSE")"
+grep -q 'RCLONE_CONFIG_HTTPEERS_SECRET_ACCESS_KEY: \${' "$COMPOSE" \
+  && ok "credentials come from the environment, never baked into the file" \
+  || notok "credentials must be interpolated" "$(grep SECRET "$COMPOSE")"
+if command -v docker >/dev/null 2>&1 && docker compose version >/dev/null 2>&1; then
+  if HTTPEERS_S3_ENDPOINT=https://x HTTPEERS_S3_ACCESS_KEY_ID=k \
+     HTTPEERS_S3_SECRET_ACCESS_KEY=s HTTPEERS_S3_BUCKET=b \
+     docker compose -f "$COMPOSE" config >/dev/null 2>&1; then
+    ok "docker compose config parses it"
+  else
+    notok "compose file does not parse" ""
+  fi
+else
+  echo "  skip  docker not available"
+fi
+# Strip comments first: httpeers-unmount EXPLAINS why it avoids `down -v`, and a
+# naive grep matches that explanation and fails on correct code.
+if sed 's/#.*//' "$BIN/httpeers-unmount" | grep -q 'down -v'; then
+  notok "unmount must NOT use down -v; the vfs cache holds unflushed writes" ""
+else
+  ok "unmount stops the container without discarding the write cache"
+fi
+
+echo
 printf '%s passed, %s failed\n' "$pass" "$fail"
 [ "$fail" -eq 0 ]
+
+

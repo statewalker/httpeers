@@ -128,17 +128,21 @@ if [ "$sync_only" = 0 ]; then
   bold ""
   bold "live (NFS) mode"
 
-  if ! command -v rclone >/dev/null 2>&1; then
-    : # already reported
-  elif rclone_has_serve_nfs; then
-    pass "rclone serve nfs available"
-  else
-    fail "this rclone has no \"serve nfs\" subcommand (it offers: $(rclone serve --help 2>&1 | awk '/^Available Commands:/{f=1;next} /^$/{f=0} f {printf "%s ", $1}'))." \
-         "\`rclone serve nfs\` was added in rclone 1.65; this binary reports $(rclone_version)." \
-         "Distro packages lag badly. Install upstream rclone:" \
-         "  curl https://rclone.org/install.sh | sudo bash" \
-         "and re-run this script."
-  fi
+    # The NFS SERVER runs in a container, so the host's rclone version is
+    # irrelevant here -- the image pins one that has `serve nfs`. That is the
+    # whole reason it is containerised: this machine's rclone is v1.60.1-DEV and
+    # lacks the subcommand, and upgrading every workstation to keep them in step
+    # is a worse deal than pulling an image.
+    if ! command -v docker >/dev/null 2>&1; then
+      fail "docker is not installed -- the NFS server runs as a container." \
+           "  https://docs.docker.com/engine/install/"
+    elif ! docker compose version >/dev/null 2>&1; then
+      fail "docker compose (v2) is not available." \
+           "  install the docker compose plugin"
+    else
+      pass "docker        $(docker --version 2>/dev/null | cut -d, -f1)"
+      pass "nfs server    containerised (rclone/rclone image; the host rclone is not used here)"
+    fi
 
   if have_mount_nfs; then
     pass "mount.nfs     $(command -v mount.nfs 2>/dev/null || echo /sbin/mount.nfs)"
