@@ -176,14 +176,19 @@ describe("main.ts, run as the container runs it", () => {
     expect(existsSync(docPath)).toBe(false);
   });
 
-  it("fails loudly rather than running on with the document silently absent", async () => {
-    const unwritable = join(dir, "unwritable");
-    mkdirSync(unwritable, { mode: 0o500 });
-    const run = await runMain(
-      { ...baseEnv(), RELAY_BOOTSTRAP_PATH: join(unwritable, "sub", "doc.json") },
-      /never matches/,
-    );
-    expect(run.code).toBe(1);
-    expect(run.stderr).toMatch(/could not write the bootstrap document/);
-  });
+  // Skipped as root, which is not a gap in coverage: a root process cannot be
+  // denied a write by file permissions, so there is no failure to observe.
+  it.skipIf(process.getuid?.() === 0)(
+    "fails loudly rather than running on with the document silently absent",
+    async () => {
+      const unwritable = join(dir, "unwritable");
+      mkdirSync(unwritable, { mode: 0o500 });
+      const run = await runMain(
+        { ...baseEnv(), RELAY_BOOTSTRAP_PATH: join(unwritable, "sub", "doc.json") },
+        /never matches/,
+      );
+      expect(run.code).toBe(1);
+      expect(run.stderr).toMatch(/could not write the bootstrap document/);
+    },
+  );
 });
