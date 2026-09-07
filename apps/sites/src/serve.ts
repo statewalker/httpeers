@@ -8,6 +8,7 @@ import { TtlCache } from "./cache.js";
 import { contentTypeFor } from "./content-type.js";
 import { siteFromHost } from "./host.js";
 import { type LookupResult, lookupFile, statFile } from "./lookup.js";
+import { parseRange } from "./range.js";
 import { readSiteConfig, type SiteConfig } from "./site-config.js";
 
 export interface ServeOptions {
@@ -158,6 +159,30 @@ export function createApp(options: ServeOptions): Hono {
       // A 304 carries validators but never Content-Length or a body.
       const { ["Content-Length"]: _dropped, ...revalidation } = headers;
       return new Response(null, { status: 304, headers: revalidation });
+    }
+
+    // Ranges are only meaningful when the size is known.
+    if (stats.size != null && status === 200) {
+      const range = parseRange(c.req.header("range"), stats.size);
+      if (range === "unsatisfiable") {
+        return new Response(null, {
+          status: 416,
+          headers: { "Content-Range": `bytes */${stats.size}` },
+        });
+      }
+      if (range != null) {
+        const length = range.end - range.start + 1;
+        const partial = {
+          ...headers,
+          "Content-Length": String(length),
+          "Content-Range": `bytes ${range.start}-${range.end}/${stats.size}`,
+        };
+        if (headOnly) return new Response(null, { status: 206, headers: partial });
+        return new Response(toStream(files.read(storagePath, { start: range.start, length })), {
+          status: 206,
+          headers: partial,
+        });
+      }
     }
 
     if (headOnly) return new Response(null, { status, headers });
