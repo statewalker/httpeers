@@ -6,6 +6,7 @@
  * touch `process.env`.
  */
 import { parseAnnounceAddrs } from "./addresses.js";
+import { clearRelayDocument, writeRelayDocument } from "./bootstrap-doc.js";
 import { DEFAULT_RELAY_KEY_PATH, MissingRelayKeyError, resolveRelayKey } from "./key.js";
 import { startRelay } from "./relay.js";
 
@@ -17,6 +18,18 @@ async function main(): Promise<void> {
   const port = process.env.RELAY_PORT != null ? Number(process.env.RELAY_PORT) : undefined;
   const keyPath = process.env.RELAY_KEY_PATH ?? DEFAULT_RELAY_KEY_PATH;
   const announce = parseAnnounceAddrs(process.env.RELAY_ANNOUNCE_ADDRS);
+
+  // Opt-in: unset means no document is written and startup is exactly what it
+  // was before this existed. Local runs are unaffected.
+  const bootstrapPath = process.env.RELAY_BOOTSTRAP_PATH?.trim();
+  const publishBootstrap = bootstrapPath != null && bootstrapPath.length > 0;
+
+  // BEFORE the relay is attempted, not after it succeeds. Every failure below
+  // -- a missing key, an empty announce list, a port already bound -- would
+  // otherwise leave the previous document in place for the reverse proxy to
+  // keep serving, pointing peers confidently at a relay that is crash-looping.
+  // Clearing here makes a relay that cannot start yield 404 instead.
+  if (publishBootstrap) clearRelayDocument(bootstrapPath);
 
   // Behind a reverse proxy the bound address is unreachable from outside, so
   // starting without an announce list produces a relay that runs, reports
@@ -39,6 +52,33 @@ async function main(): Promise<void> {
   console.log(`relay peerId: ${relay.node.peerId.toString()}`);
   console.log("relay addrs:");
   for (const addr of relay.node.getMultiaddrs()) console.log(`  ${addr.toString()}`);
+
+  // From what the node advertises, never from RELAY_ANNOUNCE_ADDRS -- see
+  // bootstrap-doc.ts. A failure here is fatal on purpose: the operator asked
+  // for the document to be published, and a relay that is healthy while the
+  // document is silently absent is the failure this whole path exists to make
+  // impossible. The likely cause is ownership, since the process runs as an
+  // unprivileged user and the directory is a mounted volume.
+  if (publishBootstrap) {
+    try {
+      writeRelayDocument(
+        bootstrapPath,
+        relay.node.getMultiaddrs().map((addr) => addr.toString()),
+      );
+    } catch (err) {
+      await relay.stop();
+      throw new Error(
+        `relay: could not write the bootstrap document to "${bootstrapPath}".\n` +
+          "relay: the relay refuses to keep running without it, because a healthy relay whose\n" +
+          "relay: bootstrap document is missing is a failure nobody notices until peers cannot\n" +
+          "relay: reach it. Check that the directory exists and is writable by the user this\n" +
+          "relay: process runs as (`node` in the image; the volume must be chowned to it), or\n" +
+          "relay: unset RELAY_BOOTSTRAP_PATH to stop publishing the document at all.\n" +
+          `relay: ${err instanceof Error ? err.message : String(err)}`,
+      );
+    }
+    console.log(`relay: wrote the bootstrap document to ${bootstrapPath}`);
+  }
 
   const shutdown = async (signal: string): Promise<void> => {
     console.log(`\nrelay: received ${signal}, stopping...`);
