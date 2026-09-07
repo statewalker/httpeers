@@ -54,16 +54,19 @@ relay.httpeers.net {
 	reverse_proxy relay:9090
 }
 
+s3.httpeers.net {
+	import acme
+
+	# Publishing. An exact hostname beats the wildcard, and it is already
+	# inside the wildcard certificate and resolved by the wildcard A record --
+	# so this endpoint cost no certificate and no DNS change.
+	reverse_proxy rustfs:9000
+}
+
 *.httpeers.net {
 	import acme
 
-	# Deliberately present before the static-site app exists.
-	#
-	# This block is what makes Caddy obtain the *.httpeers.net certificate at
-	# all. Deleting it until there is something to proxy to would defer the
-	# first DNS-01 issuance to the day that app ships -- which is the worst
-	# possible moment to discover a credential or zone problem. So it answers
-	# 503 for now, and this one directive becomes
-	# `reverse_proxy sites:3000` when the static-site host lands.
-	respond "no site is published at this address yet" 503
+	# Every other subdomain is a site. This line never changes again:
+	# publishing a new site is writing a prefix, not editing this file.
+	reverse_proxy sites:3000
 }

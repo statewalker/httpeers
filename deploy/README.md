@@ -72,6 +72,10 @@ cp .env.example .env    # fill in GANDI_BEARER_TOKEN, ACME_EMAIL, RELAY_ANNOUNCE
 # destroy it. Create it once, deliberately:
 docker volume create httpeers_relay_key
 
+# RustFS's data is external for the same reason, and it holds every published
+# site:
+docker volume create httpeers_rustfs_data
+
 docker compose up -d
 ```
 
@@ -111,7 +115,30 @@ openssl s_client -connect <server ip>:443 -servername nonesuch.httpeers.net </de
 
 The SAN list must contain `*.httpeers.net`.
 
-## Adding the static-site host later
+## Publishing a site
 
-One line in the `Caddyfile`: the `*.httpeers.net` block's `respond` becomes
-`reverse_proxy sites:3000`. No new certificate, no DNS record, no other change.
+Sites live in the `sites` bucket, one prefix per domain. Publishing is writing
+files; nothing else brings a site online.
+
+```sh
+rclone config create httpeers s3 \
+  provider=Other \
+  endpoint=https://s3.httpeers.net \
+  access_key_id=... \
+  secret_access_key=... \
+  force_path_style=true
+
+rclone sync ./dist httpeers:sites/abc.httpeers.net --progress
+```
+
+`https://abc.httpeers.net` serves it immediately -- no DNS record, no
+certificate, no Caddy edit, no restart. A re-published file can take up to
+`SITES_CACHE_TTL_MS` to appear; set it to `0` while iterating.
+
+Optional per-site settings go in `.site/config.json` inside the prefix:
+
+```json
+{ "spa": true, "notFound": "/404.html", "cacheControl": "public, no-cache" }
+```
+
+That directory is never served.

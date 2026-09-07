@@ -29,6 +29,12 @@ volumes:
   relay_key:
     external: true
     name: httpeers_relay_key
+  # RustFS's data. Declared external for the same reason as the relay's
+  # identity: `docker compose down -v` removes every volume it owns, and this
+  # one holds every published site.
+  rustfs_data:
+    external: true
+    name: httpeers_rustfs_data
 
 services:
   caddy:
@@ -50,6 +56,8 @@ services:
       - edge
     depends_on:
       - relay
+      - rustfs
+      - sites
 
   relay:
     image: ghcr.io/statewalker/httpeers-relay:latest
@@ -67,5 +75,44 @@ services:
       RELAY_KEY: ${RELAY_KEY:-}
     volumes:
       - relay_key:/data
+    networks:
+      - edge
+
+  rustfs:
+    # Pinned, never `latest`: this is a release candidate and its behaviour
+    # may still change between builds. Bump deliberately.
+    image: rustfs/rustfs:v1.0.0-rc.5
+    container_name: httpeers_rustfs
+    restart: unless-stopped
+    environment:
+      RUSTFS_ACCESS_KEY: ${S3_ACCESS_KEY_ID:?set S3_ACCESS_KEY_ID in deploy/.env}
+      RUSTFS_SECRET_KEY: ${S3_SECRET_ACCESS_KEY:?set S3_SECRET_ACCESS_KEY in deploy/.env}
+      RUSTFS_VOLUMES: /data
+      RUSTFS_ADDRESS: 0.0.0.0:9000
+      # The admin console is a second, unproxied surface. Nothing needs it here
+      # and it is one more thing to secure, so it is off rather than merely
+      # unreachable.
+      RUSTFS_CONSOLE_ENABLE: "false"
+    volumes:
+      - rustfs_data:/data
+    networks:
+      - edge
+
+  sites:
+    image: ghcr.io/statewalker/httpeers-sites:latest
+    container_name: httpeers_sites
+    restart: unless-stopped
+    environment:
+      SITES_PORT: "3000"
+      SITES_ADAPTER: s3
+      # The docker network, not s3.httpeers.net: serving must not depend on
+      # the public endpoint, TLS, or Caddy being up.
+      S3_ENDPOINT: http://rustfs:9000
+      S3_BUCKET: ${S3_BUCKET:-sites}
+      S3_ACCESS_KEY_ID: ${S3_ACCESS_KEY_ID:?set S3_ACCESS_KEY_ID in deploy/.env}
+      S3_SECRET_ACCESS_KEY: ${S3_SECRET_ACCESS_KEY:?set S3_SECRET_ACCESS_KEY in deploy/.env}
+      SITES_CACHE_TTL_MS: ${SITES_CACHE_TTL_MS:-60000}
+    depends_on:
+      - rustfs
     networks:
       - edge
