@@ -92,10 +92,56 @@ jobs:
           script: |
             set -euo pipefail
             cd ${{ secrets.DEPLOY_PATH }}
+
+            # Read BEFORE the pull. `up -d` may replace the container, and the
+            # old container's logs go with it, so this cannot be recovered
+            # afterwards. --tail, not --since: when the image is already
+            # current the container is NOT recreated, so a time window finds
+            # nothing and reports a false failure.
+            peerid_now() { docker compose logs --tail=200 relay 2>&1 | grep -oE '12D3[A-Za-z0-9]{40,}' | tail -1 || true; }
+
+            BEFORE=$(peerid_now)
             docker compose pull relay
             docker compose up -d relay
-            # The peerId must be unchanged across a deploy -- it is embedded in
-            # every client's configuration. Surface it so a regression is
-            # visible in the run log rather than in user reports.
-            sleep 5
-            docker compose logs --tail=50 relay | grep -i "peerId" || true
+
+            AFTER=""
+            for _ in $(seq 1 30); do
+              AFTER=$(peerid_now)
+              [ -n "$AFTER" ] && break
+              sleep 2
+            done
+            LOG=$(docker compose logs --tail=200 relay 2>&1 || true)
+
+            if [ -z "$AFTER" ]; then
+              echo "DEPLOY FAILED: the relay reported no peerId within 60s."
+              printf '%s\n' "$LOG" | tail -30
+              exit 1
+            fi
+
+            # The peerId is embedded in every multiaddr clients dial. If it
+            # changes, every client's configuration is invalid at once -- so
+            # this fails the deploy rather than printing a line nobody reads.
+            if [ -n "$BEFORE" ] && [ "$BEFORE" != "$AFTER" ]; then
+              echo "DEPLOY FAILED: the relay's peerId CHANGED."
+              echo "  before: $BEFORE"
+              echo "  after : $AFTER"
+              echo "The relay_key volume was most likely lost or recreated."
+              echo "Restore it from the backup before anyone caches the new identity."
+              exit 1
+            fi
+
+            # The other silent failure: a relay advertising a container-internal
+            # address starts, reports healthy, and is undialable by everyone.
+            if ! printf '%s' "$LOG" | grep -q '/dns4/'; then
+              echo "DEPLOY FAILED: the relay advertises no /dns4/ address."
+              printf '%s\n' "$LOG" | tail -20
+              exit 1
+            fi
+            if printf '%s' "$LOG" | grep -qE '0\.0\.0\.0|/ip4/172\.'; then
+              echo "DEPLOY FAILED: the relay is advertising a container-internal address:"
+              printf '%s\n' "$LOG" | grep -E '0\.0\.0\.0|/ip4/172\.'
+              exit 1
+            fi
+
+            echo "peerId unchanged: $AFTER"
+            printf '%s\n' "$LOG" | grep -oE '/dns4/[^ ]+' | sed 's/^/advertising: /'

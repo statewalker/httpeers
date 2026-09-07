@@ -65,7 +65,13 @@ password manager as well as in `.env`.
 ## First run
 
 ```sh
-cp .env.example .env    # fill in GANDI_BEARER_TOKEN and ACME_EMAIL
+cp .env.example .env    # fill in GANDI_BEARER_TOKEN, ACME_EMAIL, RELAY_ANNOUNCE_ADDRS
+
+# The relay's identity volume is declared `external`, so Compose will not
+# create it -- and, more to the point, `docker compose down -v` will not
+# destroy it. Create it once, deliberately:
+docker volume create httpeers_relay_key
+
 docker compose up -d
 ```
 

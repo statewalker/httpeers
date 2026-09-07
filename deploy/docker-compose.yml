@@ -20,7 +20,15 @@ volumes:
   caddy_config:
   # The relay's identity. The single most important piece of state here: lose
   # it and every client's configuration, which embeds this peerId, breaks.
+  #
+  # DECLARED EXTERNAL ON PURPOSE. Compose neither creates nor destroys it, so
+  # `docker compose down -v` -- which removes every volume it owns -- cannot
+  # take the relay's identity with it. The cost is one deliberate command
+  # before the first start (see deploy/README.md); that is the right trade for
+  # the one piece of state here with no automatic recovery.
   relay_key:
+    external: true
+    name: httpeers_relay_key
 
 services:
   caddy:
