@@ -28,6 +28,8 @@
  * caching strategy -- with `Cache-Control: max-age=300` in front, caches turn
  * over on their own regardless.
  */
+import { chmodSync, mkdirSync, renameSync, rmSync, writeFileSync } from "node:fs";
+import { basename, dirname, join } from "node:path";
 import { multiaddr } from "@multiformats/multiaddr";
 
 /** The URL path Caddy publishes this at. Referenced by the docs; never served by this process. */
@@ -142,4 +144,64 @@ export function buildRelayDocument(addrs: string[]): string {
   }
   const doc: RelayDocument = { relayAddrs: publishable };
   return `${JSON.stringify(doc, null, 2)}\n`;
+}
+
+/**
+ * Where the document is staged before it is renamed into place.
+ *
+ * A SIBLING OF THE TARGET, NOT `/tmp`. `rename()` is atomic only within one
+ * filesystem; across devices it fails with `EXDEV`. The document's directory is
+ * a mounted volume, so staging in the system temp directory would work on every
+ * developer's machine and fail on the server -- the worst distribution of
+ * outcomes available.
+ *
+ * A fixed name rather than a random one, so that a temp file left by a killed
+ * process is found and removed by `clearRelayDocument` instead of accumulating.
+ * One relay process owns this path; there is no concurrent writer to collide
+ * with.
+ */
+export function bootstrapTempPath(path: string): string {
+  return join(dirname(path), `.${basename(path)}.tmp`);
+}
+
+/**
+ * Removes the document, and any temp file beside it. Idempotent.
+ *
+ * CALLED BEFORE THE RELAY IS STARTED, not after. "Rewritten on every start"
+ * does not cover *failing* to start: a relay that crash-loops would otherwise
+ * leave the previous document in place, and Caddy would keep serving it,
+ * confidently pointing peers at a relay that is down. Clearing first makes a
+ * relay that cannot start yield 404 -- an error a client can act on -- rather
+ * than a stale answer it cannot tell from a live one.
+ */
+export function clearRelayDocument(path: string): void {
+  rmSync(bootstrapTempPath(path), { force: true });
+  rmSync(path, { force: true });
+}
+
+/**
+ * Writes the document atomically: build, stage beside the target, rename.
+ *
+ * `rename()` within a filesystem is atomic, so a reader -- Caddy, or a peer
+ * fetching through it -- sees either the previous document or the new one, and
+ * never a half-written file. The build happens first and throws before anything
+ * on disk is touched, so an unpublishable address list leaves whatever was
+ * there untouched rather than replacing it with wreckage.
+ *
+ * Mode `0644` explicitly, because Caddy reads this file as a different user
+ * than the one the relay writes it as, and `writeFileSync`'s mode is subject to
+ * the process umask.
+ */
+export function writeRelayDocument(path: string, addrs: string[]): void {
+  const doc = buildRelayDocument(addrs);
+  const tmp = bootstrapTempPath(path);
+  mkdirSync(dirname(path), { recursive: true });
+  try {
+    writeFileSync(tmp, doc, { mode: 0o644 });
+    chmodSync(tmp, 0o644);
+    renameSync(tmp, path);
+  } catch (err) {
+    rmSync(tmp, { force: true });
+    throw err;
+  }
 }
