@@ -23,10 +23,14 @@
  * reject every correct address and, if the sense were flipped by hand, assert
  * nothing at all.
  *
- * NO TIMESTAMP AND NO VERSION FIELD, so regenerating it yields the same bytes
- * and its ETag is stable across a redeploy. That is worth having; it is not a
- * caching strategy -- with `Cache-Control: max-age=300` in front, caches turn
- * over on their own regardless.
+ * NO TIMESTAMP AND NO VERSION FIELD, so an unchanged relay regenerates the
+ * same bytes and a redeploy can be diffed against the previous one to nothing.
+ * That is the whole of the claim, and it is worth stating narrowly: it is NOT a
+ * caching benefit. `Cache-Control: max-age=300` turns caches over regardless,
+ * and Caddy's `file_server` derives its ETag from the file's mtime and size, so
+ * rewriting identical bytes still changes the ETag -- measured, not assumed.
+ * What byte-identity buys is that "did the relay's address change?" is answered
+ * by comparing content, with no field that differs for its own sake.
  */
 import { chmodSync, mkdirSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import { basename, dirname, join } from "node:path";

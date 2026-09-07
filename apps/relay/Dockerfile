@@ -49,6 +49,16 @@ RUN mkdir -p /data/.httpeers && chown -R node:node /data
 ENV RELAY_KEY_PATH=/data/.httpeers/relay.key
 VOLUME ["/data"]
 
+# The bootstrap document, which Caddy publishes at
+# /.well-known/httpeers-relay.json. CHOWNED FOR THE SAME REASON /data IS: the
+# process runs as `node`, so a directory owned by root fails the write AFTER
+# startup has succeeded -- a relay that is running, healthy, and whose document
+# is silently absent. Docker copies this ownership into an empty named volume
+# when it first mounts one here.
+RUN mkdir -p /srv/bootstrap/.well-known && chown -R node:node /srv/bootstrap
+ENV RELAY_BOOTSTRAP_PATH=/srv/bootstrap/.well-known/httpeers-relay.json
+VOLUME ["/srv/bootstrap"]
+
 ENV RELAY_PORT=9090
 EXPOSE 9090
 
