@@ -137,6 +137,29 @@ export function createApp(options: ServeOptions): Hono {
     if (etag != null) headers.ETag = etag;
     headers["Accept-Ranges"] = "bytes";
 
+    // RFC 9110: If-None-Match takes precedence; If-Modified-Since is only
+    // consulted when no entity tag was supplied.
+    const ifNoneMatch = c.req.header("if-none-match");
+    const ifModifiedSince = c.req.header("if-modified-since");
+    let notModified = false;
+    if (ifNoneMatch != null && etag != null) {
+      notModified = ifNoneMatch
+        .split(",")
+        .map((t: string) => t.trim())
+        .some((t: string) => t === etag || t === "*");
+    } else if (ifModifiedSince != null && stats.lastModified != null) {
+      const since = Date.parse(ifModifiedSince);
+      // Last-Modified has one-second resolution, so compare at that resolution
+      // or a sub-second mtime makes every conditional request a miss.
+      notModified = !Number.isNaN(since) && Math.floor(stats.lastModified / 1000) * 1000 <= since;
+    }
+
+    if (notModified) {
+      // A 304 carries validators but never Content-Length or a body.
+      const { ["Content-Length"]: _dropped, ...revalidation } = headers;
+      return new Response(null, { status: 304, headers: revalidation });
+    }
+
     if (headOnly) return new Response(null, { status, headers });
     return new Response(toStream(files.read(storagePath)), { status, headers });
   }
