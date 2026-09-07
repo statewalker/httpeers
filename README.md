@@ -49,6 +49,86 @@ every client's configuration at once. A missing key is a loud failure, never a
 fresh identity. The key lives on a volume, never in the image, and never in
 this repository. See `apps/relay/src/key.ts`.
 
+## Bootstrapping from a URL
+
+A peer that knows only `https://relay.httpeers.net` — with no peerId compiled
+into it — can learn what to dial from
+
+```
+https://relay.httpeers.net/.well-known/httpeers-relay.json
+```
+
+```json
+{
+  "relayAddrs": [
+    "/dns4/relay.httpeers.net/tcp/443/tls/ws/p2p/12D3KooW…"
+  ]
+}
+```
+
+`relayAddrs` is the key `httpeers.json`'s invitation payload already uses; a
+second shape for the same fact is how two sources of truth start.
+
+**The relay does not serve this.** It writes the file at startup, to a path
+given by `RELAY_BOOTSTRAP_PATH`, and Caddy serves it. Unset, nothing is written
+and the relay behaves exactly as it did before this existed.
+
+**It is generated from `node.getMultiaddrs()`, not from `RELAY_ANNOUNCE_ADDRS`.**
+Generating it from configuration would look equivalent and would be a second
+source of truth for the relay's address, free to drift from what the relay
+actually advertises in the one direction nobody checks. See
+`apps/relay/src/bootstrap-doc.ts`, and the integration test that compares the
+written document against the node's own address list.
+
+**A missing document means the relay is not running.** It is deleted before
+every start attempt and written only once the relay is up, so a relay that
+crash-loops yields 404 rather than a confident answer pointing at a relay that
+is down.
+
+### The client contract — pin on first use
+
+This belongs in client code, not in this repository, but it is the entire
+security argument and it has a sharp edge.
+
+1. Fetch the document once, over HTTPS.
+2. Persist the peerId alongside the relay URL.
+3. Thereafter dial the **full** address including `/p2p/`, so Noise verifies
+   the relay's identity on every connection.
+4. If the published peerId ever differs from the pinned one, **fail loudly**.
+   Never silently re-pin.
+
+Trust before step 2 is DNS and the CA. Trust after step 2 is equal to a peerId
+compiled in. The trade is not "as secure as pinning" — it is "as secure as
+pinning, *after first contact*".
+
+> **The inversion, which is the real risk.** If first contact is compromised,
+> the client pins the **attacker's** peerId — permanently — and rule 4 then
+> fires against the *legitimate* relay. That is not a degradation to no
+> pinning; it is being locked to the attacker while loudly rejecting the real
+> relay. "Never silently re-pin" is right; **"never re-pin" is unrecoverable.**
+
+So a client MUST also carry a **deliberate reset path**: an explicit,
+human-initiated action that forgets the pin so the next contact pins afresh.
+Three properties make it safe rather than a hole in rule 4:
+
+- **Only a human starts it.** Never the relay, never the document, never a
+  header or a field in the JSON — nothing an attacker can also serve.
+- **It shows both peerIds**, the pinned one and the published one, so the human
+  can compare them against a source that is not the relay.
+- **It is the same mechanism a legitimate key rotation needs.** The client
+  cannot distinguish a rotated relay from a substituted one — which is exactly
+  why the decision is a person's and not the client's.
+
+### Why this is safe for a relay specifically
+
+The relay is the one component not trusted with content: peer↔peer Noise runs
+*inside* the circuit, and the target peer's id stays in the dialled address and
+is still verified. A substituted relay can deny service and observe traffic
+patterns; it cannot read what flows through.
+
+**This reasoning does not transfer to the hub**, whose peerId is the mesh
+identity. A hub bootstrap document would need its own argument, not this one.
+
 ## Development
 
 ```sh
@@ -81,3 +161,4 @@ here** — no Caddyfile edit, no DNS record, no reload.
 | `RELAY_ANNOUNCE_ADDRS` | *(none — required)* | Comma-separated multiaddrs peers should dial. Must not contain `/p2p/`. |
 | `RELAY_REQUIRE_ANNOUNCE` | `true` | Set `false` for a local run with no proxy in front. |
 | `RELAY_KEY` | *(none)* | Base64 protobuf, to seed an empty volume. Ignored once a key exists. |
+| `RELAY_BOOTSTRAP_PATH` | *(none; `/srv/bootstrap/.well-known/httpeers-relay.json` in the image)* | Where to write the bootstrap document. Unset, none is written. |

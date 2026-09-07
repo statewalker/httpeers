@@ -111,6 +111,44 @@ openssl s_client -connect <server ip>:443 -servername nonesuch.httpeers.net </de
 
 The SAN list must contain `*.httpeers.net`.
 
+## The relay's bootstrap document
+
+The relay writes `/.well-known/httpeers-relay.json` onto the `bootstrap`
+volume at startup; Caddy serves it from the `relay.httpeers.net` block. It lets
+a peer that knows only the URL learn the peerId to dial and pin. See the
+repository `README.md` for the document and the client contract.
+
+Two things to know operationally:
+
+- **The volume is derived state.** Unlike `httpeers_relay_key` it is not
+  `external`, and losing it costs nothing — the relay rewrites the document on
+  its next start. `docker compose down -v` is safe for this one.
+- **Caddy mounts it read-only.** The relay is the only writer.
+
+After a deploy:
+
+```sh
+curl -s https://relay.httpeers.net/.well-known/httpeers-relay.json
+```
+
+The `relayAddrs` entry must match the address in `docker compose logs relay`,
+peerId included — it is generated from what the relay advertises, so a mismatch
+means something is wrong with the volume, not with the configuration.
+
+**A 404 here means the relay is not running.** The document is deleted before
+every start attempt and written only once the relay is up, so a crash-looping
+relay serves nothing rather than pointing peers at a relay that is down. Check
+`docker compose logs relay` before touching anything else.
+
+**If the relay refuses to start with `could not write the bootstrap
+document`,** the volume is not writable by the container's unprivileged user.
+The image chowns `/srv/bootstrap` to `node`, which Docker copies into an empty
+named volume — but a volume created earlier, or a bind mount, keeps the
+ownership it already has. Either fix the ownership or unset
+`RELAY_BOOTSTRAP_PATH` to stop publishing the document; the relay treats a
+failure to write as fatal, because a healthy relay whose document is silently
+absent is a failure nobody notices until peers cannot reach it.
+
 ## Adding the static-site host later
 
 One line in the `Caddyfile`: the `*.httpeers.net` block's `respond` becomes

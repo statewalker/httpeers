@@ -48,10 +48,32 @@
 relay.httpeers.net {
 	import acme
 
+	# The relay's bootstrap document, written by the relay onto the shared
+	# volume and served from here. The relay serves nothing itself; this is the
+	# whole of the serving side.
+	#
+	# CORS IS NOT OPTIONAL. Browser peers fetch this from their own origin -- a
+	# published site, a page on another host -- never from relay.httpeers.net.
+	# Without it, fetch() fails in every browser while curl succeeds. The
+	# document is public data, so `*` is correct.
+	handle /.well-known/httpeers-relay.json {
+		root * /srv/bootstrap
+		file_server
+		header Content-Type "application/json"
+		header Cache-Control "public, max-age=300"
+		header Access-Control-Allow-Origin "*"
+	}
+
 	# The relay speaks plain ws here; this block is where TLS stops. The relay
 	# must therefore advertise THIS address, not the one it binds --
 	# RELAY_ANNOUNCE_ADDRS in .env, and apps/relay/src/addresses.ts for why.
-	reverse_proxy relay:9090
+	#
+	# A catch-all `handle`, so that it stays mutually exclusive with the path
+	# above rather than competing with it. libp2p's WebSocket upgrade at / is
+	# untouched.
+	handle {
+		reverse_proxy relay:9090
+	}
 }
 
 *.httpeers.net {

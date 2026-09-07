@@ -29,6 +29,11 @@ volumes:
   relay_key:
     external: true
     name: httpeers_relay_key
+  # The relay's bootstrap document -- written by the relay, served by Caddy at
+  # https://relay.httpeers.net/.well-known/httpeers-relay.json. Derived state,
+  # rewritten on every start and deleted before every start attempt, so unlike
+  # relay_key it is NOT external: losing it costs nothing.
+  bootstrap:
 
 services:
   caddy:
@@ -46,6 +51,9 @@ services:
       - ./Caddyfile:/etc/caddy/Caddyfile:ro
       - caddy_data:/data
       - caddy_config:/config
+      # Read-only: Caddy serves this document and must never be able to write
+      # it. The relay is the only writer.
+      - bootstrap:/srv/bootstrap:ro
     networks:
       - edge
     depends_on:
@@ -58,6 +66,9 @@ services:
     environment:
       RELAY_PORT: "9090"
       RELAY_KEY_PATH: /data/.httpeers/relay.key
+      # Where the bootstrap document is written. Unset it and none is written;
+      # the relay's behaviour is otherwise unchanged.
+      RELAY_BOOTSTRAP_PATH: /srv/bootstrap/.well-known/httpeers-relay.json
       # What peers dial. NOT what the process binds -- see
       # apps/relay/src/addresses.ts. The relay refuses to start if this is
       # unset, because a relay advertising its container-internal address runs,
@@ -67,5 +78,6 @@ services:
       RELAY_KEY: ${RELAY_KEY:-}
     volumes:
       - relay_key:/data
+      - bootstrap:/srv/bootstrap
     networks:
       - edge
