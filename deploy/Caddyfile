@@ -9,13 +9,45 @@
 # storage prefix on its own.
 {
 	email {$ACME_EMAIL}
-	# DNS-01, because HTTP-01 cannot issue a wildcard. The token is a Gandi
-	# Personal Access Token -- Gandi's older API Key auth is discontinued and
-	# this module does not accept one.
-	acme_dns gandi {$GANDI_BEARER_TOKEN}
+}
+
+# DNS-01, because HTTP-01 cannot issue a wildcard. The token is a Gandi
+# Personal Access Token -- Gandi's older API Key auth is discontinued and this
+# module does not accept one.
+#
+# A SNIPPET, NOT `acme_dns` IN GLOBAL OPTIONS, for two reasons. The global form
+# cannot carry the propagation settings below -- `acme_dns gandi {$VAR} { ... }`
+# does not parse, because `{` after a placeholder is read as a brace mismatch.
+# And these settings have to apply to every site block, so importing one
+# definition beats maintaining two copies that can drift.
+#
+# PROPAGATION_DELAY IS NOT PADDING. Without it, issuance failed against Let's
+# Encrypt with:
+#
+#   During secondary validation: Incorrect TXT record ... found at
+#   _acme-challenge.httpeers.net
+#
+# Caddy had written the new TXT and confirmed it on the authoritative
+# nameservers, but Let's Encrypt validates from several vantage points, and one
+# of them still saw the PREVIOUS challenge value -- Gandi's nameservers had not
+# converged. Caddy's own propagation check passed; LE's secondary check did not.
+# The delay makes Caddy wait after writing before asking LE to validate at all.
+#
+# Note this failure is invisible if ZeroSSL is reachable: it silently succeeds
+# where Let's Encrypt failed, and you end up on the fallback issuer without
+# noticing. Check which CA actually issued the certificate.
+(acme) {
+	tls {
+		dns gandi {$GANDI_BEARER_TOKEN}
+		propagation_delay 2m
+		propagation_timeout 10m
+		resolvers 1.1.1.1 8.8.8.8
+	}
 }
 
 relay.httpeers.net {
+	import acme
+
 	# The relay speaks plain ws here; this block is where TLS stops. The relay
 	# must therefore advertise THIS address, not the one it binds --
 	# RELAY_ANNOUNCE_ADDRS in .env, and apps/relay/src/addresses.ts for why.
@@ -23,6 +55,8 @@ relay.httpeers.net {
 }
 
 *.httpeers.net {
+	import acme
+
 	# Deliberately present before the static-site app exists.
 	#
 	# This block is what makes Caddy obtain the *.httpeers.net certificate at
