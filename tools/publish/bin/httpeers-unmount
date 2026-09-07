@@ -1,0 +1,62 @@
+#!/usr/bin/env bash
+#
+# Undo httpeers-mount: unmount the point, then stop the server.
+#
+# In that order, always. Killing the server first leaves the kernel with a
+# mount whose backend is gone, and every process that touches it -- including
+# an unrelated `ls` from a shell prompt, or a file manager indexing the tree --
+# blocks uninterruptibly until the mount is forced away.
+set -euo pipefail
+. "$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/../lib" && pwd)/common.sh"
+
+usage() { echo "usage: httpeers-unmount [--sudo]" >&2; }
+
+use_sudo=0
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --sudo) use_sudo=1 ;;
+    -h|--help) usage; exit 0 ;;
+    *) usage; die "unknown argument: $1" ;;
+  esac
+  shift
+done
+
+load_config
+mnt="$HTTPEERS_MOUNT_POINT"
+pidfile="$HTTPEERS_RUN_DIR/serve-nfs.pid"
+
+if mountpoint -q "$mnt" 2>/dev/null || grep -qs " $mnt nfs" /proc/mounts; then
+  umount_cmd=(umount "$mnt")
+  if [ "$(id -u)" -ne 0 ] && [ "$use_sudo" != 1 ]; then
+    bold "unmounting needs root -- run:"
+    info "    sudo ${umount_cmd[*]}"
+    info "then re-run this script to stop the server."
+    exit 0
+  fi
+  if [ "$(id -u)" -ne 0 ]; then sudo "${umount_cmd[@]}"; else "${umount_cmd[@]}"; fi
+  info "unmounted $mnt"
+else
+  info "$mnt is not mounted."
+fi
+
+if [ -f "$pidfile" ]; then
+  pid="$(cat "$pidfile")"
+  if kill -0 "$pid" 2>/dev/null; then
+    # TERM, then wait: the VFS write cache holds uploads that have not reached
+    # the bucket yet, and rclone flushes them on a clean shutdown. KILL here
+    # would silently lose the last writes made through the mount.
+    kill "$pid"
+    for _ in $(seq 1 40); do kill -0 "$pid" 2>/dev/null || break; sleep 0.25; done
+    if kill -0 "$pid" 2>/dev/null; then
+      warn "server (pid $pid) did not stop within 10s; it may still be flushing writes."
+      warn "check $HTTPEERS_RUN_DIR/serve-nfs.log, then: kill -9 $pid"
+      exit 1
+    fi
+    info "nfs server stopped."
+  else
+    info "no running nfs server (stale pidfile)."
+  fi
+  rm -f "$pidfile"
+else
+  info "no nfs server pidfile; nothing to stop."
+fi

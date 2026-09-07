@@ -1,0 +1,185 @@
+#!/usr/bin/env bash
+#
+# Sync mode: the local tree is the source of truth, `rclone sync` makes the
+# bucket match it.
+#
+# `rclone sync` is `rsync --delete`. Run at the top of the bucket it will
+# remove every prefix the local tree does not contain, and a prefix is a whole
+# site -- so the same command that publishes is the command that wipes. The
+# bucket is a serving copy with no backup (runbook §5). Everything between
+# argument parsing and the final `rclone sync` below exists to make the
+# destructive case impossible to reach by accident:
+#
+#   1. the tree guards in lib/common.sh refuse an empty tree outright,
+#   2. the diff is computed and printed BEFORE anything is written,
+#   3. a dry-run cross-checks that rclone does not intend to delete more than
+#      the diff accounted for,
+#   4. any deletion needs a typed confirmation, or --yes decided in advance.
+set -euo pipefail
+. "$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/../lib" && pwd)/common.sh"
+
+usage() {
+  cat >&2 <<'USAGE'
+usage: httpeers-publish [--site NAME] [--dry-run] [--yes] [-- RCLONE-ARGS...]
+       httpeers-publish --delete-site NAME [--yes]
+
+  Publishes the local site tree to the bucket. Each first-level directory is
+  one site, named after its full domain (abc.httpeers.net). Creating such a
+  directory creates a site; removing it removes one.
+
+  --site NAME       publish only that site's prefix. Nothing outside it is
+                    listed, compared or touched -- the safest way to work.
+  --delete-site NAME  remove one site's prefix from the bucket. The sanctioned
+                    way to delete: it names what goes, instead of inferring it
+                    from what is absent.
+  --dry-run         show the diff and stop. Writes nothing.
+  --yes             proceed without the interactive confirmation. Required for
+                    any non-interactive run that deletes. It does NOT override
+                    the empty-tree or invalid-name refusals.
+  -- RCLONE-ARGS    passed through to rclone (e.g. -- --progress --transfers 8)
+
+Exit status: 0 done, 1 refused or not confirmed.
+USAGE
+}
+
+site=""; delete_site=""; dry_run=0; assume_yes=0; passthru=()
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --site) site="${2:-}"; shift ;;
+    --site=*) site="${1#*=}" ;;
+    --delete-site) delete_site="${2:-}"; shift ;;
+    --delete-site=*) delete_site="${1#*=}" ;;
+    --dry-run) dry_run=1 ;;
+    --yes|-y) assume_yes=1 ;;
+    --) shift; passthru=("$@"); break ;;
+    -h|--help) usage; exit 0 ;;
+    *) usage; die "unknown argument: $1" ;;
+  esac
+  shift
+done
+
+load_config
+require_rclone
+mapfile -t filters < <(rclone_filters)
+
+# --------------------------------------------------------------------------
+# --delete-site: the explicit removal path.
+# --------------------------------------------------------------------------
+if [ -n "$delete_site" ]; then
+  [ -z "$site" ] || die "--site and --delete-site are mutually exclusive."
+  valid_site_name "$delete_site" \
+    || die "\"$delete_site\" is not a valid site name; refusing to build a bucket path from it."
+
+  target="$HTTPEERS_TARGET/$delete_site"
+  # `size` rather than `lsf`: it reports both the object count and the bytes,
+  # and it distinguishes "prefix is empty" from "prefix is not there" without
+  # a second call.
+  if ! summary="$(rclone size "$target" 2>/dev/null)"; then
+    info "$target does not exist in the bucket -- nothing to delete."
+    exit 0
+  fi
+  bold "about to permanently delete the site prefix:"
+  info "    $target"
+  printf '%s\n' "$summary" | sed 's/^/    /' >&2
+  if [ "$dry_run" = 1 ]; then info "--dry-run: stopping."; exit 0; fi
+
+  if [ "$assume_yes" != 1 ]; then
+    [ -t 0 ] || die "refusing to delete a site with no terminal to confirm at; pass --yes if you meant it."
+    printf 'Type the site name (%s) to confirm: ' "$delete_site" >&2
+    IFS= read -r reply || reply=""
+    [ "$reply" = "$delete_site" ] || die "not confirmed -- nothing was changed."
+  fi
+  rclone purge "$target" "${passthru[@]+"${passthru[@]}"}"
+  info "deleted $target"
+  # The local directory is left alone on purpose: this script must not delete
+  # the user's files, and if the tree still holds the directory the next
+  # top-level publish simply re-creates the site. Remove it locally too.
+  [ -d "$HTTPEERS_SITES_DIR/$delete_site" ] \
+    && warn "$HTTPEERS_SITES_DIR/$delete_site still exists locally; the next full publish will re-create the site."
+  exit 0
+fi
+
+# --------------------------------------------------------------------------
+# Scope
+# --------------------------------------------------------------------------
+if [ -n "$site" ]; then
+  valid_site_name "$site" \
+    || die "\"$site\" is not a valid site name. A site directory is named after its full
+  domain: lowercase labels of [a-z0-9-], no leading or trailing '-', at least
+  one dot, 253 characters at most -- exactly what the server matches the Host
+  header against."
+  src="$HTTPEERS_SITES_DIR/$site"
+  dst="$HTTPEERS_TARGET/$site"
+  [ -d "$src" ] || die "no such site directory: $src
+  To remove this site from the bucket use --delete-site, which says so."
+  # The same reasoning as the empty-tree refusal, one level down: syncing an
+  # empty directory over a live prefix empties the site while leaving it
+  # "existing", which serves 404s and looks like a server fault.
+  if [ -z "$(find "$src" -mindepth 1 -not -name '.*' -print -quit)" ]; then
+    die "refusing to publish: $src is empty.
+  An empty site directory would delete every file in the live site. If you
+  meant to remove the site, say so: httpeers-publish --delete-site $site"
+  fi
+else
+  assert_tree_is_publishable "$HTTPEERS_SITES_DIR"
+  src="$HTTPEERS_SITES_DIR"
+  dst="$HTTPEERS_TARGET"
+fi
+
+# --------------------------------------------------------------------------
+# The diff, before anything is written
+# --------------------------------------------------------------------------
+work="$(mktemp -d)"
+trap 'rm -rf "$work"' EXIT
+
+info "local:  $src"
+info "bucket: $dst"
+info ""
+compute_diff "$src" "$dst" "$work"
+print_diff "$work"
+
+if [ $((DIFF_ADDED + DIFF_CHANGED + DIFF_DELETED)) -eq 0 ]; then
+  exit 0
+fi
+
+# --------------------------------------------------------------------------
+# Cross-check the diff against rclone's own intent.
+#
+# compute_diff is our arithmetic on two listings; the sync is rclone's. If
+# rclone plans MORE deletions than we counted, our model of what it will do is
+# wrong, the confirmation prompt would understate the damage, and the only
+# correct move is to stop. Fewer is fine and expected -- a filter or a
+# same-size file can make rclone skip work we listed.
+# --------------------------------------------------------------------------
+info ""
+note "verifying against rclone sync --dry-run ..."
+dry_log="$work/dryrun.log"
+rclone sync --dry-run "${filters[@]}" "${passthru[@]+"${passthru[@]}"}" "$src" "$dst" \
+  >"$dry_log" 2>&1 || die "rclone sync --dry-run failed:
+$(sed 's/^/    /' "$dry_log")"
+planned_deletes="$(grep -c 'Skipped delete as --dry-run is set' "$dry_log" || true)"
+if [ "$planned_deletes" -gt "$DIFF_DELETED" ]; then
+  err "aborting: rclone would delete $planned_deletes file(s), but the diff above found $DIFF_DELETED."
+  info "  The two disagree, so the confirmation you were about to give would have been"
+  info "  based on an understated list. Nothing was changed. rclone's own plan was:"
+  grep 'Skipped delete' "$dry_log" | sed 's/^/    /' >&2
+  exit 1
+fi
+note "rclone agrees: $planned_deletes deletion(s) planned."
+
+if [ "$dry_run" = 1 ]; then
+  info ""
+  info "--dry-run: stopping. Nothing was written."
+  exit 0
+fi
+
+confirm_destructive "$assume_yes" "$work"
+
+info ""
+rclone sync "${filters[@]}" "${passthru[@]+"${passthru[@]}"}" "$src" "$dst"
+info "published $src -> $dst"
+
+# Resolutions are cached in the sites app with no publish hook to invalidate
+# on (design §11), so a re-published file is not necessarily visible yet. Say
+# so, because the alternative is someone concluding the publish failed.
+note "a re-published file can take up to SITES_CACHE_TTL_MS (default 60s) to appear."

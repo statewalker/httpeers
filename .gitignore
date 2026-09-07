@@ -8,3 +8,11 @@ dist/
 .env
 *.key
 data/
+
+# Publishing tools: the copied credential file and the runtime state they
+# create. `tools/publish/sites/` is a local mirror of the sites bucket -- it is
+# site content, not source, and it must not land in a public repository.
+tools/publish/publish.env
+tools/publish/sites/
+tools/publish/mnt/
+tools/publish/.run/

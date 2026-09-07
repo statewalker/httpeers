@@ -1,0 +1,160 @@
+#!/usr/bin/env bash
+#
+# Live mode: `rclone serve nfs` on loopback, mounted locally, so the folder IS
+# the bucket and there is no publish step at all.
+#
+# NONE OF THE SAFETY IN httpeers-publish APPLIES INSIDE THIS MOUNT. There is no
+# diff, no confirmation and no undo: `rm -rf mnt/abc.httpeers.net` takes the
+# site off the internet the moment the last object is gone. That is the point
+# of the mode -- "add and remove sites by changing the content of a folder" --
+# but it is the reason this script says so every time it runs, and the reason
+# sync mode, not this, is the default.
+set -euo pipefail
+. "$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/../lib" && pwd)/common.sh"
+
+usage() {
+  cat >&2 <<'USAGE'
+usage: httpeers-mount [--sudo] [--read-only] [--foreground]
+
+  Starts `rclone serve nfs` bound to loopback, then mounts it.
+
+  --sudo        run the `mount` command through sudo. Without it the exact
+                command is printed for you to run, because mounting NFS on
+                Linux needs root and this script will not acquire root behind
+                your back.
+  --read-only   serve the bucket read-only. Useful for browsing production.
+  --foreground  run the NFS server in the foreground (Ctrl-C stops it); do
+                not mount. For debugging the server on its own.
+
+Safe to run twice: an already-running server and an already-mounted point are
+detected and left alone.
+USAGE
+}
+
+use_sudo=0; read_only=0; foreground=0
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --sudo) use_sudo=1 ;;
+    --read-only) read_only=1 ;;
+    --foreground) foreground=1 ;;
+    -h|--help) usage; exit 0 ;;
+    *) usage; die "unknown argument: $1" ;;
+  esac
+  shift
+done
+
+load_config
+require_rclone
+
+# ---------------------------------------------------------------------------
+# Preflight. Every one of these fails on a stock Ubuntu 24.04 workstation, so
+# it is the normal path, not the exceptional one -- and it must name the fix
+# rather than half-starting something.
+# ---------------------------------------------------------------------------
+missing=0
+if ! rclone_has_serve_nfs; then
+  err "this rclone has no \"serve nfs\" subcommand."
+  info "    installed: $(rclone_version); \`serve nfs\` was added in rclone 1.65."
+  info "    It offers only: $(rclone serve --help 2>&1 | awk '/^Available Commands:/{f=1;next} /^$/{f=0} f {printf "%s ", $1}')"
+  info "    Fix:  curl https://rclone.org/install.sh | sudo bash"
+  missing=1
+fi
+if ! have_mount_nfs; then
+  err "mount.nfs is missing -- the NFS client utilities are not installed."
+  info "    Fix:  sudo apt install nfs-common"
+  missing=1
+fi
+if [ "$missing" -ne 0 ]; then
+  info ""
+  info "Nothing was started. Run the commands above, then re-run this script,"
+  info "or use sync mode instead, which needs neither:  httpeers-publish"
+  exit 1
+fi
+
+addr="$HTTPEERS_NFS_ADDR"
+host="${addr%:*}"
+port="${addr##*:}"
+mnt="$HTTPEERS_MOUNT_POINT"
+run="$HTTPEERS_RUN_DIR"
+pidfile="$run/serve-nfs.pid"
+logfile="$run/serve-nfs.log"
+mkdir -p "$run"
+
+serve_args=(serve nfs "$HTTPEERS_TARGET" --addr "$addr")
+# `serve nfs` defaults to --vfs-cache-mode off, under which writes to the
+# mount fail outright. The whole premise here is a writable folder, so this is
+# not tuning -- without it the mode does not work at all.
+serve_args+=(--vfs-cache-mode writes)
+[ "$read_only" = 1 ] && serve_args+=(--read-only)
+
+if [ "$foreground" = 1 ]; then
+  info "rclone ${serve_args[*]}"
+  exec rclone "${serve_args[@]}"
+fi
+
+# ---------------------------------------------------------------------------
+# The server. Idempotent: a live pidfile means it is already up.
+# ---------------------------------------------------------------------------
+if [ -f "$pidfile" ] && kill -0 "$(cat "$pidfile")" 2>/dev/null; then
+  info "nfs server already running (pid $(cat "$pidfile")) on $addr"
+else
+  rm -f "$pidfile"
+  nohup rclone "${serve_args[@]}" >"$logfile" 2>&1 &
+  echo $! > "$pidfile"
+  # Give it a moment and then check it is actually alive. A server that died
+  # on startup (bad credentials, port in use) would otherwise be discovered
+  # only by a mount error that says nothing about the cause.
+  for _ in 1 2 3 4 5 6 7 8 9 10; do
+    kill -0 "$(cat "$pidfile")" 2>/dev/null || break
+    if command -v ss >/dev/null 2>&1 && ss -ltn 2>/dev/null | grep -q ":$port "; then break; fi
+    sleep 0.3
+  done
+  if ! kill -0 "$(cat "$pidfile")" 2>/dev/null; then
+    rm -f "$pidfile"
+    err "the nfs server exited immediately. Its output:"
+    sed 's/^/    /' "$logfile" >&2
+    exit 1
+  fi
+  info "nfs server started (pid $(cat "$pidfile")) on $addr; log: $logfile"
+fi
+
+# ---------------------------------------------------------------------------
+# The mount
+# ---------------------------------------------------------------------------
+mkdir -p "$mnt"
+if mountpoint -q "$mnt" 2>/dev/null || grep -qs " $mnt nfs" /proc/mounts; then
+  info "$mnt is already mounted."
+  exit 0
+fi
+
+# vers=3 because rclone's NFS server speaks NFSv3 only; nolock because there
+# is no lock manager behind it and the kernel would otherwise block waiting
+# for one that never answers.
+mount_cmd=(mount -t nfs -o "port=$port,mountport=$port,tcp,vers=3,nolock,noatime" "$host:/" "$mnt")
+
+if [ "$(id -u)" -ne 0 ] && [ "$use_sudo" != 1 ]; then
+  info ""
+  bold "the server is up. Mounting needs root -- run:"
+  info ""
+  info "    sudo ${mount_cmd[*]}"
+  info ""
+  info "or re-run this script with --sudo. To undo everything: httpeers-unmount"
+  exit 0
+fi
+
+if [ "$(id -u)" -ne 0 ]; then
+  info "+ sudo ${mount_cmd[*]}"
+  sudo "${mount_cmd[@]}"
+else
+  info "+ ${mount_cmd[*]}"
+  "${mount_cmd[@]}"
+fi
+
+info ""
+bold "mounted: $mnt is the bucket."
+warn "there is no confirmation and no undo in this mode. Removing a directory here"
+warn "removes a live site immediately."
+note "S3 has no real directories: an EMPTY directory you create here does not exist in"
+note "the bucket and is not a site. A site begins to exist when the first file lands in"
+note "it, and disappears when the last one is removed."
+note "unmount with: httpeers-unmount"
