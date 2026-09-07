@@ -316,3 +316,33 @@ tools/publish/
 
 See also: `deploy/README.md` (§ *Publishing a site*), the design spec §5 and §8, and the server
 runbook §5, §7 and §8.
+
+
+## Removing a site
+
+Deleting a local directory and publishing **will not** remove the site on its own in a
+non-interactive run. Interactively it will, after you type `DELETE` at the prompt.
+
+`--yes` authorises changed and deleted **files**. It does **not** authorise removing whole
+sites, and that split is deliberate:
+
+> The empty-tree refusal catches a tree with nothing in it. It does not catch the realistic
+> accident — a **partially** populated tree, from a sparse checkout, an interrupted clone, or a
+> CI job pointed one directory too deep. Such a tree looks healthy, passes every other guard,
+> and takes every site it does not happen to contain with it. Measured before this guard
+> existed: six sites in the bucket, one in the tree, `--yes` deleted five and printed a warning.
+
+So removal has to be **named**, not inferred from an absence:
+
+```sh
+httpeers-publish --delete-site abc.httpeers.net     # the sanctioned way
+```
+
+For a genuine bulk removal that must run unattended, `--allow-site-removal` is the explicit
+escape hatch:
+
+```sh
+httpeers-publish --yes --allow-site-removal
+```
+
+The empty-tree refusal outranks both flags together and has no override.

@@ -35,14 +35,20 @@ usage: httpeers-publish [--site NAME] [--dry-run] [--yes] [-- RCLONE-ARGS...]
   --dry-run         show the diff and stop. Writes nothing.
   --yes             proceed without the interactive confirmation. Required for
                     any non-interactive run that deletes. It does NOT override
-                    the empty-tree or invalid-name refusals.
+                    the empty-tree or invalid-name refusals, and it does NOT
+                    authorise removing whole sites.
+  --allow-site-removal
+                    additionally authorise removing whole site prefixes in a
+                    non-interactive run. Needed because a partially populated
+                    tree looks healthy and would otherwise take every site it
+                    does not contain with it. Prefer --delete-site NAME.
   -- RCLONE-ARGS    passed through to rclone (e.g. -- --progress --transfers 8)
 
 Exit status: 0 done, 1 refused or not confirmed.
 USAGE
 }
 
-site=""; delete_site=""; dry_run=0; assume_yes=0; passthru=()
+site=""; delete_site=""; dry_run=0; assume_yes=0; allow_site_removal=0; passthru=()
 while [ $# -gt 0 ]; do
   case "$1" in
     --site) site="${2:-}"; shift ;;
@@ -51,6 +57,7 @@ while [ $# -gt 0 ]; do
     --delete-site=*) delete_site="${1#*=}" ;;
     --dry-run) dry_run=1 ;;
     --yes|-y) assume_yes=1 ;;
+    --allow-site-removal) allow_site_removal=1 ;;
     --) shift; passthru=("$@"); break ;;
     -h|--help) usage; exit 0 ;;
     *) usage; die "unknown argument: $1" ;;
@@ -173,7 +180,7 @@ if [ "$dry_run" = 1 ]; then
   exit 0
 fi
 
-confirm_destructive "$assume_yes" "$work"
+confirm_destructive "$assume_yes" "$work" "$allow_site_removal"
 
 info ""
 rclone sync "${filters[@]}" "${passthru[@]+"${passthru[@]}"}" "$src" "$dst"

@@ -350,9 +350,37 @@ print_diff() {
 # Returns 0 to proceed. Exits non-zero to refuse. A run with nothing to delete
 # never reaches the prompt.
 confirm_destructive() {
-  local assume_yes="$1" work="$2" want reply
+  local assume_yes="$1" work="$2" allow_site_removal="${3:-0}" want reply _s
 
   [ "$DIFF_DELETED" -eq 0 ] && return 0
+
+  # --yes authorises FILE deletions inside sites. It deliberately does NOT
+  # authorise removing whole sites.
+  #
+  # WHY THE TWO ARE SEPARATE. The empty-tree refusal catches a tree with nothing
+  # in it, but not the realistic accident: a PARTIALLY populated tree -- a sparse
+  # checkout, an interrupted clone, a CI job pointed one directory too deep. That
+  # tree looks healthy, passes every other guard, and takes every site it does not
+  # happen to contain with it. Measured before this guard existed: six sites in
+  # the bucket, one in the tree, `--yes` deleted five and printed a warning.
+  #
+  # Removing a site is irreversible and the bucket has no backup, so it must be
+  # NAMED rather than inferred from an absence. --delete-site does that; this
+  # points there. --allow-site-removal exists for the genuine bulk case and has
+  # to be typed on purpose.
+  if [ "$assume_yes" = 1 ] && [ "$DIFF_SITES_REMOVED" -gt 0 ] && [ "$allow_site_removal" != 1 ]; then
+    err "refusing to remove $DIFF_SITES_REMOVED whole site(s) on --yes alone."
+    info "  --yes covers changed and deleted FILES. Removing a site is irreversible"
+    info "  and this bucket has no backup, so it has to be named rather than inferred"
+    info "  from a directory that happens to be missing:"
+    info ""
+    while IFS= read -r _s; do
+      [ -n "$_s" ] && info "      httpeers-publish --delete-site $_s"
+    done < "$work/sites-removed"
+    info ""
+    info "  If you truly meant a bulk removal, add --allow-site-removal."
+    exit 1
+  fi
 
   if [ "$assume_yes" = 1 ]; then
     warn "--yes given: proceeding with $DIFF_DELETED deletion(s)" \

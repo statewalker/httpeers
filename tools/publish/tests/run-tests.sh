@@ -124,16 +124,60 @@ else
   echo "  skip  tty confirmation (util-linux 'script' not available)"
 fi
 
-# 3c. --yes deletes.
+# 3c. --yes alone must NOT remove a whole site.
+#
+# The accident this guards is a PARTIALLY populated tree -- a sparse checkout, an
+# interrupted clone, a CI job pointed one directory too deep. It passes every
+# other guard, including the empty-tree refusal, and takes every site it does not
+# happen to contain with it. Measured before the guard existed: six sites in the
+# bucket, one in the tree, --yes deleted five.
 scenario del2
 site keep.httpeers.net
 inbucket keep.httpeers.net
 inbucket doomed.httpeers.net
 rc="$(run "$BIN/httpeers-publish" --yes)"
-if [ "$rc" = 0 ] && [ ! -e "$BUCKET/doomed.httpeers.net" ] && [ -f "$BUCKET/keep.httpeers.net/index.html" ]; then
-  ok "--yes removes the prefix and keeps the other site"
+if [ "$rc" = 1 ] && [ -f "$BUCKET/doomed.httpeers.net/index.html" ]; then
+  ok "--yes alone refuses whole-site removal; the site survives"
 else
-  notok "--yes removes the prefix (rc=$rc)" "$(cat "$TMP/out")"
+  notok "--yes alone must refuse whole-site removal (rc=$rc)" "$(cat "$TMP/out")"
+fi
+grep -q -- "--delete-site doomed.httpeers.net" "$TMP/out" \
+  && ok "it names the sanctioned command for each site" \
+  || notok "should name --delete-site for each site" "$(cat "$TMP/out")"
+
+# 3d. --yes --allow-site-removal is the deliberate bulk escape hatch.
+scenario del3
+site keep.httpeers.net
+inbucket keep.httpeers.net
+inbucket doomed.httpeers.net
+rc="$(run "$BIN/httpeers-publish" --yes --allow-site-removal)"
+if [ "$rc" = 0 ] && [ ! -e "$BUCKET/doomed.httpeers.net" ] && [ -f "$BUCKET/keep.httpeers.net/index.html" ]; then
+  ok "--yes --allow-site-removal removes the prefix and keeps the other site"
+else
+  notok "--allow-site-removal should permit the removal (rc=$rc)" "$(cat "$TMP/out")"
+fi
+
+# 3e. The empty-tree refusal outranks both flags together.
+scenario del4
+inbucket a.httpeers.net
+inbucket b.httpeers.net
+rc="$(run "$BIN/httpeers-publish" --yes --allow-site-removal)"
+if [ "$rc" = 1 ] && [ -f "$BUCKET/a.httpeers.net/index.html" ]; then
+  ok "an empty tree is refused even with --yes --allow-site-removal"
+else
+  notok "empty tree must outrank both flags (rc=$rc)" "$(cat "$TMP/out")"
+fi
+
+# 3f. File-level deletion inside a site is still --yes territory.
+scenario del5
+site a.httpeers.net
+inbucket a.httpeers.net
+printf 'stale\n' > "$BUCKET/a.httpeers.net/stale.html"
+rc="$(run "$BIN/httpeers-publish" --yes)"
+if [ "$rc" = 0 ] && [ ! -e "$BUCKET/a.httpeers.net/stale.html" ] && [ -f "$BUCKET/a.httpeers.net/index.html" ]; then
+  ok "--yes still deletes files inside a site, unchanged"
+else
+  notok "--yes should still handle file deletions (rc=$rc)" "$(cat "$TMP/out")"
 fi
 
 echo
