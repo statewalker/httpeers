@@ -1,16 +1,8 @@
 import { describe, expect, it } from "vitest";
-import {
-  DEFAULT_DATA_LIMIT_BYTES,
-  DEFAULT_DURATION_LIMIT_MS,
-  MAX_RESERVATIONS,
-  relayServerInit,
-} from "../src/limits.js";
+import { MAX_RESERVATIONS, RESERVATION_TTL_MS, relayServerInit } from "../src/limits.js";
 
-// The library defaults, read from @libp2p/circuit-relay-v2 4.2.11:
-//   maxReservations 15, defaultDurationLimit 120_000, defaultDataLimit BigInt(1 << 17).
+// The library defaults, read from @libp2p/circuit-relay-v2 4.2.11.
 const LIBRARY_DEFAULT_MAX_RESERVATIONS = 15;
-const LIBRARY_DEFAULT_DURATION_LIMIT_MS = 120_000;
-const LIBRARY_DEFAULT_DATA_LIMIT_BYTES = BigInt(1 << 17);
 
 describe("relayServerInit", () => {
   it("raises the reservation cap above the library's demo default", () => {
@@ -18,28 +10,32 @@ describe("relayServerInit", () => {
     expect(relayServerInit().reservations?.maxReservations).toBe(MAX_RESERVATIONS);
   });
 
-  // The caps only exist if they are applied. With applyDefaultLimit false the
-  // duration and data constants become decorative, which is the failure this
-  // asserts against.
-  it("applies the default limit, without which the other caps do nothing", () => {
-    expect(relayServerInit().reservations?.applyDefaultLimit).toBe(true);
+  // THE POINT OF THIS FILE NOW. A relayed circuit is not only a signalling
+  // path: when a peer pair cannot establish WebRTC -- which is negotiated per
+  // pair, so it happens to some pairs and not others in the same mesh -- the
+  // circuit IS the data path. A per-connection cap there does not degrade
+  // gracefully; libp2p resets the stream and the application sees a truncated
+  // response with nothing anywhere saying why. That shipped as broken images
+  // on a phone, and a fresh tab "fixed" it because a new connection got a new
+  // budget.
+  it("applies no limit at all, so nothing is silently truncated", () => {
+    expect(relayServerInit().reservations?.applyDefaultLimit).toBe(false);
   });
 
-  it("keeps per-connection limits bounded -- the circuit carries signalling, not bulk data", () => {
-    const { reservations } = relayServerInit();
-    expect(reservations?.defaultDurationLimit).toBe(DEFAULT_DURATION_LIMIT_MS);
-    expect(reservations?.defaultDataLimit).toBe(DEFAULT_DATA_LIMIT_BYTES);
-
-    // Raised enough to absorb a slow handshake...
-    expect(DEFAULT_DURATION_LIMIT_MS).toBeGreaterThan(LIBRARY_DEFAULT_DURATION_LIMIT_MS);
-    expect(DEFAULT_DATA_LIMIT_BYTES).toBeGreaterThan(LIBRARY_DEFAULT_DATA_LIMIT_BYTES);
-    // ...and no further. A relay with bulk-transfer limits is a free CDN.
-    expect(DEFAULT_DATA_LIMIT_BYTES).toBeLessThanOrEqual(BigInt(4 * 1024 * 1024));
+  // `applyDefaultLimit: false` leaves the reservation's `limit` undefined, so
+  // BOTH the data and the duration caps are gone -- not just the data one.
+  // Setting either value alongside it would imply a ceiling that is not
+  // enforced, which is worse than no ceiling: it reads as protection.
+  it("declares no data or duration figures that would not be enforced", () => {
+    const r = relayServerInit().reservations ?? {};
+    expect(r.defaultDataLimit).toBeUndefined();
+    expect(r.defaultDurationLimit).toBeUndefined();
   });
 
-  it("states every cap explicitly, so a library default change is visible here", () => {
-    const { reservations } = relayServerInit();
-    expect(reservations?.reservationTtl).toBeDefined();
-    expect(reservations?.reservationClearInterval).toBeDefined();
+  it("still bounds the relay by reservation count and lifetime, which do apply", () => {
+    const r = relayServerInit().reservations ?? {};
+    expect(r.maxReservations).toBeGreaterThan(0);
+    expect(r.reservationTtl).toBe(RESERVATION_TTL_MS);
+    expect(r.reservationClearInterval).toBeDefined();
   });
 });
