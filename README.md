@@ -36,61 +36,53 @@ rather than authenticated. See `apps/relay/src/limits.ts`, which is the only
 place those numbers are set and explains why the per-connection ones stay
 small.
 
-## The relay applies no per-connection limits — and why
+## The relay's per-connection limits — and why they are what they are
 
-`apps/relay/src/limits.ts` sets `applyDefaultLimit: false`. A relayed connection
-has **no byte ceiling and no time ceiling**. This is a deliberate reversal, recorded here
-because the reasoning it replaced was plausible, and because it is worth restoring one day.
+`apps/relay/src/limits.ts` applies **1 GiB and 6 hours** per relayed connection, plus
+`maxReservations: 512` and a 2 h reservation TTL. Those are ceilings against a runaway peer, not
+budgets a real session can reach. The numbers matter, and the reasoning behind them was arrived
+at the expensive way.
 
-### Why the limit exists in libp2p at all
+### Why a limit exists at all
 
-Circuit Relay **v2** exists because v1 relays were unlimited, were treated as free public
-infrastructure, and people stopped running them. v2 is explicitly a *limited* relay: it makes a
-peer dialable just long enough to upgrade to a direct connection, then leaves the data path. The
-stock defaults — **128 KiB and 2 minutes** — are sized for exactly that: an identify exchange and
-hole-punch coordination, nothing more.
-
-Applying a limit buys three things:
+Circuit Relay **v2** is a *limited* relay by design: v1 relays were unlimited, were treated as
+free public infrastructure, and people stopped running them. A cap buys three things:
 
 - **Bounded egress.** A relay spends *its* bandwidth carrying traffic between two *third
   parties*. A cap makes the worst case computable instead of open-ended.
-- **It is not a proxy.** Without a cap, a public relay is a free transport for arbitrary libp2p
-  traffic, leaving the relay operator's address and allowance.
-- **Pressure to upgrade.** If a circuit is unlimited, peers that could go direct have no reason
-  to. The limit is part of what makes a direct connection the normal path.
+- **It is not an open proxy.** Without a cap, a public relay is free transport for arbitrary
+  libp2p traffic, leaving the operator's address and allowance.
+- **Pressure to upgrade.** If a circuit is unlimited, peers that could go direct have less reason
+  to.
 
-### Why it is off here
+### Why the stock numbers are wrong here
 
-Those benefits assume the circuit is only ever a signalling path. It is not. **NAT traversal is
-negotiated per peer pair**, so within one mesh some pairs go direct and others fall back to the
-circuit — and for those, the circuit *is* the data path.
+The library defaults — **128 KiB and 2 minutes** — are sized for an identify exchange plus
+hole-punch coordination, on the assumption that the circuit is only ever a signalling path. It is
+not. **NAT traversal is negotiated per peer pair**, so within one mesh some pairs go direct and
+others fall back — and for those, the circuit *is* the data path.
 
-With a 1 MiB cap that failed like this: a phone loading an image gallery got roughly 1 MiB
-through, and every image after that was broken. libp2p resets the stream when a reservation's
-budget is spent, so the application sees a truncated response and **nothing anywhere says why**.
-Opening one of the broken images in a fresh tab worked — a new connection, a new budget — which
-makes it look like random corruption rather than a quota. The duration limit had the same shape:
-a relayed connection open past the cap is cut off just as silently.
+libp2p resets the stream when a reservation's budget is spent, so the application sees a
+truncated response and **nothing anywhere says why**. This relay ran at 1 MiB, and a phone
+loading an image gallery got roughly 1 MiB through before every remaining image broke; opening one
+of them in a fresh tab worked, because a new connection gets a new budget. That reads as random
+corruption rather than a quota.
 
-The trade taken: **an invisible truncation that looks like data corruption is worse than
-bandwidth you can measure.**
+*(The truncation that actually explained that gallery turned out to live elsewhere — a 5-second
+close bound in `webrun-streams-libp2p` that aborted healthy transfers under concurrency. This cap
+was not the culprit. It would have been the next one.)*
 
-### What still bounds this relay
+### The rule for choosing the numbers
 
-`maxReservations: 512` and the 2 h reservation TTL. Those bound **how many** peers hold a slot,
-not **how much** they move. There is currently no byte or time ceiling on a relayed connection.
+**Any ceiling tight enough to matter against abuse is tight enough to truncate somebody's
+gallery, and that failure is invisible at both ends.** So set the ceiling well above real usage:
+a measured browser-to-browser gallery moved 63 MB across eighteen concurrent transfers, and 1 GiB
+sits far above it. If bandwidth ever becomes the problem, **measure egress first** and lower the
+ceiling to above observed usage rather than guessing below it.
 
-### Restoring it
-
-`applyDefaultLimit` is all-or-nothing — it leaves the reservation's `limit` undefined, dropping
-data *and* duration together — which is why no `defaultDataLimit` or `defaultDurationLimit` is
-declared: a configured but unenforced number reads as a protection that exists.
-
-To restore, set `applyDefaultLimit: true` and give both **generous** values — gigabytes and
-hours, not the 1 MiB and 5 minutes that caused this. The rule to keep in mind: any ceiling tight
-enough to matter against abuse is tight enough to truncate somebody's gallery, and that failure
-is invisible at both ends. If bandwidth becomes the problem, measure egress first and set the
-ceiling above real usage rather than below it.
+`applyDefaultLimit` is all-or-nothing — it either attaches both figures or drops data *and*
+duration together — which is why both are declared. Declaring one and omitting the other would
+imply a ceiling that is not enforced.
 
 ## Two things that are easy to get wrong
 
