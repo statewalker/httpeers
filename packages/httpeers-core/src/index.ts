@@ -33,44 +33,12 @@ export {
   registerAnonymous,
   registerPeer,
 } from "./peer-context.js";
-export {
-  newPeerHandlers,
-  PeerBindingLostError,
-  type PeerHandlersInit,
-} from "./peer-handlers.js";
-export {
-  type ChangeEntry,
-  RevocationCache,
-  type RevocationCacheInit,
-  type RevocationChecker,
-  RevocationRegistry,
-  type RevocationRegistryInit,
-  type StalenessMode,
-} from "./revocation.js";
 
 export { createMounts, createPeerRouter, type PeerRouterInit } from "./router.js";
-/**
- * The rule-set vocabulary — the value and its pure readers.
- *
- * `ruleSet()` itself is NOT here: building a rule set canonicalises every rule
- * through the Biscuit parser, so it lives in `@statewalker/httpeers-access`
- * with the authorizer. See `rule-set.ts` for why the line falls there.
- */
-export {
-  assertBuilt,
-  assertValid,
-  capabilityNames,
-  literalsOf,
-  RULE_SET_BRAND,
-  type RuleSet,
-  type RuleSetDefs,
-  RuleSetError,
-  roleNames,
-  validateRoles,
-} from "./rule-set.js";
 
-export { createAdvertisementStore, createMemberStore, createPresenceStore } from "./store.js";
-// The contract everything else is written against.
+// The contract everything else is written against. The store INTERFACES live
+// here though the registries themselves belong to `httpeers-hub`: the type is
+// produced by one package and consumed by another that must not depend on it.
 export type {
   Advertisement,
   AdvertisementStore,

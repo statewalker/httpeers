@@ -36,34 +36,25 @@ const TSC = join(REPO, "node_modules/.bin/tsc");
 const CONSUMER = `
 import {
   ANONYMOUS,
-  createMemberStore,
   createMounts,
   type FetchHandler,
   json,
-  RULE_SET_BRAND,
-  type RuleSet,
-  validateRoles,
+  type MemberStore,
+  registerPeer,
 } from "@statewalker/httpeers-core";
-
-const rules: RuleSet = {
-  [RULE_SET_BRAND]: true,
-  version: 1,
-  rules: ['capability("x:read") <- role("member");'],
-  policies: [],
-};
-
-const store = createMemberStore(rules, () => 0);
-store.add("peer-a", ["member"]);
 
 const hello: FetchHandler = async () => json({ ok: true });
 const mounts = createMounts();
 mounts.provide("/hello", hello);
 
+// The store INTERFACE is core's; the registry that implements it is the hub's.
+declare const members: MemberStore;
+
 export const check = {
   anonymous: ANONYMOUS,
-  roles: store.get("peer-a")?.roles,
-  unknownRole: validateRoles(rules, ["nope"], "ctx"),
   mounted: mounts.match("/hello") !== null,
+  roles: members.get("peer-a")?.roles,
+  binds: registerPeer,
 };
 `;
 

@@ -32,26 +32,27 @@ is a tested requirement rather than a note.
 
 | Module | What it is |
 |---|---|
-| `types` | `FetchHandler`, `PeerIdStr`, `MeshClaims`, the store interfaces, `json()` |
+| `types` | `FetchHandler`, `PeerIdStr`, `MeshClaims`, the store **interfaces**, `json()` |
 | `router` | The mount table: longest-prefix matching, and `/{peerId}/…` peer routing |
 | `peer-context` | The `WeakMap<Request, …>` sidecar carrying the transport-proven peer |
-| `peer-handlers` | Binding middleware: the claimed subject must equal the proven peer |
-| `store` | The hub's three in-memory registries, with an injected clock |
-| `revocation` | Pull-and-cache deny list, `iat < changedAt`, no clock sync needed |
-| `rule-set` | The rule-set **vocabulary** — the type and its pure readers |
 | `errors` | The peer-call error taxonomy, each with a stable `kind` discriminant |
 | `clock` | A strictly-increasing millisecond clock |
 
+Five modules, and the count is deliberate. An earlier cut of this package also
+held the revocation cache, the binding middleware and the hub's three
+registries — all of them platform-free, which is the wrong test. Being
+isomorphic is a *constraint* on what may live here, not a *definition* of what
+should: a package is a set of code that changes together. Revocation changes
+when the deny-list format does, and belongs with the tokens it filters; the
+registries change when membership does, and belong to the hub.
+
+The store **interfaces** stay because the type is produced by one package and
+consumed by another that must not depend on it.
+
 ## What is deliberately NOT here
 
-**The authorizer.** `rule-set` carries the `RuleSet` type and the functions that
-*read* one — `roleNames`, `capabilityNames`, `validateRoles` — because those are
-pure string work. Building a rule set (`ruleSet()`, which canonicalises through
-the Biscuit parser) and evaluating one (`authorize`, `deriveCapabilities`) need
-WebAssembly, and live in `@statewalker/httpeers-access`.
-
-The split is what lets `createMemberStore(rules, clock)` validate its roles at
-the store — where the durable guard belongs — without dragging a WASM runtime
-into every consumer's bundle.
+**Anything that decides.** Tokens, policy, revocation and the access middleware
+are `@statewalker/httpeers-access`. The registries they guard are
+`@statewalker/httpeers-hub`.
 
 **Transport.** Nothing here dials, listens or speaks a protocol.
