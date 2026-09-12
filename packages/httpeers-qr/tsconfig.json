@@ -1,0 +1,17 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    // ES2022 and DELIBERATELY NOT "DOM". The package the source came from sets
+    // ["ESNext", "DOM"], which is precisely how a DOM-only global slips in
+    // unnoticed — the compiler blesses `document` and nothing complains until
+    // the code reaches a worker. The WinterCG globals this package DOES use
+    // (Request, Response, Headers, URL, AbortController) come from @types/node,
+    // which has them from Node 18 on. If one turns out to be missing, declare
+    // it locally with a comment saying why, rather than pulling in the DOM lib.
+    "lib": ["ES2022"],
+    "types": ["node"],
+    "rootDir": ".",
+    "noEmit": true
+  },
+  "include": ["src/**/*.ts", "tests/**/*.ts"]
+}
