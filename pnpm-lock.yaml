@@ -25,6 +25,11 @@ catalogs:
       specifier: ^4.1.10
       version: 4.1.11
 
+overrides:
+  '@statewalker/webrun-streams': link:../webrun-wire/packages/webrun-streams
+  '@statewalker/webrun-streams-libp2p': link:../webrun-wire/packages/webrun-streams-libp2p
+  '@statewalker/webrun-http-streams': link:../webrun-wire/packages/webrun-http-streams
+
 importers:
 
   .:
@@ -127,6 +132,61 @@ importers:
 
   packages/httpeers-core:
     devDependencies:
+      '@types/node':
+        specifier: 'catalog:'
+        version: 26.4.1
+      typescript:
+        specifier: 'catalog:'
+        version: 7.0.2
+      vitest:
+        specifier: 'catalog:'
+        version: 4.1.11(@types/node@26.4.1)(vite@8.2.2(@types/node@26.4.1)(esbuild@0.28.2)(tsx@4.23.13))
+
+  packages/httpeers-libp2p:
+    dependencies:
+      '@chainsafe/libp2p-noise':
+        specifier: 17.0.0
+        version: 17.0.0
+      '@chainsafe/libp2p-yamux':
+        specifier: 8.0.1
+        version: 8.0.1
+      '@libp2p/crypto':
+        specifier: 5.1.22
+        version: 5.1.22
+      '@libp2p/identify':
+        specifier: 4.1.12
+        version: 4.1.12
+      '@libp2p/interface':
+        specifier: 3.2.5
+        version: 3.2.5
+      '@libp2p/peer-id':
+        specifier: 6.0.14
+        version: 6.0.14
+      '@multiformats/multiaddr':
+        specifier: 13.0.3
+        version: 13.0.3
+      '@statewalker/httpeers-core':
+        specifier: workspace:*
+        version: link:../httpeers-core
+      '@statewalker/webrun-http-streams':
+        specifier: link:../../../webrun-wire/packages/webrun-http-streams
+        version: link:../../../webrun-wire/packages/webrun-http-streams
+      '@statewalker/webrun-streams':
+        specifier: link:../../../webrun-wire/packages/webrun-streams
+        version: link:../../../webrun-wire/packages/webrun-streams
+      '@statewalker/webrun-streams-libp2p':
+        specifier: link:../../../webrun-wire/packages/webrun-streams-libp2p
+        version: link:../../../webrun-wire/packages/webrun-streams-libp2p
+      libp2p:
+        specifier: 3.3.8
+        version: 3.3.8
+    devDependencies:
+      '@libp2p/tcp':
+        specifier: 11.0.26
+        version: 11.0.26
+      '@statewalker/httpeers-access':
+        specifier: workspace:*
+        version: link:../httpeers-access
       '@types/node':
         specifier: 'catalog:'
         version: 26.4.1
@@ -592,6 +652,9 @@ packages:
 
   '@libp2p/peer-store@12.0.28':
     resolution: {integrity: sha512-dj4qRhN01kml/It5/4P4DVcjfEZXJ2uZVVItCrs2YBGG2HLEYfWQZYROVbTCXDOCWwZK46aJ8eSLt4orsefq7Q==}
+
+  '@libp2p/tcp@11.0.26':
+    resolution: {integrity: sha512-OOLb1Ov6zQRo983fEPRUvfcWmFrm2oJlwPgf7M6pzLyQOsTxpgb2MV37Az8ANy5GEAG4JJ+KPZn3g7JfEp33xA==}
 
   '@libp2p/utils@7.4.1':
     resolution: {integrity: sha512-e9cZeop+awI0rFczG4DvAwVeHqBhuCZfTyskvgONfKQrsT7L0BSlTlTTzZoFF8Dnb+QrzHsoIpnl0PrCr0h+Hg==}
@@ -1844,6 +1907,17 @@ snapshots:
       protons-runtime: 7.0.0
       uint8arraylist: 3.0.2
       uint8arrays: 6.1.1
+
+  '@libp2p/tcp@11.0.26':
+    dependencies:
+      '@libp2p/interface': 3.2.5
+      '@libp2p/utils': 7.4.1
+      '@multiformats/multiaddr': 13.0.3
+      '@multiformats/multiaddr-matcher': 3.0.2
+      main-event: 1.0.5
+      p-event: 7.1.0
+      progress-events: 1.1.0
+      uint8arraylist: 3.0.2
 
   '@libp2p/utils@7.4.1':
     dependencies:

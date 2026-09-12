@@ -71,7 +71,6 @@ describe("tokens", () => {
   let hubSigner: Signer;
   let otherKey: Ed25519PrivateKey;
   let otherPeerId: string;
-  let otherSigner: Signer;
 
   beforeAll(async () => {
     hubKey = await generateKeyPair("Ed25519");
@@ -79,7 +78,6 @@ describe("tokens", () => {
     hubSigner = signerOf(hubKey);
     otherKey = await generateKeyPair("Ed25519");
     otherPeerId = peerIdFromPrivateKey(otherKey).toString();
-    otherSigner = signerOf(otherKey);
   });
 
   // -------------------------------------------------------------------------

@@ -217,8 +217,12 @@ export function ruleSet(defs: RuleSetDefs = {}): RuleSet {
       }
     }
   };
-  rules.forEach((text, i) => checkBody(`rules[${i}]`, heads[i] ?? "", text));
-  policies.forEach((text, i) => checkBody(`policies[${i}]`, "", text));
+  rules.forEach((text, i) => {
+    checkBody(`rules[${i}]`, heads[i] ?? "", text);
+  });
+  policies.forEach((text, i) => {
+    checkBody(`policies[${i}]`, "", text);
+  });
 
   // A-10 / X-02: a capability no rule can derive. Skipped when a rule derives
   // `capability` into a VARIABLE, since the set is then open by construction.
@@ -232,8 +236,12 @@ export function ruleSet(defs: RuleSetDefs = {}): RuleSet {
         }
       }
     };
-    rules.forEach((text, i) => named(`rules[${i}]`, text, heads[i] ?? ""));
-    policies.forEach((text, i) => named(`policies[${i}]`, text, ""));
+    rules.forEach((text, i) => {
+      named(`rules[${i}]`, text, heads[i] ?? "");
+    });
+    policies.forEach((text, i) => {
+      named(`policies[${i}]`, text, "");
+    });
   }
 
   assertValid(problems);

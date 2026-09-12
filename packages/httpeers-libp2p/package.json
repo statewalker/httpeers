@@ -1,0 +1,56 @@
+{
+  "name": "@statewalker/httpeers-libp2p",
+  "version": "0.1.0",
+  "type": "module",
+  "description": "The transport: nodes, identity, and servePeer \u2014 the one place in the extraction that knows what libp2p is.",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+ssh://git@github.com/statewalker/httpeers.git",
+    "directory": "packages/httpeers-libp2p"
+  },
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist",
+    "src"
+  ],
+  "sideEffects": false,
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json",
+    "test": "pnpm run build && pnpm run typecheck && vitest run --no-file-parallelism",
+    "typecheck": "tsc --noEmit",
+    "lint": "biome check src tests",
+    "lint:check": "biome check src tests"
+  },
+  "dependencies": {
+    "@chainsafe/libp2p-noise": "17.0.0",
+    "@chainsafe/libp2p-yamux": "8.0.1",
+    "@libp2p/crypto": "5.1.22",
+    "@libp2p/identify": "4.1.12",
+    "@libp2p/interface": "3.2.5",
+    "@libp2p/peer-id": "6.0.14",
+    "@multiformats/multiaddr": "13.0.3",
+    "@statewalker/httpeers-core": "workspace:*",
+    "@statewalker/webrun-http-streams": "^0.2.1",
+    "@statewalker/webrun-streams": "^0.1.2",
+    "@statewalker/webrun-streams-libp2p": "^0.1.2",
+    "libp2p": "3.3.8"
+  },
+  "devDependencies": {
+    "@libp2p/tcp": "11.0.26",
+    "@statewalker/httpeers-access": "workspace:*",
+    "@types/node": "catalog:",
+    "typescript": "catalog:",
+    "vitest": "catalog:"
+  },
+  "publishConfig": {
+    "access": "public"
+  }
+}

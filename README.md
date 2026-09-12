@@ -81,3 +81,20 @@ here** — no Caddyfile edit, no DNS record, no reload.
 | `RELAY_ANNOUNCE_ADDRS` | *(none — required)* | Comma-separated multiaddrs peers should dial. Must not contain `/p2p/`. |
 | `RELAY_REQUIRE_ANNOUNCE` | `true` | Set `false` for a local run with no proxy in front. |
 | `RELAY_KEY` | *(none)* | Base64 protobuf, to seed an empty volume. Ignored once a key exists. |
+
+## A local override, and why it is here
+
+`pnpm.overrides` in the root `package.json` points three `@statewalker/webrun-*`
+dependencies at a sibling `webrun-wire` checkout.
+
+**The version ranges in each package's own `package.json` are the truth** —
+`^0.1.2` and so on — and they are what a published package carries. The
+override exists only because those versions are **not on npm yet**: they
+contain nine cancellation and teardown fixes that `httpeers-libp2p` depends on,
+and the npm registry still holds the identical-numbered builds from before
+them.
+
+So publishing `webrun-wire` is a **prerequisite** for publishing
+`httpeers-libp2p`, not a follow-up. Once it is done, delete this override; the
+ranges already say what they need, and `pnpm.overrides` is root-only and never
+reaches a consumer.
