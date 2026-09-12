@@ -94,6 +94,37 @@ importers:
         specifier: 'catalog:'
         version: 4.1.11(@types/node@26.4.1)(vite@8.2.2(@types/node@26.4.1)(esbuild@0.28.2)(tsx@4.23.13))
 
+  packages/httpeers-access:
+    dependencies:
+      '@biscuit-auth/biscuit-wasm':
+        specifier: 0.6.0
+        version: 0.6.0
+      '@statewalker/httpeers-core':
+        specifier: workspace:*
+        version: link:../httpeers-core
+      multiformats:
+        specifier: 14.0.5
+        version: 14.0.5
+    devDependencies:
+      '@libp2p/crypto':
+        specifier: 5.1.22
+        version: 5.1.22
+      '@libp2p/interface':
+        specifier: 3.2.5
+        version: 3.2.5
+      '@libp2p/peer-id':
+        specifier: 6.0.14
+        version: 6.0.14
+      '@types/node':
+        specifier: 'catalog:'
+        version: 26.4.1
+      typescript:
+        specifier: 'catalog:'
+        version: 7.0.2
+      vitest:
+        specifier: 'catalog:'
+        version: 4.1.11(@types/node@26.4.1)(vite@8.2.2(@types/node@26.4.1)(esbuild@0.28.2)(tsx@4.23.13))
+
   packages/httpeers-core:
     devDependencies:
       '@types/node':
@@ -182,6 +213,10 @@ packages:
     engines: {node: '>=14.21.3'}
     cpu: [x64]
     os: [win32]
+
+  '@biscuit-auth/biscuit-wasm@0.6.0':
+    resolution: {integrity: sha512-QM4rZU+f/WI1tr2vPMCErrGXrJdfK4mTiY1m/JyR1eIiOIJOzoHUHf3Z+hE2a1+Dt9vm6wgGyJg89S871JN7BQ==}
+    engines: {node: '>=22.0.0'}
 
   '@chainsafe/as-chacha20poly1305@0.1.0':
     resolution: {integrity: sha512-BpNcL8/lji/GM3+vZ/bgRWqJ1q5kwvTFmGPk7pxm/QQZDbaMI98waOHjEymTjq2JmdD/INdNBFOVSyJofXg7ew==}
@@ -1427,6 +1462,8 @@ snapshots:
 
   '@biomejs/cli-win32-x64@2.5.12':
     optional: true
+
+  '@biscuit-auth/biscuit-wasm@0.6.0': {}
 
   '@chainsafe/as-chacha20poly1305@0.1.0': {}
 
