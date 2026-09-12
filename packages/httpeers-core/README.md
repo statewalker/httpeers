@@ -14,6 +14,20 @@ named a `grep` that proved it; the grep had been failing for some time, because
 a second file started importing `@libp2p/*` and nobody re-ran it. An invariant
 nobody runs is a wish.
 
+## What your project must declare
+
+The package is built on WinterCG globals and does **not** redeclare them —
+doing so would collide with the real declarations in every project that has
+them. So your `tsconfig.json` needs one of:
+
+- `"types": ["node"]` — a Node, Deno or Bun project;
+- `"lib": [..., "DOM"]` — a browser or worker project;
+- any equivalent (`@cloudflare/workers-types`, and so on).
+
+With neither, our `.d.ts` files report `Cannot find name 'Request'`.
+`tests/consumer.test.ts` compiles a real dependent under each shape, so this
+is a tested requirement rather than a note.
+
 ## What is here
 
 | Module | What it is |

@@ -24,7 +24,7 @@
   "sideEffects": false,
   "scripts": {
     "build": "tsc -p tsconfig.build.json",
-    "test": "pnpm run typecheck && vitest run",
+    "test": "pnpm run build && pnpm run typecheck && vitest run",
     "typecheck": "tsc --noEmit",
     "lint": "biome check src tests",
     "lint:check": "biome check src tests"
