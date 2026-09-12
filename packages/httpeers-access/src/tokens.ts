@@ -234,6 +234,22 @@ function signingKeyFor(seed: Uint8Array): PrivateKey {
  * Recover the root public key from a mesh id. Local computation, never a fetch
  * — see `keys.ts` for why a peerId is its own key and what that saves.
  */
+async function rootKeysFor(issuer: string, keys: IssuerKeys | undefined): Promise<PublicKey[]> {
+  if (keys === undefined) return [rootKeyFor(issuer)];
+  const raw = await keys.resolve(issuer);
+  if (raw.length === 0) {
+    // A resolver that produced nothing has DENIED this mesh. Reporting it as
+    // an unparseable issuer would be a lie about a peerId that may be
+    // perfectly well-formed — but the taxonomy is closed, and this is the
+    // reason that means "no key could be obtained for this issuer".
+    throw new TokenVerificationError(
+      "unparseable-issuer",
+      "no verifying key is available for this mesh",
+    );
+  }
+  return raw.map((bytes) => PublicKey.fromBytes(bytes, SignatureAlgorithm.Ed25519));
+}
+
 function rootKeyFor(issuer: string): PublicKey {
   const raw = publicKeyOf(issuer);
   if (raw == null) {
@@ -441,6 +457,19 @@ export interface VerifyTokenOptions {
   /** The mesh (hub peerId) this verifier expects the token to belong to. */
   issuer: string;
   /**
+   * Where the issuer's verifying keys come from.
+   *
+   * Defaults to {@link selfCertifyingKeys}, which recovers the key from the
+   * peerId itself and is what the prototype did unconditionally. The seam
+   * exists because key ROTATION needs more than one key to be acceptable at
+   * once (ADR-0008/0018, DESIGNED, unimplemented) — and because a mesh that
+   * ever stops self-certifying needs somewhere to say so that is not this file.
+   *
+   * **Empty means deny**: a resolver that knows nothing about a mesh refuses
+   * its tokens, rather than falling back to a guess.
+   */
+  keys?: IssuerKeys;
+  /**
    * The peer the TRANSPORT proved is on the other end of this connection —
    * never anything the caller claimed, and never anything read out of the
    * token. Asserted as `connection_peer`, which is what the token's own
@@ -490,14 +519,23 @@ export async function verifyToken(token: string, options: VerifyTokenOptions): P
   if (options.selfPeer !== undefined && typeof options.selfPeer !== "string") {
     throw new TypeError("verifyToken: selfPeer must be this peer's own peerId string");
   }
-  const root = rootKeyFor(options.issuer);
+  // EVERY acceptable key is tried, not just the first. With the default
+  // resolver there is exactly one and this is the prototype's behaviour
+  // unchanged; with a rotating resolver, a token signed by the previous key
+  // still verifies during the overlap, which is the entire point of the seam.
+  const roots = await rootKeysFor(options.issuer, options.keys);
 
-  let parsed: Biscuit;
-  try {
-    parsed = Biscuit.fromBase64(token, root);
-  } catch (error) {
-    throw parseFailure(error);
+  let parsed: Biscuit | undefined;
+  let lastParseError: unknown;
+  for (const root of roots) {
+    try {
+      parsed = Biscuit.fromBase64(token, root);
+      break;
+    } catch (error) {
+      lastParseError = error;
+    }
   }
+  if (parsed === undefined) throw parseFailure(lastParseError);
 
   const now = options.now ?? Date.now;
   const builder = new AuthorizerBuilder();

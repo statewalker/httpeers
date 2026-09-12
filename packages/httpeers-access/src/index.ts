@@ -12,6 +12,8 @@
  * which is the point of separating them rather than a tidiness preference.
  */
 
+// The middleware, and what a handler under it can ask.
+export { type AccessContext, access, type WithAccessInit, withAccess } from "./access.js";
 // Where a mesh's verifying key comes from.
 export {
   describeMeshId,
@@ -20,7 +22,14 @@ export {
   publicKeyOf,
   selfCertifyingKeys,
 } from "./keys.js";
-
+// Revocation, member side. The REGISTRY — the hub's half — is in `./issuer`.
+export {
+  type ChangeEntry,
+  RevocationCache,
+  type RevocationCacheInit,
+  type RevocationChecker,
+  type StalenessMode,
+} from "./revocation.js";
 // Policy: the rule set, whole — builder, readers and authorizer together.
 export {
   assertValid,
@@ -47,4 +56,5 @@ export {
   verifyToken,
   warmUpTokens,
 } from "./tokens.js";
+
 export type { MeshId, SubjectId } from "./types.js";
