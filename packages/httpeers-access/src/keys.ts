@@ -95,35 +95,91 @@ export function publicKeyOf(mesh: MeshId): Uint8Array | null {
 }
 
 /**
- * Why a mesh id was refused, in words. For a human debugging a configuration —
- * `resolve` stays silent because its contract is a deny list, but "denied" is
- * not a useful thing to read in a log at three in the morning.
+ * WHY a mesh id yields no key — as a value, not prose.
+ *
+ * `publicKeyOf` returns `null` for every kind of failure, which is right for a
+ * deny list and wrong for a caller that has to report one. The token verifier
+ * distinguishes `unparseable-issuer` from `issuer-not-ed25519`, and collapsing
+ * them told an operator "that is not a peerId" about a peerId that was
+ * perfectly valid and merely RSA. The ported token suite caught it.
  */
-export function describeMeshId(mesh: MeshId): string {
+export type MeshIdProblem =
+  /** Not base58btc, or not a multihash at all. */
+  | "unparseable"
+  /** A well-formed peerId that does not carry an inline Ed25519 key. */
+  | "not-ed25519";
+
+export function meshIdProblem(mesh: MeshId): MeshIdProblem | null {
   let bytes: Uint8Array;
   try {
     bytes = base58btc.decode(`z${mesh}`);
   } catch {
-    return `unparseable mesh id: ${JSON.stringify(mesh)} is not base58btc`;
+    return "unparseable";
   }
-  if (bytes[0] !== IDENTITY_CODE) {
-    return (
-      `mesh id is not a self-certifying Ed25519 peerId: its multihash code is ` +
-      `0x${(bytes[0] ?? 0).toString(16)}, not 0x00 (identity). An RSA peerId hashes ` +
-      `its key rather than carrying it, so there is no key to recover.`
-    );
+
+  // A multihash, properly: varint code, varint length, then exactly that many
+  // bytes. Checking the SHAPE rather than just the first byte is what keeps
+  // "a valid RSA peerId" apart from "a word that happens to be base58" —
+  // "nonsense" decodes to bytes and would otherwise be reported as a peerId
+  // carrying the wrong key type, which sends a reader somewhere useless.
+  const header = readMultihashHeader(bytes);
+  if (header == null) return "unparseable";
+
+  // Past this point the string IS a well-formed multihash, so it is a peerId
+  // shape; it simply may not be one that carries its key.
+  if (header.code !== IDENTITY_CODE) return "not-ed25519";
+  if (header.digest.length !== PB_LENGTH) return "not-ed25519";
+  const digest = header.digest;
+  if (digest[0] !== PB_TYPE_ED25519[0] || digest[1] !== PB_TYPE_ED25519[1]) return "not-ed25519";
+  if (digest[2] !== PB_DATA_32[0] || digest[3] !== PB_DATA_32[1]) return "not-ed25519";
+  return null;
+}
+
+/** `<varint code><varint length><digest>`, or `null` if the bytes are not that. */
+function readMultihashHeader(bytes: Uint8Array): { code: number; digest: Uint8Array } | null {
+  const code = readVarint(bytes, 0);
+  if (code == null) return null;
+  const length = readVarint(bytes, code.next);
+  if (length == null) return null;
+  const digest = bytes.subarray(length.next);
+  // The length must describe the rest EXACTLY — trailing bytes mean this was
+  // never a multihash, it was something else that decoded.
+  if (digest.length !== length.value) return null;
+  return { code: code.value, digest };
+}
+
+/** Unsigned LEB128, bounded to five bytes — enough for any multihash code. */
+function readVarint(bytes: Uint8Array, at: number): { value: number; next: number } | null {
+  let value = 0;
+  for (let i = 0; i < 5; i++) {
+    const byte = bytes[at + i];
+    if (byte === undefined) return null;
+    value |= (byte & 0x7f) << (7 * i);
+    if ((byte & 0x80) === 0) return { value: value >>> 0, next: at + i + 1 };
   }
-  if (bytes.length !== 2 + PB_LENGTH || bytes[1] !== PB_LENGTH) {
-    return `mesh id has an identity multihash of the wrong length (${bytes.length - 2} bytes, expected ${PB_LENGTH})`;
+  return null;
+}
+
+/**
+ * Why a mesh id was refused, in words. For a human debugging a configuration —
+ * `resolve` stays silent because its contract is a deny list, but "denied" is
+ * not a useful thing to read in a log at three in the morning.
+ *
+ * Built on {@link meshIdProblem} rather than re-deriving the checks, so the
+ * prose and the value can never disagree about the same string.
+ */
+export function describeMeshId(mesh: MeshId): string {
+  switch (meshIdProblem(mesh)) {
+    case "unparseable":
+      return `unparseable mesh id: ${JSON.stringify(mesh)} is not base58btc, or not a multihash`;
+    case "not-ed25519":
+      return (
+        "mesh id is a peerId that does not carry an inline Ed25519 public key. " +
+        "An RSA peerId hashes its key rather than carrying it, so there is no key to recover."
+      );
+    default:
+      return "mesh id is a valid self-certifying Ed25519 peerId";
   }
-  const digest = bytes.subarray(2);
-  if (digest[0] !== PB_TYPE_ED25519[0] || digest[1] !== PB_TYPE_ED25519[1]) {
-    return "mesh id carries a key that is not declared Ed25519";
-  }
-  if (digest[2] !== PB_DATA_32[0] || digest[3] !== PB_DATA_32[1]) {
-    return "mesh id carries a malformed key field";
-  }
-  return "mesh id is a valid self-certifying Ed25519 peerId";
 }
 
 /**

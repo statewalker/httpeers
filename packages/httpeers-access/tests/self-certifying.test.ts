@@ -74,8 +74,10 @@ describe("selfCertifyingKeys", () => {
     const { describeMeshId } = await import("../src/keys.js");
 
     expect(describeMeshId("0OIl")).toMatch(/not base58/i);
-    // Valid base58, but not a multihash at all.
-    expect(describeMeshId("nonsense")).toMatch(/identity/i);
+    // Valid base58, but not a multihash — the length prefix does not describe
+    // the rest of the bytes. Reported as unparseable rather than as "a peerId
+    // with the wrong key type", which would send a reader somewhere useless.
+    expect(describeMeshId("nonsense")).toMatch(/unparseable/i);
 
     const rsa = peerIdFromPrivateKey(await generateKeyPair("RSA", 2048)).toString();
     expect(describeMeshId(rsa)).toMatch(/ed25519/i);
