@@ -1,0 +1,23 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    // "DOM" HERE, AND ONLY HERE. Every other package in this repo deliberately
+    // omits it, because a DOM-only global that slips into library code passes
+    // the build and fails in a worker. This package is the exception by
+    // definition: its tests run in a real browser, and the things they assert
+    // -- ServiceWorker registration, IndexedDB, localStorage -- exist nowhere
+    // else. Nothing here is shipped, so nothing here can leak the lib into a
+    // consumer's build.
+    "lib": ["ES2022", "DOM"],
+    "types": ["node"],
+    "rootDir": ".",
+    "noEmit": true
+  },
+  // WITHOUT THIS FILE, `tsc --noEmit` WALKED UP AND COMPILED THE WHOLE
+  // ASSEMBLY. With no tsconfig.json in the package, tsc searches parent
+  // directories, finds the repo's, and follows the workspace symlinks into
+  // every other package -- so this package's typecheck was reporting errors in
+  // ANOTHER REPO's test files (`webrun-streams/tests/readme-examples.test.ts`),
+  // which is both wrong and not this package's business to fail on.
+  "include": ["tests/**/*.ts", "tests/**/*.d.ts", "vitest.browser.config.ts"]
+}

@@ -142,40 +142,49 @@ export async function rung12_hub(selfPeerId: PeerIdStr, rules: RuleSet): Promise
 }
 
 // ---------------------------------------------------------------------------
-// Rung 05 — the reverse proxy and exposing a local app, as one mechanism
+// Rung 05 — the reverse proxy, and exposing a local app
 // ---------------------------------------------------------------------------
 
 import { PEER_ID_HEADER } from "@statewalker/httpeers-core";
-import {
-  assertNoSecrets,
-  type Route,
-  routeTable,
-  type StoredRoute,
-  urlUpstream,
-} from "@statewalker/webrun-http-proxy";
-import { localStorageRouteStore } from "@statewalker/webrun-http-proxy/browser";
-import { fileRouteStore } from "@statewalker/webrun-http-proxy/node";
+import { MARKER, type Upstream, urlUpstream } from "@statewalker/webrun-http-proxy";
 
+/**
+ * The rung is unchanged; what carries it is smaller.
+ *
+ * `webrun-http-proxy` used to ship the route table this rung was written
+ * against. It does not any more, because matching and rewriting are what a
+ * ROUTER does and every consumer already has one — so this consumer brings
+ * its own, which is the point of the rung: a peer exposes an outside origin
+ * and a local handler through the same mount, and only the LAST step differs.
+ *
+ * A local handler is CALLED, so it keeps the caller's `authorization`: a
+ * handler on this side of the proxy still needs to know who is calling. A URL
+ * upstream is RE-ISSUED, so `urlUpstream` consumes it.
+ */
 export function rung05_expose(local: FetchHandler): FetchHandler {
-  const routes: Route[] = [
-    {
-      prefix: "/openai",
-      describe: "OpenAI",
-      upstream: urlUpstream({
-        base: "https://api.openai.com/v1",
-        // THE ONE THING THE PROXY USED TO KNOW ABOUT MESHES, now passed in:
-        // a third-party origin has no business learning which peer called.
-        stripRequestHeaders: [PEER_ID_HEADER],
-      }),
-    },
-    { prefix: "/local", describe: "in-process", upstream: local },
-  ];
-  // A THUNK, because the proxy page edits routes while traffic flows.
-  return routeTable({ routes: () => routes });
-}
+  const openai: Upstream = urlUpstream({
+    base: "https://api.openai.com/v1",
+    // THE ONE THING THE PROXY USED TO KNOW ABOUT MESHES, now passed in:
+    // a third-party origin has no business learning which peer called.
+    stripRequestHeaders: [PEER_ID_HEADER],
+  });
 
-export const rung05_stores = { fileRouteStore, localStorageRouteStore, assertNoSecrets };
-export type Rung05Stored = StoredRoute;
+  return async (request) => {
+    const url = new URL(request.url);
+    if (url.pathname === "/") {
+      return Response.json({ routes: [{ prefix: "/openai" }, { prefix: "/local" }] });
+    }
+    for (const [prefix, upstream] of [
+      ["/openai", openai],
+      ["/local", local],
+    ] as const) {
+      if (url.pathname !== prefix && !url.pathname.startsWith(`${prefix}/`)) continue;
+      const rest = url.pathname.slice(prefix.length) || "/";
+      return upstream(new Request(`http://upstream${rest}${url.search}`, request));
+    }
+    return new Response("no route", { status: 404, headers: { [MARKER]: "no-route" } });
+  };
+}
 
 // ---------------------------------------------------------------------------
 // Rung 06 / 16 — the ghost: a pin, and containment
