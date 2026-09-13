@@ -1,6 +1,6 @@
 /**
  * The NODE half of `MemberPlatform` — the counterpart to
- * `src/browser/node-profile.ts`'s `createBrowserNode`.
+ * `./browser-profile.ts`'s `createBrowserNode`.
  *
  * WHAT DIFFERS FROM THE BROWSER PROFILE, AND WHAT DELIBERATELY DOES NOT:
  *

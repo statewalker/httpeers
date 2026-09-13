@@ -86,7 +86,7 @@ export interface MemberEdge {
 
 /** The platform adapters — one per thing that genuinely differs between Node and a page. */
 export interface MemberPlatform {
-  /** Build the libp2p node. Browser: `createBrowserNode`. Node: `createNodeMemberNode` (this rung's `./node-profile.ts`). */
+  /** Build the libp2p node. Browser: `createBrowserNode`. Node: `createNodeMemberNode` (`./node.ts`). */
   createNode(init: { privateKey?: Ed25519PrivateKey }): Promise<Libp2p>;
   /**
    * Publish `dispatch` at a local URL. Browser: the ServiceWorker edge, via

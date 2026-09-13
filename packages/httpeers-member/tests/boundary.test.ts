@@ -1,24 +1,46 @@
 /**
- * The isomorphism boundary, with the platform entries exempted by name.
+ * The isomorphism boundary, measured by REACHABILITY rather than by filename.
  *
  * A member is the package that runs in BOTH a Node process and a page — rung
- * 01's whole claim — so the root must reach neither. `./node` holds the Node
- * profile; the browser half (the ServiceWorker edge, the session machine) is
- * still being ported and will be `./browser`.
+ * 01's whole claim — so the ROOT entry (`./index.ts`) must reach neither
+ * platform. `./node.ts` holds `tcp()`; `./browser.ts` holds IndexedDB, the
+ * ServiceWorker edge and WebRTC.
+ *
+ * WHY THIS TEST CHANGED SHAPE. It used to exempt a hard-coded list of
+ * FILENAMES, which answered the wrong question. The rule is not "these two
+ * files may be platform-bound"; it is "nothing a root import pulls in may be".
+ * Under the old shape, `edge.ts` — browser-only by construction, it imports a
+ * ServiceWorker adapter — was neither exempt nor allowed to exist, and the
+ * only ways out were to weaken the rule or to pretend the file was
+ * isomorphic. Under this shape it is simply not reachable from `index.ts`,
+ * which is both true and the thing that actually matters. The day somebody
+ * adds `export * from "./edge.js"` to the root, this test fails and names the
+ * import chain that did it.
+ *
+ * The exempt set is therefore the two PLATFORM ROOTS and everything only they
+ * reach — computed, not listed.
  */
 
-import { readdirSync, readFileSync } from "node:fs";
-import { dirname, join } from "node:path";
+import { existsSync, readFileSync } from "node:fs";
+import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 
 const SRC = join(dirname(fileURLToPath(import.meta.url)), "../src");
 
-/** Anything that pins this package to one runtime. */
+/** The three entry points `package.json` publishes, as source files. */
+const ROOT_ENTRY = "index.ts";
+const PLATFORM_ENTRIES = ["node.ts", "browser.ts"];
+
+/** Anything that pins a module to one runtime. */
 const FORBIDDEN: Array<[string, RegExp]> = [
   ["a node: builtin", /from\s+["']node:/],
   ["@libp2p/tcp", /from\s+["']@libp2p\/tcp["']/],
+  // Its Node build loads a native module (`node_datachannel.node`), so this
+  // is not merely browser-flavoured: importing it breaks a Node member.
+  ["@libp2p/webrtc", /from\s+["']@libp2p\/webrtc["']/],
   ["idb-keyval", /from\s+["']idb-keyval["']/],
+  ["a ServiceWorker adapter", /from\s+["']@statewalker\/webrun-http-browser/],
   ["biscuit-wasm", /from\s+["']@biscuit-auth\//],
 ];
 
@@ -30,29 +52,7 @@ const FORBIDDEN: Array<[string, RegExp]> = [
  * Deno, Bun, browsers and workers alike, and this package is built on them.
  * Confusing "browser API" with "DOM API" is what would make this list wrong.
  */
-const DOM_ONLY = /\b(document|window|navigator|localStorage|sessionStorage)\b/;
-
-/**
- * The PLATFORM entry points, listed by name.
- *
- * `./node` exists to hold `tcp()` and `./browser` to hold WebRTC; the rule
- * they are exempt from is the rule they exist to break. Listing them rather
- * than pattern-matching is the point — a new platform file has to be added
- * here deliberately, which is a line in a diff somebody can argue with, and
- * the alternative (exempting anything matching `*-node.ts`, say) lets a file
- * become platform-bound by being renamed.
- */
-const PLATFORM_ENTRIES = new Set(["node.ts", "browser.ts"]);
-
-function sources(dir: string): string[] {
-  return readdirSync(dir, { withFileTypes: true }).flatMap((entry) =>
-    entry.isDirectory()
-      ? sources(join(dir, entry.name))
-      : entry.name.endsWith(".ts")
-        ? [join(dir, entry.name)]
-        : [],
-  );
-}
+const DOM_ONLY = /\b(document|window|navigator|localStorage|sessionStorage|indexedDB)\b/;
 
 /** Strip comments: they legitimately discuss browsers, and a false positive here teaches people to weaken the test. */
 function codeOf(file: string): string {
@@ -61,61 +61,96 @@ function codeOf(file: string): string {
     .replace(/\/\/.*$/gm, "");
 }
 
+/** The `./x.js` specifiers a file imports or re-exports, resolved to `./x.ts`. */
+function localImports(file: string): string[] {
+  const code = codeOf(file);
+  const out: string[] = [];
+  for (const m of code.matchAll(/\bfrom\s+["'](\.[^"']*)["']/g)) {
+    const spec = m[1] as string;
+    const candidate = resolve(dirname(file), spec.replace(/\.js$/, ".ts"));
+    if (existsSync(candidate)) out.push(candidate);
+  }
+  return out;
+}
+
+/** Everything reachable from `entry`, `entry` included. */
+function closureOf(entry: string): Set<string> {
+  const seen = new Set<string>();
+  const queue = [join(SRC, entry)];
+  while (queue.length > 0) {
+    const file = queue.pop() as string;
+    if (seen.has(file)) continue;
+    seen.add(file);
+    queue.push(...localImports(file));
+  }
+  return seen;
+}
+
+const rootClosure = closureOf(ROOT_ENTRY);
+const named = (file: string): string => file.slice(SRC.length + 1);
+
 describe("the isomorphism boundary", () => {
-  const files = sources(SRC);
-  const named = files.map((f) => f.slice(SRC.length + 1));
-
-  it("finds the source files at all", () => {
-    // GUARDS THE GUARD. A scan that matches nothing makes every check below
-    // pass while measuring nothing — the shape of vacuous test that is worse
-    // than no test, because it reports safety.
-    expect(files.length).toBeGreaterThan(1);
-    expect(named).toContain("index.ts");
+  it("finds the root entry and follows it somewhere", () => {
+    // GUARDS THE GUARD. A closure that is just `index.ts` makes every check
+    // below pass while measuring nothing — the shape of vacuous test that is
+    // worse than no test, because it reports safety. A member's root reaches
+    // the lifecycle, the edge dispatch, the join blob and more.
+    expect(rootClosure.size).toBeGreaterThan(5);
+    expect([...rootClosure].map(named)).toContain("start-member.ts");
   });
 
-  it("every platform entry named here exists, and every one that exists is named", () => {
-    // Guards the exemption itself. A name left in this list after the file is
-    // gone silently widens it for a future file of the same name; a platform
-    // file that is not in the list should be failing the checks below, and if
-    // it is not, something else is wrong.
-    const platform = named.filter((n) => PLATFORM_ENTRIES.has(n));
-    expect(platform.sort()).toEqual([...PLATFORM_ENTRIES].filter((n) => named.includes(n)).sort());
+  it("every platform entry this test names exists", () => {
+    for (const entry of PLATFORM_ENTRIES) expect(existsSync(join(SRC, entry))).toBe(true);
   });
 
-  for (const file of files) {
-    const name = file.slice(SRC.length + 1);
-    it.skipIf(PLATFORM_ENTRIES.has(name))(`${name} imports no platform`, () => {
+  for (const file of [...rootClosure].sort()) {
+    const name = named(file);
+    it(`${name} — reachable from the root — imports no platform`, () => {
       const code = codeOf(file);
       for (const [what, pattern] of FORBIDDEN) {
         expect(code, `${name} imports ${what}`).not.toMatch(pattern);
       }
     });
 
-    // Skipped for the platform entries for the same reason as the imports
-    // above: `./browser` exists to touch `localStorage`, and a rule that
-    // forbade it there would forbid the file's whole purpose.
-    it.skipIf(PLATFORM_ENTRIES.has(name))(`${name} touches no DOM-only global`, () => {
+    it(`${name} — reachable from the root — touches no DOM-only global`, () => {
       expect(codeOf(file), name).not.toMatch(DOM_ONLY);
     });
   }
 
+  it("the platform-only modules really are unreachable from the root", () => {
+    // The other half of the claim. Naming them is not an exemption — it is an
+    // assertion that the browser-bound modules stay behind `./browser.ts`,
+    // which is what makes the loop above meaningful rather than lucky.
+    for (const name of ["edge.ts", "page-wake.ts", "browser-platform.ts", "browser-profile.ts"]) {
+      expect(existsSync(join(SRC, name)), `${name} exists`).toBe(true);
+      expect([...rootClosure].map(named), `${name} is reachable from index.ts`).not.toContain(name);
+    }
+  });
+
+  it("each platform entry reaches its own platform, and not the other's", () => {
+    // Guards the entries themselves: a `./browser` that quietly stopped
+    // pulling in the browser profile would be a broken publish that every
+    // other test here would call healthy.
+    const browser = [...closureOf("browser.ts")].map(named);
+    const node = [...closureOf("node.ts")].map(named);
+    expect(browser).toContain("browser-profile.ts");
+    expect(browser).not.toContain("node.ts");
+    expect(node).not.toContain("browser-profile.ts");
+  });
+
   it("depends on the transport, but on no platform", () => {
     // The boundary is a package.json claim too. A dependency appearing here is
     // a design decision, and should fail until somebody makes it deliberately.
+    // A member DOES depend on the transport — it dials, reserves and serves —
+    // which is the difference between it and the hub. What it must not have is
+    // a platform: tcp and WebRTC belong to the platform entries, IndexedDB to
+    // `./browser`.
     const pkg = JSON.parse(readFileSync(join(SRC, "../package.json"), "utf8")) as {
       dependencies?: Record<string, string>;
     };
-    // Exposing a service needs no transport, no crypto and no platform, which
-    // is exactly why this package can be the one a proxy PAGE and a Node
-    // process share. A dependency appearing here is a design event.
-    // Core, access and hono. No transport: a hub is membership and a mount
-    // table, and `servePeer` from httpeers-libp2p is what puts it on a wire —
-    // which is why a hub in a TAB is possible at all.
-    // A member DOES depend on the transport — it dials, reserves and serves —
-    // which is the difference between it and the hub. What it must not have is
-    // a platform: tcp belongs to `./node`, IndexedDB to `./browser`.
     expect(Object.keys(pkg.dependencies ?? {})).toContain("@statewalker/httpeers-libp2p");
     expect(Object.keys(pkg.dependencies ?? {})).not.toContain("@libp2p/tcp");
+    expect(Object.keys(pkg.dependencies ?? {})).not.toContain("@libp2p/webrtc");
     expect(Object.keys(pkg.dependencies ?? {})).not.toContain("idb-keyval");
   });
 });

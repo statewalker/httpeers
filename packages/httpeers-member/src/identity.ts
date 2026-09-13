@@ -19,13 +19,13 @@
  * identity would not be the thing every token's `mesh` claim restates.
  * `tests/browser-identity.test.ts` pins that round trip.
  *
- * WHY THIS IS SPLIT OUT OF `./node-profile.ts` (Task 24). That module
+ * WHY THIS IS SPLIT OUT OF `./browser-profile.ts` (Task 24). That module
  * loaded the key and handed it straight to `createLibp2p`, which never
  * gives it back -- fine for a page that only needs a node, and impossible
  * for the hub page, which must ALSO pass the very same key to `createPeer`
  * so its `mintToken` closure signs as the mesh (`httpeers.core`'s
  * `CreatePeerInit.privateKey`). Loading the identity is now its own step
- * that a caller can take first and use twice. `node-profile.ts` re-exports
+ * that a caller can take first and use twice. `browser-profile.ts` re-exports
  * everything here, so nothing that imported it from there had to change.
  */
 import { privateKeyFromProtobuf, privateKeyToProtobuf } from "@libp2p/crypto/keys";

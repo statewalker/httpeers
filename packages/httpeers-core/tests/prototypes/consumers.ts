@@ -184,6 +184,38 @@ export function rung08_gateway(member: MemberHandle): FetchHandler {
 export const rung01_joinBlob = { encodeJoinBlob, readJoinInputFromText };
 
 // ---------------------------------------------------------------------------
+// Rung 01, the BROWSER half — the page session, and the three things a page
+// does differently as one platform object
+// ---------------------------------------------------------------------------
+
+import type { PeerSession, SessionState } from "@statewalker/httpeers-member";
+import { createSession } from "@statewalker/httpeers-member/browser";
+
+/**
+ * What a consumer PAGE is, in full: mounts, rules, and a render callback.
+ *
+ * Every seam the session takes has a browser default behind this entry — the
+ * platform, the two IndexedDB stores, `location.search` and the reload — so
+ * the page supplies none of them. That is the acceptance criterion for the
+ * browser half: a page that is shorter than the prototype's `main.ts` was,
+ * and holds no state of its own.
+ */
+export function rung01_page(
+  mounts: Mounts,
+  rules: RuleSet,
+  render: (state: SessionState) => void,
+): PeerSession {
+  return createSession({
+    key: "peers",
+    mounts,
+    rules,
+    onChange: render,
+    serviceWorkerUrl: "/sw.js",
+    dev: true,
+  });
+}
+
+// ---------------------------------------------------------------------------
 // Rung 09 / 10 — duplex streams, and revoking one already open
 // ---------------------------------------------------------------------------
 

@@ -51,6 +51,30 @@ export { createMeshMemory, type CreateMeshMemoryInit, MESH_STORAGE_KEY, type Mes
  */
 export { createGateway, GATEWAY_MARKER, type GatewayInit, type GatewaySource } from "./gateway.js";
 export { peerRequest, type PeerRequestInit } from "./peer-request.js";
+/**
+ * The session machine — ISOMORPHIC, and exported from the root on purpose.
+ *
+ * It used to be the browser peer's private business. Everything platform-bound
+ * in it is now injected (the platform, the two stores, the reload), so a Node
+ * member that wants resume-or-redeem and the same four operator controls gets
+ * them here rather than reimplementing them. `./browser`'s `createSession` is
+ * the same thing with a page's defaults filled in.
+ */
+export {
+  createIdentityStore,
+  createPeerSession,
+  DEFAULT_HTTPEERS_CONFIG_URL,
+  describeMeshDrift,
+  type IdentityStore,
+  type NeedsInvitationReason,
+  type PeerSession,
+  type PeerSessionInit,
+  type SessionControls,
+  type SessionPhase,
+  type SessionStartState,
+  type SessionState,
+  type StartPeer,
+} from "./session.js";
 export {
   type JoinMethod,
   type MemberEdge,
