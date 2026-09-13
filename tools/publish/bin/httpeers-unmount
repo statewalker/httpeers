@@ -1,0 +1,71 @@
+#!/usr/bin/env bash
+#
+# Undo httpeers-mount: unmount the point, then stop the server.
+#
+# In that order, always. Killing the server first leaves the kernel with a
+# mount whose backend is gone, and every process that touches it -- including
+# an unrelated `ls` from a shell prompt, or a file manager indexing the tree --
+# blocks uninterruptibly until the mount is forced away.
+set -euo pipefail
+. "$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/../lib" && pwd)/common.sh"
+
+usage() { echo "usage: httpeers-unmount [--sudo]" >&2; }
+
+use_sudo=0
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --sudo) use_sudo=1 ;;
+    -h|--help) usage; exit 0 ;;
+    *) usage; die "unknown argument: $1" ;;
+  esac
+  shift
+done
+
+load_config
+mnt="$HTTPEERS_MOUNT_POINT"
+
+if mountpoint -q "$mnt" 2>/dev/null || grep -qs " $mnt nfs" /proc/mounts; then
+  umount_cmd=(umount "$mnt")
+  if [ "$(id -u)" -ne 0 ] && [ "$use_sudo" != 1 ]; then
+    bold "unmounting needs root -- run:"
+    info "    sudo ${umount_cmd[*]}"
+    info "then re-run this script to stop the server."
+    exit 0
+  fi
+  if [ "$(id -u)" -ne 0 ]; then sudo "${umount_cmd[@]}"; else "${umount_cmd[@]}"; fi
+  info "unmounted $mnt"
+else
+  info "$mnt is not mounted."
+fi
+
+# ---------------------------------------------------------------------------
+# The server -- a container, so it stops with compose rather than a signal.
+# Safe to run when nothing is up.
+# ---------------------------------------------------------------------------
+compose_file="$PUBLISH_ROOT/docker-compose.yml"
+
+if [ ! -f "$compose_file" ]; then
+  info "no compose file at $compose_file; nothing to stop."
+  exit 0
+fi
+if ! command -v docker >/dev/null 2>&1 || ! docker compose version >/dev/null 2>&1; then
+  info "docker is not available; nothing to stop."
+  exit 0
+fi
+
+if [ "$(docker compose -f "$compose_file" ps -q nfs 2>/dev/null | wc -l)" -eq 0 ]; then
+  info "nfs server container is not running."
+  exit 0
+fi
+
+# `down`, not `down -v`. The VFS write cache volume holds uploads that have not
+# reached the bucket yet; rclone flushes them on a clean stop, and discarding
+# the volume would silently lose the last writes made through the mount.
+info "stopping the nfs server container ..."
+if docker compose -f "$compose_file" down >/dev/null 2>&1; then
+  info "nfs server stopped."
+else
+  warn "could not stop the nfs server container. Its recent output:"
+  docker compose -f "$compose_file" logs --tail=20 nfs 2>&1 | sed 's/^/    /' >&2
+  exit 1
+fi

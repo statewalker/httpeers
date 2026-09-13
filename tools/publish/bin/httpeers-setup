@@ -1,0 +1,180 @@
+#!/usr/bin/env bash
+#
+# Preflight, and the one-time creation of the rclone remote.
+#
+# THIS SCRIPT REPORTS; IT DOES NOT REPAIR. It installs nothing, upgrades
+# nothing and never calls sudo. Everything the NFS mode needs is a system-wide
+# change on a machine that is also somebody's workstation, and the difference
+# between "a tool told me to run this" and "a tool ran this" is the whole
+# reason it is safe to run a publishing script. Each missing prerequisite is
+# printed with the exact command that fixes it; the human runs it.
+set -euo pipefail
+. "$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/../lib" && pwd)/common.sh"
+
+usage() {
+  cat >&2 <<'USAGE'
+usage: httpeers-setup [--sync-only] [--no-remote]
+
+  Checks everything the publishing tools need and prints what is missing.
+
+  --sync-only   check only what sync mode needs; skip the NFS prerequisites.
+  --no-remote   do not create or update the rclone remote, only report on it.
+
+Exits non-zero if anything checked is missing.
+USAGE
+}
+
+sync_only=0; no_remote=0
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --sync-only) sync_only=1 ;;
+    --no-remote) no_remote=1 ;;
+    -h|--help) usage; exit 0 ;;
+    *) usage; die "unknown argument: $1" ;;
+  esac
+  shift
+done
+
+load_config
+
+failures=0
+fail() { err "$1"; shift; for l in "$@"; do info "    $l"; done; failures=$((failures + 1)); }
+pass() { printf '  %sok%s   %s\n' "$_tty_bold" "$_tty_reset" "$*" >&2; }
+
+bold "configuration"
+if [ -n "$HTTPEERS_ENV_FILE_USED" ]; then
+  pass "env file      $HTTPEERS_ENV_FILE_USED"
+else
+  note "  --   env file      none (using defaults and the process environment)"
+fi
+pass "endpoint      $HTTPEERS_S3_ENDPOINT"
+pass "bucket        $HTTPEERS_S3_BUCKET"
+pass "site tree     $HTTPEERS_SITES_DIR"
+pass "rclone target $HTTPEERS_TARGET"
+
+bold ""
+bold "sync mode"
+
+if command -v rclone >/dev/null 2>&1; then
+  pass "rclone        $(rclone_version)"
+else
+  fail "rclone is not installed." \
+       "sudo -v ; curl https://rclone.org/install.sh | sudo bash" \
+       "or:  sudo apt install rclone"
+fi
+
+if [ -d "$HTTPEERS_SITES_DIR" ]; then
+  n_sites="$(list_local_sites "$HTTPEERS_SITES_DIR" | grep -c . || true)"
+  pass "site tree     exists, $n_sites site director$([ "$n_sites" = 1 ] && echo y || echo ies)"
+else
+  # Not a failure. A tree that does not exist yet is the normal state on a
+  # fresh checkout, and creating it is the user's first real action.
+  note "  --   site tree     missing: $HTTPEERS_SITES_DIR"
+  note "       mkdir -p \"$HTTPEERS_SITES_DIR/abc.httpeers.net\""
+fi
+
+# The remote. Only touched when credentials are actually present, and never
+# silently replaced: an existing remote of the same name may belong to
+# something else entirely.
+if [ "$HTTPEERS_TARGET_IS_LOCAL" = 1 ]; then
+  note "  --   remote        skipped: HTTPEERS_TARGET_OVERRIDE is set ($HTTPEERS_TARGET)"
+elif ! command -v rclone >/dev/null 2>&1; then
+  : # already reported
+else
+  remote="$HTTPEERS_RCLONE_REMOTE"
+  existing="$(rclone listremotes 2>/dev/null | grep -Fx "${remote}:" || true)"
+  have_creds=0
+  [ -n "${HTTPEERS_S3_ACCESS_KEY_ID:-}" ] && [ -n "${HTTPEERS_S3_SECRET_ACCESS_KEY:-}" ] && have_creds=1
+
+  if [ -n "$existing" ]; then
+    kind="$(rclone config show "$remote" 2>/dev/null | awk -F' = ' '/^type/ {print $2}')"
+    if [ "$kind" != "s3" ]; then
+      fail "rclone remote \"$remote:\" exists but is type \"$kind\", not s3." \
+           "Refusing to overwrite it -- it probably belongs to something else." \
+           "Set HTTPEERS_RCLONE_REMOTE to a different name in publish.env."
+    else
+      pass "remote        $remote: (s3) already configured"
+      ep="$(rclone config show "$remote" 2>/dev/null | awk -F' = ' '/^endpoint/ {print $2}')"
+      fps="$(rclone config show "$remote" 2>/dev/null | awk -F' = ' '/^force_path_style/ {print $2}')"
+      [ "$ep" = "$HTTPEERS_S3_ENDPOINT" ] \
+        || warn "remote endpoint is \"$ep\", publish.env says \"$HTTPEERS_S3_ENDPOINT\""
+      # RustFS is reached by path, not by a bucket-named virtual host: with
+      # virtual-host addressing rclone would resolve `sites.s3.httpeers.net`,
+      # which does not exist and fails as a DNS error rather than as a
+      # configuration one.
+      [ "$fps" = "true" ] \
+        || warn "remote has force_path_style=\"$fps\"; RustFS needs true"
+    fi
+  elif [ "$no_remote" = 1 ]; then
+    fail "rclone remote \"$remote:\" does not exist (and --no-remote was given)."
+  elif [ "$have_creds" = 1 ]; then
+    rclone config create "$remote" s3 \
+      provider=Other \
+      endpoint="$HTTPEERS_S3_ENDPOINT" \
+      access_key_id="$HTTPEERS_S3_ACCESS_KEY_ID" \
+      secret_access_key="$HTTPEERS_S3_SECRET_ACCESS_KEY" \
+      force_path_style=true \
+      region=us-east-1 >/dev/null
+    pass "remote        $remote: created"
+  else
+    fail "rclone remote \"$remote:\" does not exist and there are no credentials to create it." \
+         "cp \"$PUBLISH_ROOT/publish.env.example\" \"$PUBLISH_ROOT/publish.env\"" \
+         "then fill in the two S3 values. They live only on the server:" \
+         "  ssh kotelnikov@163.172.46.87 'grep S3_ /opt/httpeers/.env'"
+  fi
+fi
+
+if [ "$sync_only" = 0 ]; then
+  bold ""
+  bold "live (NFS) mode"
+
+    # The NFS SERVER runs in a container, so the host's rclone version is
+    # irrelevant here -- the image pins one that has `serve nfs`. That is the
+    # whole reason it is containerised: this machine's rclone is v1.60.1-DEV and
+    # lacks the subcommand, and upgrading every workstation to keep them in step
+    # is a worse deal than pulling an image.
+    if ! command -v docker >/dev/null 2>&1; then
+      fail "docker is not installed -- the NFS server runs as a container." \
+           "  https://docs.docker.com/engine/install/"
+    elif ! docker compose version >/dev/null 2>&1; then
+      fail "docker compose (v2) is not available." \
+           "  install the docker compose plugin"
+    else
+      pass "docker        $(docker --version 2>/dev/null | cut -d, -f1)"
+      pass "nfs server    containerised (rclone/rclone image; the host rclone is not used here)"
+    fi
+
+  if have_mount_nfs; then
+    pass "mount.nfs     $(command -v mount.nfs 2>/dev/null || echo /sbin/mount.nfs)"
+  else
+    fail "mount.nfs is missing -- the NFS client utilities are not installed." \
+         "sudo apt install nfs-common"
+  fi
+
+  # Mounting NFS is a privileged operation on Linux with no unprivileged
+  # equivalent, so this is a statement of fact, not a check that can pass.
+  if [ "$(id -u)" -eq 0 ]; then
+    pass "privileges    running as root"
+  elif command -v sudo >/dev/null 2>&1; then
+    pass "privileges    sudo present (mount -t nfs needs root; httpeers-mount --sudo uses it)"
+  else
+    fail "mounting NFS needs root and sudo is not installed." \
+         "Run httpeers-mount as root, or install sudo."
+  fi
+
+  if [ -e /dev/fuse ] && command -v fusermount3 >/dev/null 2>&1; then
+    note "  --   FUSE is available on this machine (fusermount3, /dev/fuse)."
+    note "       \`rclone mount\` would give the same writable folder with no root and"
+    note "       no packages -- but it needs rclone >= 1.65 too for a usable VFS cache"
+    note "       on this workflow, and NFS is what was asked for. See README."
+  fi
+fi
+
+bold ""
+if [ "$failures" -eq 0 ]; then
+  bold "all checks passed."
+  exit 0
+fi
+err "$failures check(s) failed. Nothing was installed or changed."
+info "  Run the commands above, then re-run: $0"
+exit 1
