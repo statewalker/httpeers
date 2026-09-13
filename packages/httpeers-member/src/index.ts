@@ -41,6 +41,7 @@ export {
   readJoinInputFromText,
 } from "./join-blob.js";
 export type { AsyncBytesBackend, AsyncKeyValueBackend } from "./kv.js";
+export { parseMeshConfig } from "./mesh-config.js";
 export { createMeshMemory, type CreateMeshMemoryInit, MESH_STORAGE_KEY, type MeshMemory } from "./mesh-memory.js";
 /**
  * The mesh as ordinary HTTP.

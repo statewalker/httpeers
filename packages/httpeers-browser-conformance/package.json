@@ -1,0 +1,26 @@
+{
+  "name": "@statewalker/httpeers-browser-conformance",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "What only a real browser can answer: the ServiceWorker edge, its lifecycle, and how a user gets rid of it.",
+  "license": "MIT",
+  "scripts": {
+    "build": "echo \"no build: this package only runs tests\"",
+    "test": "echo \"browser-only: run pnpm test:browser\"",
+    "test:browser": "vitest run --config vitest.browser.config.ts",
+    "typecheck": "tsc --noEmit",
+    "lint": "biome check tests",
+    "lint:check": "biome check tests"
+  },
+  "devDependencies": {
+    "@statewalker/httpeers-core": "workspace:*",
+    "@statewalker/httpeers-member": "workspace:*",
+    "@statewalker/webrun-http-browser": "workspace:*",
+    "@types/node": "catalog:",
+    "@vitest/browser-playwright": "^4.1.11",
+    "playwright": "^1.63.0",
+    "typescript": "catalog:",
+    "vitest": "catalog:"
+  }
+}

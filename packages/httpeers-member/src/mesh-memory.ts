@@ -31,6 +31,7 @@
  * mistake no longer visible anywhere.
  */
 import type { AsyncKeyValueBackend } from "./kv.js";
+import { parseMeshConfig } from "./mesh-config.js";
 
 // `MeshConfig` in `httpeers-core` — the shape `httpeers.json` has. It was
 // `HttpeersConfig`, declared in the browser peer assembly, which meant a Node
@@ -72,11 +73,9 @@ export interface CreateMeshMemoryInit {
 function parseMesh(raw: string | undefined): HttpeersConfig | null {
   if (raw == null) return null;
   try {
-    const parsed = JSON.parse(raw) as Partial<HttpeersConfig>;
-    const relayAddrs = parsed.relayAddrs;
-    if (!Array.isArray(relayAddrs) || relayAddrs.length === 0) return null;
-    if (typeof parsed.hubPeerId !== "string" || parsed.hubPeerId === "") return null;
-    return { relayAddrs, hubPeerId: parsed.hubPeerId };
+    // The SAME validator the HTTP channel uses. It was a second copy here,
+    // which is how the two channels came to disagree in the first place.
+    return parseMeshConfig(JSON.parse(raw));
   } catch (err) {
     console.warn(
       `mesh-memory: the stored mesh at "${MESH_STORAGE_KEY}" is not readable JSON -- this page ` +

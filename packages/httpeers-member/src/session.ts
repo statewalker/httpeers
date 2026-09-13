@@ -53,6 +53,7 @@ import { clearIdentity, loadOrCreateIdentity, peerIdOf, readIdentity } from "./i
 import type { AdvertisementInput, PresenceRefusal } from "./join.js";
 import type { JoinInput } from "./join-blob.js";
 import { readJoinInputFromSearch, readJoinInputFromText } from "./join-blob.js";
+import { parseMeshConfig } from "./mesh-config.js";
 import type { MeshMemory } from "./mesh-memory.js";
 import type {
   JoinMethod,
@@ -246,7 +247,11 @@ async function readDeploymentConfigOverHttp(): Promise<HttpeersConfig | null> {
   try {
     const res = await fetch(DEFAULT_HTTPEERS_CONFIG_URL);
     if (!res.ok) return null;
-    return (await res.json()) as HttpeersConfig;
+    // PARSED, NOT CAST. A hub-page deployment publishes `relayAddrs` with no
+    // `hubPeerId` -- there is no stable one to publish -- and casting that let
+    // it reach `startMember` as `hubPeerId: undefined`. `null` is the honest
+    // answer and the session already renders it as "paste an invitation".
+    return parseMeshConfig(await res.json());
   } catch {
     // A diagnostic that cannot be read is simply not added to the message.
     return null;

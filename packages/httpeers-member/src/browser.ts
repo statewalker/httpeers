@@ -85,3 +85,4 @@ export function createSession(init: CreateSessionInit): PeerSession {
     reload: init.reload ?? ((): void => location.reload()),
   });
 }
+export { resetBrowserState, type ResetResult } from "./reset.js";
