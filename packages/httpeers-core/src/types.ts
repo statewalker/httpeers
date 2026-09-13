@@ -312,3 +312,39 @@ export function json(body: unknown, status = 200): Response {
     headers: { "content-type": "application/json" },
   });
 }
+
+// ---------------------------------------------------------------------------
+// The mesh view
+// ---------------------------------------------------------------------------
+
+/**
+ * What a peer sees of the mesh.
+ *
+ * DECLARED HERE, not in `httpeers-hub`, because the hub PRODUCES it and
+ * `httpeers-member` RETURNS it — and member must not depend on hub. A type
+ * produced by one package and consumed by another that may not import it has
+ * exactly one home, and this is the package both already depend on.
+ */
+export interface MeshViewMember {
+  peerId: PeerIdStr;
+  roles: string[];
+  /** Whether the peer's presence record is currently live. Distinct from "is a member". */
+  online: boolean;
+  addrs: string[];
+}
+
+export interface MeshViewAdvertisement {
+  peerId: PeerIdStr;
+  id: string;
+  kind: string;
+  title: string;
+}
+
+export interface MeshView {
+  /** The mesh version this view was computed at — the counter a heartbeat's `versions.mesh` reports. */
+  version: number;
+  /** The caller's own peerId, echoed back for convenience. */
+  self: PeerIdStr;
+  members: MeshViewMember[];
+  advertisements: MeshViewAdvertisement[];
+}

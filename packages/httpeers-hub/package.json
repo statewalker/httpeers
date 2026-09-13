@@ -1,0 +1,62 @@
+{
+  "name": "@statewalker/httpeers-hub",
+  "version": "0.1.0",
+  "type": "module",
+  "description": "Minting membership, holding the registries, and saying who is in the mesh.",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+ssh://git@github.com/statewalker/httpeers.git",
+    "directory": "packages/httpeers-hub"
+  },
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    },
+    "./node": {
+      "types": "./dist/node.d.ts",
+      "import": "./dist/node.js"
+    },
+    "./browser": {
+      "types": "./dist/browser.d.ts",
+      "import": "./dist/browser.js"
+    }
+  },
+  "files": [
+    "dist",
+    "src"
+  ],
+  "sideEffects": false,
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json",
+    "test": "pnpm run build && pnpm run typecheck && vitest run",
+    "typecheck": "tsc --noEmit",
+    "lint": "biome check src tests",
+    "lint:check": "biome check src tests"
+  },
+  "dependencies": {
+    "@statewalker/httpeers-access": "workspace:*",
+    "@statewalker/httpeers-core": "workspace:*",
+    "hono": "catalog:"
+  },
+  "peerDependencies": {
+    "@statewalker/webrun-files": "^0.9.0"
+  },
+  "peerDependenciesMeta": {
+    "@statewalker/webrun-files": {
+      "optional": true
+    }
+  },
+  "devDependencies": {
+    "@statewalker/webrun-files": "catalog:",
+    "@types/node": "catalog:",
+    "typescript": "catalog:",
+    "vitest": "catalog:"
+  },
+  "publishConfig": {
+    "access": "public"
+  }
+}
