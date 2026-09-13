@@ -14,3 +14,13 @@ catalog:
 
 onlyBuiltDependencies:
   - esbuild
+  # REQUIRED, not an optimisation. `@libp2p/webrtc` depends on
+  # `node-datachannel`, a native module whose `install` script fetches the
+  # prebuilt `.node` binary. pnpm 10 blocks install scripts unless the package
+  # is named here, and a blocked one fails SILENTLY at install time: the
+  # workspace looks healthy and then `@statewalker/httpeers-member/node`
+  # throws `Cannot find module '.../node_datachannel.node'` the first time
+  # anything actually imports it. Nothing that only type-checks can see this,
+  # which is why it survived until a runtime import test went looking
+  # (`httpeers-conformance/tests/runtime-import.test.ts`).
+  - node-datachannel
