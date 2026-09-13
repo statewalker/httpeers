@@ -24,8 +24,36 @@ and nothing depends on it, so the graph is acyclic and `turbo test` works again.
 **To reverse:** move `tests/` back under `httpeers-core`, restore the seven `workspace:*`
 devDependencies there, and delete this directory. The cycle comes back with it.
 
+## Four checks, and they answer different questions
+
+| File | Question | Found |
+|---|---|---|
+| `tests/consumers.ts` | Can every prototype be **expressed**? | `createGateway`, the duplex altitude, `guardStream` — three capabilities with no home |
+| `tests/exports.test.ts` | Does every published entry **resolve** for a dependent? | — (guards 20 entries across 8 packages) |
+| `tests/runtime-import.test.ts` | Does every isomorphic entry **import**? | `httpeers-member/node` threw on import, green across 637 type-checked tests |
+| `tests/mesh.test.ts` | Do the packages **work together**? | a member could not call a member; authorization was load-dependent |
+
+`consumers.ts` is compiled, never executed. `exports.test.ts` enumerates the
+`exports` maps themselves and compiles `import * as ns` against each under
+`NodeNext` — the only resolution mode that honours an `exports` map, and for a
+subpath there is no legacy `types` field to fall back to. `runtime-import.test.ts`
+actually `import()`s each one, excluding `./browser` by name and asserting the
+exclusion excluded something.
+
+**`mesh.test.ts` stands up the deployment shape with nothing stubbed**: a
+Circuit Relay v2 server, a hub that reserves through it and relays for its own
+members, and members that redeem invitations and call each other. It is the
+extraction's acceptance at runtime, and it found two defects in its first hour
+that every compile check had passed.
+
+## The lesson these four encode
+
+A compile check and a runtime check are **different claims**, and three real
+defects lived in the gap between them. Type-checking an entry point proves
+nothing about importing it; importing it proves nothing about two of them
+talking to each other.
+
 ## What it does not do
 
-It is not a runtime conformance suite. Behaviour is tested in each package, against its own source.
-This answers one question only: *can the things that already exist be built on the API as
-published?*
+Behaviour is still tested in each package, against its own source. This answers
+the questions a single package cannot ask about itself.

@@ -1,6 +1,24 @@
 # Deploying
 
-Two containers on one host: Caddy holding the certificates, and the relay.
+**Four containers on one host**, on a single `httpeers_edge` network:
+
+| Service | Image | What it is |
+|---|---|---|
+| `caddy` | `httpeers-ingress` | The only service with published ports (`80`, `443`). Holds the certificates and routes by `Host`. |
+| `relay` | `httpeers-relay` | The circuit relay. Reached through Caddy, never directly. |
+| `sites` | `httpeers-sites` | The static-site host, reading from `rustfs`. |
+| `rustfs` | `rustfs/rustfs` | S3-compatible storage. One first-level prefix per site. |
+
+This file lives beside the three things it describes: `docker-compose.yml`, the
+`Caddyfile`, and `ingress/Dockerfile` (Caddy plus the Gandi DNS plugin — a stock Caddy
+image cannot solve the DNS-01 challenge below).
+
+**Two volumes are `external: true` on purpose** — `httpeers_relay_key` (the relay's
+identity) and `httpeers_rustfs_data` (every published site). `docker compose down -v`
+removes every volume it *owns*, and neither of those is recoverable by redeploying.
+`caddy_data` is a host volume for a related reason: recreating the container must not
+re-issue certificates, because Let's Encrypt's rate limits are per registered domain and
+a redeploy loop would exhaust them.
 
 ## Gandi, once
 

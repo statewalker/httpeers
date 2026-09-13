@@ -1,22 +1,81 @@
 # httpeers
 
-The httpeers mesh's deployable services. Today: the **circuit relay**, the
-**static-site host**, and the ingress that fronts both.
+A peer-to-peer mesh where **everything is a `fetch()`**. Two halves live here:
 
-Live at `relay.httpeers.net`, `s3.httpeers.net` and `*.httpeers.net`.
+- **`packages/`** — eight libraries a page or a process builds a mesh out of,
+  plus a private conformance suite that holds them to it.
+- **`apps/` and `deploy/`** — the deployable services the mesh needs to exist:
+  the circuit relay, the static-site host, and the ingress that fronts both.
+  Live at `relay.httpeers.net`, `s3.httpeers.net` and `*.httpeers.net`.
 
 Design and decisions live in the umbrella repository:
-`docs/superpowers/specs/2026-09-06-httpeers-relay-production-design.md`, and the
+`docs/superpowers/specs/2026-09-06-httpeers-relay-production-design.md`, the
+extraction's acceptance record at
+`docs/superpowers/plans/2026-09-13-httpeers-extraction-acceptance.md`, and the
 mesh's own vocabulary in `docs/httpeers/CONTEXT.md`.
 
 ## Layout
 
 ```
+packages/          the libraries -- see below
 apps/relay/        the circuit relay, and its image
 apps/sites/        the static-site host -- one site per storage prefix
 deploy/            the compose stack, the Caddyfile, the ingress image
+tools/publish/     shell toolkit: publish a site by editing a folder
 .github/workflows/ ci, and one image-publishing workflow per deployable
 ```
+
+## The libraries
+
+One contract runs through all of them: `FetchHandler = (Request) => Promise<Response>`.
+A mount table routes it, a peer serves it over libp2p, an edge lets a page
+reach it through its own `fetch()`. Nothing below the transport package knows
+what libp2p is.
+
+| Package | What it is |
+|---|---|
+| [`httpeers-core`](packages/httpeers-core) | The handler contract, the mount router, the peer-context sidecar. **No dependencies at all.** |
+| [`httpeers-access`](packages/httpeers-access) | Who is calling, and may they: Biscuit tokens, Datalog policy, revocation, one middleware. No libp2p. |
+| [`httpeers-libp2p`](packages/httpeers-libp2p) | The transport — nodes, identity, reachability, `servePeer`. The only package that knows what libp2p is. |
+| [`httpeers-hub`](packages/httpeers-hub) | Minting membership and holding the registries. No transport, which is what lets a hub run in a tab. |
+| [`httpeers-member`](packages/httpeers-member) | Everything a participant does: `startMember`, the session, the edge, the gateway. |
+| [`httpeers-expose`](packages/httpeers-expose) | The reverse proxy and "expose a local app", as one mechanism. |
+| [`httpeers-ghost`](packages/httpeers-ghost) | A remote peer's app rendered as a page that can reach only that peer. |
+| [`httpeers-qr`](packages/httpeers-qr) | Invitations as QR: pure encode/decode, plus a browser entry that scans from the camera. |
+| [`httpeers-conformance`](packages/httpeers-conformance) | Private. Every prototype rebuilt on the published API, every entry point imported, and one real mesh. |
+
+### Two rules the packages are built on
+
+**Isomorphic by default, platform behind an entry point.** A package's root
+runs in Node, in a worker and in a page alike; anything that cannot goes behind
+`./node` or `./browser`. Each package's boundary test enforces it — in
+`httpeers-member` and `httpeers-qr` by walking the import closure of
+`index.ts`, so the rule is "nothing a root import reaches", not "these
+filenames are exempt".
+
+**A compile check and a runtime check are different claims.** Three real
+defects lived in that gap, including a published entry point that could not be
+imported while 637 type-checked tests stayed green. `httpeers-conformance`
+closes it: it compiles every entry, imports every isomorphic one, and stands up
+a live relay, hub and two members with nothing stubbed.
+
+### Working on them
+
+```sh
+pnpm install
+pnpm turbo build
+pnpm turbo test          # 506 tests in packages/, 663 with the two apps
+```
+
+**None of the nine is on npm yet** — all are at `0.1.0`, and `npm view` returns
+404 for every one. They are consumed here through the workspace.
+
+> **One install note that bites silently.** `@libp2p/webrtc` needs
+> `node-datachannel`, a native module whose install script pnpm 10 blocks
+> unless it is named in `onlyBuiltDependencies` (it is, in
+> `pnpm-workspace.yaml`). Drop that entry and pnpm prints
+> `Ignored build scripts: node-datachannel` in a box, reports success, and
+> `@statewalker/httpeers-member/node` then throws on import.
 
 ## What the relay is, and is not
 

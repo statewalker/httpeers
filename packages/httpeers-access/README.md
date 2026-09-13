@@ -62,6 +62,39 @@ for it as a starting point mounted an application under it and got a permanent
 silent denial. A default that is wrong for every real use is worse than none,
 because it is reached for first. `rules` is a parameter.
 
+## The wasm lies about timeouts, and this package disbelieves it
+
+`@biscuit-auth/biscuit-wasm` reports `RunLimit: Timeout` **spuriously**, on
+evaluations that take well under a millisecond. Measured here: under CPU
+contention (16 busy processes on 8 cores), 4 of 300 legitimate admin
+authorizations came back denied while the median decision took 0.19 ms — and
+raising the budget to *thirty seconds* did not reduce it, which is what proves
+the report is not a real exhaustion. It first surfaced as a 1-in-5 failure of
+this package's own suite under parallel load.
+
+Believing that report costs a denied authorization, a **rejected valid token**,
+or a thrown `deriveCapabilities`. All three are a legitimate member turned away
+because the machine was busy.
+
+`retryOnSpuriousTimeout` re-runs the evaluation at all five call sites,
+rebuilding every wasm handle per attempt — they are consumed by the call that
+takes them, so a reused handle traps on a null pointer instead of retrying.
+This is sound because the evaluations are **pure functions** of the rule set
+and the facts: a retry cannot manufacture an allow that was not already there,
+and a genuine exhaustion still fails closed on every attempt.
+
+`TooManyFacts` is **never** retried. It counts *work* rather than elapsed time,
+so it fires on the same inputs on every machine, and it is what actually bounds
+a pathological rule set — it catches the combinatorial case in about 50 ms. The
+denial-of-service ceiling is untouched.
+
+> Failing closed is right when the **input** is suspect. It is not right when
+> the **verdict** is.
+
+`warmUpTokens` absorbs the same defect's first-call form, recorded as the
+prototype's finding F2. It is idempotent and never throws; an application may
+call it at start-up to move the one-time wasm cost off its first request.
+
 ## What is DESIGNED and not implemented
 
 `cnf` per-device binding (ADR-0009), key rotation and the issuer directory
@@ -73,3 +106,7 @@ reported as **missing** rather than quietly skipped.
 *possible* without delegation, and `keys` so rotation has a seam to arrive
 through — every acceptable key is tried, which with the default resolver is
 exactly one and the prototype's behaviour unchanged.
+
+---
+
+**169 tests.** No libp2p, and no `node:` builtin.

@@ -34,7 +34,7 @@ is a tested requirement rather than a note.
 |---|---|
 | `types` | `FetchHandler`, `PeerIdStr`, `MeshClaims`, the store **interfaces**, `json()` |
 | `router` | The mount table: longest-prefix matching, and `/{peerId}/…` peer routing |
-| `peer-context` | The `WeakMap<Request, …>` sidecar carrying the transport-proven peer |
+| `peer-context` | The `WeakMap<Request, …>` sidecar carrying the transport-proven peer, and `forwardLocalOnly` |
 | `errors` | The peer-call error taxonomy, each with a stable `kind` discriminant |
 | `clock` | A strictly-increasing millisecond clock |
 
@@ -49,6 +49,32 @@ registries change when membership does, and belong to the hub.
 The store **interfaces** stay because the type is produced by one package and
 consumed by another that must not depend on it.
 
+## `forwardLocalOnly`, and why it is named here
+
+`createPeerRouter` refuses to forward to a third party unless the caller
+supplies a policy. That default is right — relaying is its own capability, and
+without it any peer can make this one dial a stranger and pump a stream on its
+behalf. The hole is invisible for a while because it fails *closed* at the far
+end: the third party rejects the tokenless request, so every observable outcome
+looks correct. The damage is the work done, not the answer given.
+
+But every assembly that mounts a **local edge** needs the same policy — forward
+what originated here, never what arrived from the network — and one of them
+re-derived it by omission. `startMember` passed no policy at all, so a member
+could not call another member through its own edge, and no type checker could
+see it. So the policy is a named export rather than an exercise:
+
+```ts
+createPeerRouter({ selfPeerId, mounts, remote, allowForward: forwardLocalOnly });
+```
+
+`undefined` from `lookupPeer` means no binding was ever made — the request
+never passed through an inbound transport handler. `ANONYMOUS` is **not**
+absence: it means the transport proved there was no identity, which is still
+"arrived from the network". Reading the sentinel as absence would turn the peer
+into an open relay, so the check is against `undefined` and nothing else, and
+`tests/forward-policy.test.ts` pins that case by name.
+
 ## What is deliberately NOT here
 
 **Anything that decides.** Tokens, policy, revocation and the access middleware
@@ -56,3 +82,7 @@ are `@statewalker/httpeers-access`. The registries they guard are
 `@statewalker/httpeers-hub`.
 
 **Transport.** Nothing here dials, listens or speaks a protocol.
+
+---
+
+**45 tests.** No runtime dependencies.

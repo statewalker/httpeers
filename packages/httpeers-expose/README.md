@@ -4,10 +4,17 @@ Make something reachable to mesh members: an in-process handler, a local
 service, or a remote origin.
 
 **The reverse proxy and "expose a local app" are one mechanism.** Twelve
-scenarios, written once and run in Node and Chromium, established that. Only
-the last step differs — a local handler is *called*, a URL upstream is
-*re-issued*. Matching, rewriting, the listing, the marker header and streaming
-are shared.
+scenarios establish it: only the last step differs — a local handler is
+*called*, a URL upstream is *re-issued*. Matching, rewriting, the listing, the
+marker header and streaming are shared.
+
+The scenarios moved here with the code rather than being rewritten, because a
+list that changes when it moves proves nothing about the move. **They run in
+Node here, and only Node.** The prototype also ran them in Chromium, which is
+what established that both upstream kinds behave identically on both platforms
+and that exactly one row cannot pass in a browser (below). That second column
+needs a bundler and a browser and does not exist in this package yet;
+`tests/scenarios.test.ts` says so in its own header.
 
 ```ts
 import { routeTable, urlUpstream } from "@statewalker/httpeers-expose";
@@ -77,3 +84,12 @@ intermediary. A fact about the platform, not about this code.
 | `.` | `routeTable`, `urlUpstream`, `RouteStore`, `assertNoSecrets`, `rehydrate` |
 | `./node` | `fileRouteStore(path)` — write-then-rename |
 | `./browser` | `localStorageRouteStore(key?)` |
+
+No transport, no crypto, no platform at the root — exposing a service needs
+none of them, which is exactly why a proxy **page** and a Node process can
+share this package. `tests/boundary.test.ts` asserts it, and the dependency
+list is one entry: `@statewalker/httpeers-core`.
+
+**22 tests**, and the twelve scenarios run inside two of them — the suite
+asserts that every scenario ran (guarding against an empty list) and that
+none failed.
