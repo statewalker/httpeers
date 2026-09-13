@@ -51,6 +51,7 @@ async function serve(page) {
 const hub = await serve("hub");
 const images = await serve("images");
 const app = await serve("app");
+const proxy = await serve("proxy");
 const browser = await chromium.launch();
 const problems = [];
 
@@ -200,11 +201,57 @@ try {
     .catch(() => {});
   console.log(`app search: ${(await appTab.textContent("#search-status"))?.trim()}`);
 
+  // --- the proxy joins, takes a route, and forwards to a real origin -------
+  const proxyTab = await browser.newPage();
+  watch(proxyTab, "proxy");
+  await proxyTab.goto(proxy.url);
+  await proxyTab.waitForFunction(
+    () => document.querySelector("#state")?.textContent === "needs-invitation",
+    { timeout: 60_000 },
+  );
+  const blob3 = await mint(hubTab, blob2);
+  await proxyTab.fill("#invite", blob3);
+  await proxyTab.click("#join");
+  await proxyTab
+    .waitForFunction(
+      () => {
+        const s = document.querySelector("#state")?.textContent ?? "";
+        return s === "live" || s === "failed" || s === "blocked";
+      },
+      { timeout: 120_000 },
+    )
+    .catch(() => {});
+  const proxyState = (await proxyTab.textContent("#state"))?.trim();
+  console.log(`proxy    : ${proxyState}`);
+
+  // The relay's own well-known document is a real, CORS-open origin that is
+  // definitely up -- we already read it to get here.
+  await proxyTab.fill("#route-prefix", "/relay");
+  await proxyTab.fill("#route-upstream", "https://relay.httpeers.net/.well-known");
+  await proxyTab.click("#add-route");
+  await proxyTab.waitForFunction(
+    () => (document.querySelector("#route-status")?.textContent ?? "").startsWith("added"),
+    { timeout: 20_000 },
+  );
+  console.log(`route    : ${(await proxyTab.textContent("#route-status"))?.trim()}`);
+
+  await proxyTab.fill("#console-path", "/relay/httpeers-relay.json");
+  await proxyTab.click("#console-send");
+  await proxyTab
+    .waitForFunction(
+      () => (document.querySelector("#console-output")?.textContent ?? "") !== "",
+      { timeout: 60_000 },
+    )
+    .catch(() => {});
+  const out = ((await proxyTab.textContent("#console-output")) ?? "").trim();
+  console.log(`proxied  : ${out.split("\n")[0]} — ${out.includes("relayAddrs") ? "got the upstream body" : "NO BODY"}`);
+
   if (problems.length > 0) console.log(`problems : ${problems.slice(0, 6).join(" | ").slice(0, 900)}`);
-  process.exitCode = state === "live" && appState === "live" ? 0 : 1;
+  process.exitCode = state === "live" && appState === "live" && proxyState === "live" ? 0 : 1;
 } finally {
   await browser.close();
   hub.server.close();
   images.server.close();
   app.server.close();
+  proxy.server.close();
 }

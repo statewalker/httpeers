@@ -35,6 +35,7 @@ export function meshRules(): RuleSet {
       // What this application's own services are gated on.
       'capability("app:images.read")    <- role("member");',
       'capability("app:search.query")   <- role("member");',
+      'capability("app:proxy.use")      <- role("member");',
       // Admin implies member -- transitivity is what a rule does, so there is no
       // separate `implies` feature to maintain.
       'capability("std:mesh.admin")     <- role("admin");',
@@ -47,6 +48,12 @@ export function meshRules(): RuleSet {
       ' or capability("std:mesh.read"), resource($r), $r.starts_with("/.well-known/");',
       'allow if capability("app:images.read"), resource($r), $r.starts_with("/images");',
       'allow if capability("app:search.query"), resource($r), $r.starts_with("/search");',
+      // BOTH FORMS, and deliberately: `/proxy` is the route LISTING and
+      // `/proxy/...` is a proxied call. A bare `starts_with("/proxy")` would
+      // also grant `/proxying-something-else`, which is why the exact match
+      // and the slash-prefixed match are written separately.
+      'allow if capability("app:proxy.use"), resource("/proxy")' +
+        ' or capability("app:proxy.use"), resource($r), $r.starts_with("/proxy/");',
       'allow if capability("std:mesh.admin"), resource("/admin")' +
         ' or capability("std:mesh.admin"), resource($r), $r.starts_with("/admin/");',
       ],

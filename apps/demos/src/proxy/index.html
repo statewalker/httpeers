@@ -1,0 +1,84 @@
+<!doctype html>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>httpeers · proxy</title>
+<style>
+  body { font: 15px/1.6 system-ui, sans-serif; margin: 0 auto; max-width: 48rem; padding: 1.5rem 1rem 4rem; }
+  h1 { font-size: 1.4rem; margin-bottom: .2rem; }
+  h2 { font-size: 1.05rem; margin-top: 2rem; }
+  .mono { font-family: ui-monospace, monospace; font-size: .85em; word-break: break-all; }
+  dl { display: grid; grid-template-columns: max-content 1fr; gap: .3rem .8rem; }
+  dt { color: #52525b; }
+  button { font: inherit; padding: .4rem .8rem; cursor: pointer; }
+  input, textarea, select { font: inherit; padding: .4rem; width: 100%; box-sizing: border-box; }
+  .row { display: grid; grid-template-columns: 1fr 1fr; gap: .5rem; }
+  .muted { color: #52525b; }
+  .err { background: #fee2e2; padding: .8rem 1rem; border-radius: 6px; white-space: pre-wrap; }
+  .note { background: #eff6ff; padding: .8rem 1rem; border-radius: 6px; }
+  .warn { background: #fef3c7; padding: .8rem 1rem; border-radius: 6px; }
+  table { border-collapse: collapse; width: 100%; }
+  th, td { text-align: left; padding: .3rem .5rem; border-bottom: 1px solid #e4e4e7; font-size: .9em; }
+  pre { background: #f4f4f5; padding: .8rem; border-radius: 6px; overflow-x: auto; white-space: pre-wrap; max-height: 20rem; }
+</style>
+
+<h1>httpeers · proxy</h1>
+<p class="muted">Expose an outside origin to the mesh — one route table, edited while traffic flows.</p>
+
+<dl>
+  <dt>peer</dt><dd class="mono" id="peer-id">…</dd>
+  <dt>state</dt><dd id="state">starting…</dd>
+</dl>
+
+<div id="error" class="err" hidden></div>
+
+<section id="join-form" hidden>
+  <h2>Join a mesh</h2>
+  <p class="note" id="session-status"></p>
+  <p><input type="text" id="invite" placeholder="paste a join link, a join blob, or an invitation id" /></p>
+  <p><button id="join">Join</button></p>
+</section>
+
+<section id="session-controls" hidden>
+  <h2>Session</h2>
+  <p class="muted" id="live-status"></p>
+  <p><button id="disconnect">Disconnect</button> <button id="reconnect" hidden>Reconnect</button></p>
+</section>
+
+<h2>Routes</h2>
+<p class="warn" id="warning">
+  A credential's <strong>name</strong> is saved; its <strong>value</strong> never is.
+  Re-enter it after a reload — a secret written to <code>localStorage</code> survives
+  the reload, the shared machine, and anyone who opens devtools.
+</p>
+<table>
+  <thead><tr><th>prefix</th><th>upstream</th><th>credential</th><th></th></tr></thead>
+  <tbody id="routes"><tr><td colspan="4" class="muted">no routes yet</td></tr></tbody>
+</table>
+
+<h2>Add a route</h2>
+<form id="add-route-form">
+  <p class="row">
+    <input type="text" id="route-prefix" placeholder="/example" required />
+    <input type="text" id="route-upstream" placeholder="https://example.com/api" required />
+  </p>
+  <p class="row">
+    <input type="text" id="route-secret-name" placeholder="authorization (optional header name)" />
+    <input type="password" id="route-secret-value" placeholder="value — never saved" />
+  </p>
+  <p><button type="submit" id="add-route">Add route</button> <span class="muted" id="route-status"></span></p>
+</form>
+
+<h2>Try it</h2>
+<form id="console-form">
+  <p class="row">
+    <select id="console-method"><option>GET</option><option>POST</option></select>
+    <input type="text" id="console-path" placeholder="/example/some/path" />
+  </p>
+  <p><button type="submit" id="console-send">Send through the proxy</button> <span class="muted" id="console-status"></span></p>
+</form>
+<pre id="console-output" hidden></pre>
+
+<h2>Reset</h2>
+<p><a href="/reset.html">Reset this app →</a></p>
+
+<script type="module" src="./main.ts"></script>
