@@ -437,3 +437,60 @@ rclone_has_serve_nfs() {
 have_mount_nfs() {
   command -v mount.nfs >/dev/null 2>&1 || [ -x /sbin/mount.nfs ] || [ -x /usr/sbin/mount.nfs ]
 }
+
+# ---------------------------------------------------------------------------
+# Which transport mounts the bucket.
+#
+# TWO, NOT ONE, AND THE PLATFORM DECIDES THE DEFAULT. Both work on Linux, so
+# the default there is FUSE: it needs no root and no docker, where NFS needs
+# `mount.nfs`, a container for the server, and root to mount. On macOS FUSE
+# means macFUSE -- a kernel extension a person has to install and approve in
+# System Settings -- so NFS is the only transport that works out of the box,
+# and asking for FUSE there is refused here rather than left to fail inside
+# rclone with a message about a missing mount helper.
+#
+# Pure: it takes the requested transport and `uname -s` and returns a name.
+# That is what lets both platforms be tested on either one.
+# ---------------------------------------------------------------------------
+
+# mount_fs_at <path> -> prints the filesystem type mounted there, or nothing.
+#
+# `exit` inside awk rather than `| head -1`: a pipeline under `set -o pipefail`
+# can fail when head closes the pipe first, and in a plain assignment that
+# failure takes the script down through errexit. One awk and no pipe.
+mount_fs_at() {
+  [ -n "${1:-}" ] || return 1
+  local fs
+  fs="$(awk -v m="$1" '$2 == m { print $3; exit }' /proc/mounts 2>/dev/null)"
+  [ -n "$fs" ] || return 1
+  printf '%s' "$fs"
+}
+
+default_transport() {
+  case "$1" in
+    Darwin) printf 'nfs' ;;
+    *)      printf 'fuse' ;;
+  esac
+}
+
+# resolve_transport <requested|""> <uname -s>  ->  prints "fuse" or "nfs"
+# Returns non-zero, with the reason on stderr, when the request cannot be met.
+resolve_transport() {
+  local want="${1:-}" os="${2:-}"
+  [ -n "$want" ] || want="$(default_transport "$os")"
+  case "$want" in
+    fuse)
+      if [ "$os" = "Darwin" ]; then
+        printf 'FUSE on macOS needs macFUSE, a kernel extension that must be installed and approved by hand.\n' >&2
+        printf 'Use NFS there: httpeers-mount --nfs\n' >&2
+        return 1
+      fi
+      printf 'fuse'
+      ;;
+    nfs) printf 'nfs' ;;
+    *)
+      printf 'unknown transport: %s (expected "fuse" or "nfs")\n' "$want" >&2
+      return 1
+      ;;
+  esac
+}

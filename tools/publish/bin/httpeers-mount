@@ -14,9 +14,16 @@ set -euo pipefail
 
 usage() {
   cat >&2 <<'USAGE'
-usage: httpeers-mount [--sudo] [--read-only] [--foreground]
+usage: httpeers-mount [--fuse|--nfs] [--sudo] [--read-only] [--foreground]
 
-  Starts `rclone serve nfs` bound to loopback, then mounts it.
+  Mounts the bucket so the folder IS the bucket. Two transports:
+
+  --fuse        `rclone mount` on this host. No docker and no root. The default
+                on Linux.
+  --nfs         `rclone serve nfs` in a container on loopback, mounted by the
+                host's NFS client. Needs docker, mount.nfs and root. The default
+                -- and the only option -- on macOS, where FUSE means macFUSE, a
+                kernel extension that has to be installed and approved by hand.
 
   --sudo        run the `mount` command through sudo. Without it the exact
                 command is printed for you to run, because mounting NFS on
@@ -31,9 +38,11 @@ detected and left alone.
 USAGE
 }
 
-use_sudo=0; read_only=0; foreground=0
+use_sudo=0; read_only=0; foreground=0; want_transport=
 while [ $# -gt 0 ]; do
   case "$1" in
+    --fuse) want_transport=fuse ;;
+    --nfs) want_transport=nfs ;;
     --sudo) use_sudo=1 ;;
     --read-only) read_only=1 ;;
     --foreground) foreground=1 ;;
@@ -44,7 +53,83 @@ while [ $# -gt 0 ]; do
 done
 
 load_config
-require_rclone
+
+transport="$(resolve_transport "$want_transport" "$(uname -s)")" || exit 1
+
+# ---------------------------------------------------------------------------
+# FUSE. Short, because there is no server to run and nothing to wait for: the
+# process IS the mount. None of the NFS preflight below applies -- no docker, no
+# mount.nfs, no root -- which is why this returns before reaching it.
+#
+# The remote already exists: httpeers-setup wrote it with `rclone config
+# create`, and $HTTPEERS_TARGET is "<remote>:<bucket>". The cache and dir-cache
+# flags match the ones the NFS container serves with, so a file behaves the same
+# way whichever transport is mounted -- writes land through a cache, and a
+# change made elsewhere shows up within ten seconds.
+# ---------------------------------------------------------------------------
+if [ "$transport" = "fuse" ]; then
+  require_rclone
+  TMPERR="$(mktemp)"; trap 'rm -f "$TMPERR"' EXIT
+  rclone mount --help >/dev/null 2>&1 \
+    || die "this rclone has no \`mount\` command. Use --nfs, or install a current rclone:
+      curl https://rclone.org/install.sh | sudo bash"
+  command -v fusermount3 >/dev/null 2>&1 || command -v fusermount >/dev/null 2>&1 \
+    || die "fusermount is missing -- FUSE is not available on this host.
+      Fix:  sudo apt install fuse3      (or mount with --nfs)"
+
+  mnt="$HTTPEERS_MOUNT_POINT"
+  mkdir -p "$mnt"
+  if [ -n "$(mount_fs_at "$mnt")" ]; then
+    info "already mounted at $mnt -- leaving it alone."
+    exit 0
+  fi
+
+  # CHECK THE REMOTE BEFORE MOUNTING, not after. `rclone mount` does not contact
+  # the remote to succeed: with bad credentials it mounts happily and every `ls`
+  # afterwards fails with EIO, which looks like a broken disk rather than a
+  # wrong key. The NFS path has its own version of this -- it waits for the port
+  # and checks the container has not exited -- and FUSE needs one too.
+  if ! rclone lsd "$HTTPEERS_TARGET" >/dev/null 2>"$TMPERR"; then
+    err "cannot list $HTTPEERS_TARGET -- not mounting, because the mount would"
+    err "appear to work and then fail on every read."
+    sed 's/^/    /' "$TMPERR" >&2
+    info ""
+    info "    If the key is wrong or missing, re-run:  ./bin/httpeers-setup"
+    exit 1
+  fi
+
+  [ "$read_only" = 1 ] && info "mounting READ-ONLY: writes to the mount will be refused."
+  warn "there is no confirmation and no undo in this mode. Removing a directory here"
+  warn "removes a live site immediately."
+  cache_dir="${HTTPEERS_RUN_DIR:-.run}/fuse-cache"
+  mkdir -p "$cache_dir"
+
+  args=(mount "$HTTPEERS_TARGET" "$mnt"
+        --vfs-cache-mode writes --dir-cache-time 10s --poll-interval 0
+        --cache-dir "$cache_dir")
+  [ "$read_only" = 1 ] && args+=(--read-only)
+  if [ "$foreground" = 1 ]; then
+    info "rclone ${args[*]}   (Ctrl-C to unmount)"
+    exec rclone "${args[@]}"
+  fi
+  # `--daemon` RETURNS BEFORE THE MOUNT EXISTS. rclone forks, and the parent
+  # exits 0 as soon as the child is running -- which is not the same thing as
+  # the kernel having the mount. Reporting success there is a lie the next
+  # command pays for: an unmount a few milliseconds later finds nothing to
+  # unmount and fails. So wait for it to actually appear.
+  args+=(--daemon)
+  rclone "${args[@]}" || die "rclone mount failed."
+  waited=0
+  until mount_fs_at "$mnt" >/dev/null; do
+    waited=$((waited + 1))
+    [ "$waited" -gt 100 ] && die "rclone started but $mnt never became a mount point (waited 10s).
+      Check:  rclone lsd $HTTPEERS_TARGET"
+    sleep 0.1
+  done
+  info "mounted $HTTPEERS_TARGET at $mnt over FUSE (no root was needed)."
+  info "Unmount with:  ./bin/httpeers-unmount"
+  exit 0
+fi
 
 # ---------------------------------------------------------------------------
 # Preflight. Every one of these fails on a stock Ubuntu 24.04 workstation, so

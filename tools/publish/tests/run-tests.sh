@@ -8,7 +8,8 @@
 # real diff and the real `rclone sync` -- only the destination is fake.
 #
 # What this cannot prove is in the README under "What the tests do not cover":
-# S3 semantics, the NFS mode (the prerequisites are absent on this machine),
+# S3 semantics, a real mount of either transport (both need root or a kernel
+# module, and neither belongs in a unit test),
 # and the interactive prompt on a real tty.
 set -uo pipefail
 
@@ -39,6 +40,44 @@ inbucket() { mkdir -p "$BUCKET/$1"; printf '%s\n' "${3:-hello}" > "$BUCKET/$1/${
 # Run a command with stdin closed, so nothing can ever block on a prompt and
 # so the non-interactive refusal path is what is under test.
 run() { "$@" </dev/null >"$TMP/out" 2>&1; echo $?; }
+
+# ---------------------------------------------------------------------------
+# Transport selection. Pure logic, so it is tested without mounting anything --
+# which matters because the two transports cannot both be exercised on one
+# machine: Darwin never has usable FUSE, and this box has no macOS to try.
+# ---------------------------------------------------------------------------
+transport() { ( . "$ROOT/lib/common.sh" >/dev/null 2>&1; resolve_transport "$1" "$2" ) 2>/dev/null; }
+transport_rc() { ( . "$ROOT/lib/common.sh" >/dev/null 2>&1; resolve_transport "$1" "$2" >/dev/null 2>&1 ); echo $?; }
+
+[ "$(transport '' Linux)" = "fuse" ] \
+  && ok "Linux defaults to FUSE -- no root and no docker needed" \
+  || notok "Linux defaults to FUSE" "got: $(transport '' Linux)"
+
+[ "$(transport '' Darwin)" = "nfs" ] \
+  && ok "macOS defaults to NFS -- macFUSE is a kernel extension" \
+  || notok "macOS defaults to NFS" "got: $(transport '' Darwin)"
+
+[ "$(transport nfs Linux)" = "nfs" ] \
+  && ok "--nfs is honoured on Linux; both transports stay available there" \
+  || notok "--nfs on Linux" "got: $(transport nfs Linux)"
+
+[ "$(transport fuse Linux)" = "fuse" ] \
+  && ok "--fuse is honoured on Linux" \
+  || notok "--fuse on Linux" "got: $(transport fuse Linux)"
+
+[ "$(transport nfs Darwin)" = "nfs" ] \
+  && ok "--nfs is honoured on macOS" \
+  || notok "--nfs on macOS" "got: $(transport nfs Darwin)"
+
+# The one place the platforms genuinely differ, and it must say so rather than
+# fail later inside rclone with something about a missing mount helper.
+[ "$(transport_rc fuse Darwin)" != "0" ] \
+  && ok "--fuse on macOS is refused up front, not left to fail in rclone" \
+  || notok "--fuse on macOS should be refused"
+
+[ "$(transport_rc banana Linux)" != "0" ] \
+  && ok "an unknown transport is rejected" \
+  || notok "unknown transport should be rejected"
 
 command -v rclone >/dev/null 2>&1 || { echo "rclone is required to run these tests"; exit 1; }
 
@@ -363,7 +402,14 @@ echo
 echo "== 13. the mount preflight refuses on this machine, and starts nothing =="
 scenario mountpf
 site a.httpeers.net
-rc="$(run "$BIN/httpeers-mount")"
+# --nfs, NOT bare. On Linux the bare command now means FUSE, which needs neither
+# docker nor root -- so it does not refuse, it MOUNTS, against whatever
+# HTTPEERS_TARGET happens to be. A negative test that quietly became a positive
+# one is how this suite mounted a bucket for several runs without saying so.
+# It also mounted at the CONFIGURED mount point and unmounted it a moment later,
+# which is where "unmount no-op" failed about one run in six: the unmount raced
+# the mount that this test was never supposed to make.
+rc="$(run "$BIN/httpeers-mount" --nfs)"
 # The SERVER is containerised, so the host's rclone version no longer gates this
 # mode. The only host requirement left is the NFS client, which cannot be
 # containerised: mounting is a kernel operation out here.
@@ -391,29 +437,109 @@ rc="$(run "$BIN/httpeers-unmount")"
 if [ "$rc" = 0 ]; then ok "httpeers-unmount is a safe no-op when nothing is mounted"
 else notok "unmount no-op (rc=$rc)" "$(cat "$TMP/out")"; fi
 
+# ---------------------------------------------------------------------------
+# The one place the suite really mounts something.
+#
+# It is safe because BOTH ends are fake: the target is the scenario's directory
+# bucket, not a remote, and the mount point is a fresh temp directory rather
+# than the configured one. No credential is used and no real site can be
+# touched. rclone mounts a local directory as happily as an S3 bucket, so the
+# code path is the same one live mode uses.
+#
+# What it covers: the FUSE path end to end -- mount, read a file through it,
+# unmount -- with no root and no container. That is the whole transport.
+#
+# What it does NOT cover, measured rather than assumed: remove the wait for the
+# mount to appear from httpeers-mount and this still passes five runs out of
+# five. `rclone mount --daemon` exits 0 when the child is running, not when the
+# kernel has the mount, and the window is usually too small to catch from here.
+# The wait stays in httpeers-mount because reporting a mount that does not yet
+# exist is wrong -- not because this test would notice.
+# ---------------------------------------------------------------------------
+scenario fuseround
+site a.httpeers.net
+inbucket a.httpeers.net
+fuse_mnt="$TMP/fuseround-mnt"; mkdir -p "$fuse_mnt"
+cleanup_fuse() { fusermount3 -u "$fuse_mnt" 2>/dev/null || fusermount -u "$fuse_mnt" 2>/dev/null || true; }
+if [ "$(. "$ROOT/lib/common.sh" >/dev/null 2>&1; default_transport "$(uname -s)")" = fuse ] \
+   && { command -v fusermount3 >/dev/null 2>&1 || command -v fusermount >/dev/null 2>&1; } \
+   && rclone mount --help >/dev/null 2>&1; then
+  trap cleanup_fuse EXIT
+  rc="$(HTTPEERS_MOUNT_POINT="$fuse_mnt" run "$BIN/httpeers-mount" --fuse)"
+  if [ "$rc" = 0 ] && [ -f "$fuse_mnt/a.httpeers.net/index.html" ]; then
+    ok "mount --fuse returns only once the mount is really there and readable"
+  else
+    notok "fuse mount round trip (rc=$rc)" "$(cat "$TMP/out")"
+  fi
+  rc="$(HTTPEERS_MOUNT_POINT="$fuse_mnt" run "$BIN/httpeers-unmount")"
+  if [ "$rc" = 0 ] && [ ! -f "$fuse_mnt/a.httpeers.net/index.html" ]; then
+    ok "unmount takes the FUSE mount down without root and without a container"
+  else
+    notok "fuse unmount (rc=$rc)" "$(cat "$TMP/out")"
+  fi
+  trap - EXIT
+else
+  echo "  skip  FUSE is not usable here; the round trip cannot run"
+fi
+
 echo
 echo "== 14. setup reports rather than repairs =="
 scenario setuptest
 site a.httpeers.net
 rc="$(run "$BIN/httpeers-setup")"
-if rclone serve --help 2>&1 | grep -qE '^[[:space:]]+nfs[[:space:]]'; then
-  echo "  skip  setup's NFS failure path (this rclone has serve nfs)"
+
+# THESE USED TO DEPEND ON THE MACHINE. The old versions branched on whether the
+# host rclone had `serve nfs` and expected setup to FAIL when it did not -- true
+# when the server ran on the host, false since it became a container, and false
+# in a different way once someone installed nfs-common here. A test that asserts
+# a precondition failure the host has quietly stopped having is a test that
+# reports on the machine, not on the code.
+grep -qi 'containerised' "$TMP/out" \
+  && ok "setup reports the NFS server as containerised, not a host requirement" \
+  || notok "setup should report the containerised server" "$(cat "$TMP/out")"
+
+grep -qi 'rclone.org/install' "$TMP/out" \
+  && notok "setup must no longer demand a host rclone upgrade" "$(cat "$TMP/out")" \
+  || ok "setup does not demand a host rclone upgrade -- the image pins the version"
+
+# Deterministic on any machine: `docker` is found through PATH, so it can be
+# hidden. (`mount.nfs` cannot -- have_mount_nfs also probes /sbin and /usr/sbin
+# by absolute path -- which is why the docker branch is the one asserted here.)
+# The Linux default is FUSE now, so `httpeers-mount` with no flags never reaches
+# the docker check -- which is why the test below passes --nfs explicitly. The
+# default itself is pinned by the resolve_transport tests above; asserting it
+# here would mean running a real mount, which is not a unit test's business.
+emptypath="$TMP/nodocker"; mkdir -p "$emptypath"
+for c in rclone awk sed grep cut printf env bash uname mktemp dirname cd; do
+  src="$(command -v "$c" 2>/dev/null)" && ln -sf "$src" "$emptypath/$c" 2>/dev/null
+done
+rc_nodocker="$(PATH="$emptypath" run "$BIN/httpeers-mount" --nfs)"
+if [ "$rc_nodocker" != 0 ] && grep -qi 'docker' "$TMP/out"; then
+  ok "mount --nfs refuses without docker and names it"
 else
-  if [ "$rc" != 0 ] && grep -q 'Nothing was installed or changed' "$TMP/out"; then
-    ok "setup exits non-zero and states it changed nothing"
-  else
-    notok "setup exits non-zero on missing NFS prerequisites (rc=$rc)" "$(cat "$TMP/out")"
-  fi
-  grep -q 'nfs-common' "$TMP/out" && ok "setup names the exact apt package" \
-    || notok "setup names nfs-common" "$(cat "$TMP/out")"
-  # The server is containerised now, so a host rclone upgrade is no longer a
-  # prerequisite for live mode -- asking for one would be misleading.
-  grep -qi 'containerised' "$TMP/out" && ok "setup reports the nfs server as containerised" \
-    || notok "setup should report the containerised server" "$(cat "$TMP/out")"
-  grep -qi 'rclone.org/install' "$TMP/out" \
-    && notok "setup must no longer demand a host rclone upgrade" "$(cat "$TMP/out")" \
-    || ok "setup no longer demands a host rclone upgrade" 
+  notok "mount should refuse without docker (rc=$rc_nodocker)" "$(cat "$TMP/out")"
 fi
+
+# Live mode has two transports now, so setup reports on both and fails only
+# when NEITHER can mount -- demanding the NFS client on a box that will mount
+# over FUSE would be a check that fails while the tool works. Under the masked
+# PATH above, docker is hidden and so is fusermount, so neither is usable.
+# Nothing is mounted by setup, which is what makes this safe to run.
+rc_notransport="$(PATH="$emptypath" run "$BIN/httpeers-setup" --no-remote)"
+if [ "$rc_notransport" != 0 ] && grep -qi 'no transport can mount' "$TMP/out"; then
+  ok "setup fails when neither transport is usable, and says so once"
+else
+  notok "setup should fail when no transport is usable (rc=$rc_notransport)" "$(cat "$TMP/out")"
+fi
+
+# The README used to carry FUSE as "the alternative that is not built here" and
+# setup said so too. It is built now; the stale sentence would send a reader to
+# a section that no longer exists.
+rc="$(run "$BIN/httpeers-setup" --no-remote)"
+grep -qi 'what was asked for' "$TMP/out" \
+  && notok "setup still describes FUSE as not-what-was-asked-for" "$(cat "$TMP/out")" \
+  || ok "setup no longer calls FUSE an alternative it does not implement"
+
 rc="$(run "$BIN/httpeers-setup" --sync-only)"
 if [ "$rc" = 0 ]; then ok "setup --sync-only passes (sync mode needs nothing extra)"
 else notok "setup --sync-only passes (rc=$rc)" "$(cat "$TMP/out")"; fi
