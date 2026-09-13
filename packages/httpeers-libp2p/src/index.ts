@@ -8,6 +8,28 @@
  */
 
 export { hubRelayService, type IsMember, membershipGater } from "./hub-relay.js";
+export {
+  hubRoute,
+  leaveRelay,
+  reachHub,
+  reserveOnHub,
+  type SuperviseHubReservationInit,
+  superviseHubReservation,
+} from "./hub-link.js";
+export { lastPeerIdOf } from "./multiaddr-parts.js";
+export {
+  type CircuitAddrs,
+  circuitAddrs,
+  dialRelay,
+  type RelaySupervisor,
+  RESERVATION_POLL_ATTEMPTS,
+  RESERVATION_POLL_INTERVAL_MS,
+  retryDelayMs,
+  type SuperviseRelayInit,
+  superviseRelay,
+  type WaitForCircuitReservationInit,
+  waitForCircuitReservation,
+} from "./reservation.js";
 export { type Peer, servePeer, type ServePeerInit } from "./serve-peer.js";
 export {
   createNode,

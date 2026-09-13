@@ -100,7 +100,9 @@ describe("the isomorphism boundary", () => {
       }
     });
 
-    it(`${name} touches no DOM-only global`, () => {
+    // `./browser` exists to touch IndexedDB and the WebRTC transports; a rule
+    // forbidding that there would forbid the file's whole purpose.
+    it.skipIf(PLATFORM_ENTRIES.has(name))(`${name} touches no DOM-only global`, () => {
       expect(codeOf(file), name).not.toMatch(DOM_ONLY);
     });
   }
