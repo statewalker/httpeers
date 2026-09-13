@@ -1,0 +1,64 @@
+<!doctype html>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>httpeers · hub</title>
+<style>
+  body { font: 15px/1.6 system-ui, sans-serif; margin: 0 auto; max-width: 48rem; padding: 1.5rem 1rem 4rem; }
+  h1 { font-size: 1.4rem; margin-bottom: .2rem; }
+  h2 { font-size: 1.05rem; margin-top: 2rem; }
+  code, .mono { font-family: ui-monospace, monospace; font-size: .85em; word-break: break-all; }
+  dl { display: grid; grid-template-columns: max-content 1fr; gap: .3rem .8rem; margin: .5rem 0; }
+  dt { color: #52525b; }
+  button { font: inherit; padding: .4rem .8rem; cursor: pointer; }
+  table { border-collapse: collapse; width: 100%; margin-top: .5rem; }
+  th, td { text-align: left; padding: .35rem .5rem; border-bottom: 1px solid #e4e4e7; }
+  .muted { color: #52525b; }
+  .warn { background: #fef3c7; padding: .8rem 1rem; border-radius: 6px; }
+  .err { background: #fee2e2; padding: .8rem 1rem; border-radius: 6px; white-space: pre-wrap; }
+  #qr svg { width: 180px; height: 180px; }
+</style>
+
+<h1>httpeers · hub</h1>
+<p class="muted">This tab <strong>is</strong> the mesh.</p>
+
+<p class="warn">
+  The mesh exists only while this tab is open. Its identity lives in this
+  browser — close the tab and members cannot reach it; reset it and you found a
+  different mesh.
+</p>
+
+<dl>
+  <dt>mesh id</dt><dd class="mono" id="mesh-id">…</dd>
+  <dt>state</dt><dd id="state">starting…</dd>
+  <dt>relay</dt><dd class="mono" id="relay">…</dd>
+  <dt>circuit</dt><dd class="mono" id="circuit">…</dd>
+  <dt>edge</dt><dd class="mono" id="base-url">…</dd>
+</dl>
+
+<div id="error" class="err" hidden></div>
+
+<h2>Invite someone</h2>
+<p>
+  <select id="mint-roles"><option value="member">member</option></select>
+  <button id="mint" disabled>Mint an invitation</button>
+</p>
+<div id="invitation" hidden>
+  <dl id="invitation-rows"></dl>
+  <div id="qr"></div>
+</div>
+
+<h2>Members</h2>
+<table>
+  <thead><tr><th>peer</th><th>roles</th><th>presence</th><th></th></tr></thead>
+  <tbody id="members"><tr><td colspan="4" class="muted">none yet</td></tr></tbody>
+</table>
+<p class="muted" id="admin-status"></p>
+
+<h2>Reset</h2>
+<p class="muted">
+  Founds a <strong>different mesh</strong>: a new hub id, every token stops
+  verifying, every link handed out stops working, and the member list is erased.
+</p>
+<p><a href="/reset.html">Reset this app →</a></p>
+
+<script type="module" src="./main.ts"></script>

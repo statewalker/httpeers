@@ -1,0 +1,15 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    // A BROWSER app, so the DOM lib is correct here — unlike in the packages,
+    // where including it is how a DOM-only global slips into isomorphic code.
+    "lib": ["ES2022", "DOM", "DOM.Iterable"],
+    "types": ["node", "vite/client"],
+    "rootDir": ".",
+    "noEmit": true,
+    "paths": {
+      "#biscuit-snippet": ["./src/shared/biscuit-snippet.d.ts"]
+    }
+  },
+  "include": ["src/**/*.ts", "*.ts"]
+}

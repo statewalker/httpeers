@@ -1,0 +1,89 @@
+<!doctype html>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Reset this app</title>
+<!--
+  THE RESCUE PAGE. Deliberately a hand-written file in `public/`, not part of
+  any bundle and importing nothing:
+
+    * A ServiceWorker is the stickiest thing this site installs. Reloading does
+      not remove one, and an app whose own code will not start cannot offer a
+      reset control.
+    * Reaching the reset through the app's bundle would mean the reset only
+      works when the app works, which is exactly backwards.
+    * Everything here is inline. No module graph, no wasm, no imports — so it
+      loads even when the thing that broke is a dependency.
+
+  The SW passes URLs it does not own through to the network, so this page is
+  reachable while a worker is installed.
+-->
+<style>
+  body { font: 15px/1.6 system-ui, sans-serif; margin: 0 auto; max-width: 34rem; padding: 2rem 1rem; }
+  h1 { font-size: 1.3rem; }
+  button { font: inherit; padding: .6rem 1rem; cursor: pointer; }
+  pre { background: #f4f4f5; padding: .8rem; border-radius: 6px; overflow-x: auto; white-space: pre-wrap; }
+  .muted { color: #52525b; }
+</style>
+
+<h1>Reset this app</h1>
+
+<p>
+  This removes <strong>everything this site stored in your browser</strong>: its
+  ServiceWorker, its databases, and its saved values.
+</p>
+<p class="muted">
+  That includes this browser's <strong>peer identity</strong>. After a reset this
+  origin is a different peer, so any membership it held is gone and you will need
+  a fresh invitation to rejoin. Nothing on other people's machines is affected.
+</p>
+
+<p><button id="go">Reset this app</button></p>
+<pre id="out" hidden></pre>
+
+<script>
+  const out = document.querySelector("#out");
+  const say = (text) => {
+    out.hidden = false;
+    out.textContent += `${text}\n`;
+  };
+
+  document.querySelector("#go").addEventListener("click", async (event) => {
+    event.target.disabled = true;
+    say("Clearing…");
+
+    let workers = 0;
+    try {
+      const regs = (await navigator.serviceWorker?.getRegistrations()) ?? [];
+      for (const reg of regs) {
+        try { await reg.unregister(); workers += 1; } catch {}
+      }
+    } catch {}
+    say(`ServiceWorkers removed: ${workers}`);
+
+    const dbs = [];
+    try {
+      for (const { name } of (await indexedDB.databases?.()) ?? []) {
+        if (!name) continue;
+        // `onblocked` fires when another tab still holds the database open.
+        // Resolving anyway keeps the reset moving; the reload finishes it.
+        await new Promise((resolve) => {
+          const req = indexedDB.deleteDatabase(name);
+          req.onsuccess = req.onerror = req.onblocked = () => resolve();
+        });
+        dbs.push(name);
+      }
+    } catch {}
+    say(`Databases removed: ${dbs.length ? dbs.join(", ") : "none"}`);
+
+    try { localStorage.clear(); } catch {}
+    try { sessionStorage.clear(); } catch {}
+    say("Stored values cleared.");
+
+    // THE RELOAD IS PART OF THE RESET, not a courtesy. `unregister()` removes
+    // the registration but does NOT evict the worker already controlling open
+    // pages — it keeps serving them until they unload. Without this the page
+    // would report success while still being served by what it just removed.
+    say("Reloading…");
+    setTimeout(() => { location.href = "/"; }, 900);
+  });
+</script>
