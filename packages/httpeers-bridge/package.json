@@ -1,0 +1,39 @@
+{
+  "name": "@statewalker/httpeers-bridge",
+  "version": "0.1.0",
+  "type": "module",
+  "description": "Fetch over a duplex, both directions, with no transport in it. The seam libp2p, MessagePorts and anything else plug into.",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+ssh://git@github.com/statewalker/httpeers.git",
+    "directory": "packages/httpeers-bridge"
+  },
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": { "types": "./dist/index.d.ts", "import": "./dist/index.js" },
+    "./ports": { "types": "./dist/ports.d.ts", "import": "./dist/ports.js" }
+  },
+  "files": ["dist", "src"],
+  "sideEffects": false,
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json",
+    "test": "pnpm run build && pnpm run typecheck && vitest run",
+    "typecheck": "tsc --noEmit",
+    "lint": "biome check src tests",
+    "lint:check": "biome check src tests"
+  },
+  "dependencies": {
+    "@statewalker/httpeers-core": "workspace:*",
+    "@statewalker/webrun-http-streams": "workspace:*",
+    "@statewalker/webrun-rpc": "workspace:*",
+    "@statewalker/webrun-streams": "workspace:*"
+  },
+  "devDependencies": {
+    "@types/node": "catalog:",
+    "typescript": "catalog:",
+    "vitest": "catalog:"
+  },
+  "publishConfig": { "access": "public" }
+}
