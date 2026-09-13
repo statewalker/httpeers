@@ -1,0 +1,57 @@
+# The rclone NFS server, containerised.
+#
+# WHY A CONTAINER. `rclone serve nfs` arrived in rclone 1.65. Rather than make
+# every machine upgrade its system rclone -- and then keep them in step -- the
+# server runs from the official image, which pins the version for everyone.
+# This host's rclone is v1.60.1-DEV and does not have the subcommand at all;
+# the image has v1.74.4 and does.
+#
+# WHAT THE CONTAINER CANNOT DO. Mounting is a kernel operation on the HOST, so
+# `mount.nfs` (package `nfs-common`) and root are still required outside. The
+# container removes the rclone dependency, not the NFS client one.
+#
+# NO PRIVILEGES NEEDED. This is a userspace server on a TCP port -- no
+# --privileged, no capabilities, no host networking.
+
+name: httpeers-publish
+
+services:
+  nfs:
+    image: rclone/rclone:1.74.4
+    container_name: httpeers_publish_nfs
+    restart: unless-stopped
+    # 127.0.0.1 ONLY. An unauthenticated NFS export reachable from the network
+    # would hand the whole bucket to anyone who can route to this machine.
+    ports:
+      - "127.0.0.1:${HTTPEERS_NFS_PORT:-2049}:2049"
+    environment:
+      # rclone builds the remote from these rather than from a config file, so
+      # no credential is ever written to disk in this directory.
+      RCLONE_CONFIG_HTTPEERS_TYPE: s3
+      RCLONE_CONFIG_HTTPEERS_PROVIDER: Other
+      RCLONE_CONFIG_HTTPEERS_ENDPOINT: ${HTTPEERS_S3_ENDPOINT:?set HTTPEERS_S3_ENDPOINT in publish.env}
+      RCLONE_CONFIG_HTTPEERS_ACCESS_KEY_ID: ${HTTPEERS_S3_ACCESS_KEY_ID:?set HTTPEERS_S3_ACCESS_KEY_ID in publish.env}
+      RCLONE_CONFIG_HTTPEERS_SECRET_ACCESS_KEY: ${HTTPEERS_S3_SECRET_ACCESS_KEY:?set HTTPEERS_S3_SECRET_ACCESS_KEY in publish.env}
+      RCLONE_CONFIG_HTTPEERS_FORCE_PATH_STYLE: "true"
+      RCLONE_CONFIG_HTTPEERS_REGION: us-east-1
+      # rclone reads every flag from RCLONE_<FLAG> too, so --read-only can be
+      # toggled without making the `command` below conditional.
+      RCLONE_READ_ONLY: ${HTTPEERS_NFS_READ_ONLY:-false}
+    command:
+      - serve
+      - nfs
+      - "httpeers:${HTTPEERS_S3_BUCKET:?set HTTPEERS_S3_BUCKET in publish.env}"
+      - --addr=:2049
+      # REQUIRED. Without a write-capable VFS cache `serve nfs` is READ-ONLY,
+      # so the mount silently refuses every write and the mode does not work at
+      # all. This is the single flag most likely to be dropped as noise.
+      - --vfs-cache-mode=writes
+      - --dir-cache-time=10s
+      - --poll-interval=0
+    volumes:
+      - vfs_cache:/root/.cache/rclone
+
+volumes:
+  # Writes are staged here before upload. On a volume so a container restart
+  # does not discard a write that has not been flushed yet.
+  vfs_cache:

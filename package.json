@@ -37,6 +37,11 @@
   "pnpm": {
     "onlyBuiltDependencies": [
       "esbuild"
-    ]
+    ],
+    "overrides": {
+      "@statewalker/webrun-streams": "link:../webrun-wire/packages/webrun-streams",
+      "@statewalker/webrun-streams-libp2p": "link:../webrun-wire/packages/webrun-streams-libp2p",
+      "@statewalker/webrun-http-streams": "link:../webrun-wire/packages/webrun-http-streams"
+    }
   }
 }

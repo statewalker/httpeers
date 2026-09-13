@@ -1,0 +1,190 @@
+#!/usr/bin/env bash
+#
+# Live mode: `rclone serve nfs` on loopback, mounted locally, so the folder IS
+# the bucket and there is no publish step at all.
+#
+# NONE OF THE SAFETY IN httpeers-publish APPLIES INSIDE THIS MOUNT. There is no
+# diff, no confirmation and no undo: `rm -rf mnt/abc.httpeers.net` takes the
+# site off the internet the moment the last object is gone. That is the point
+# of the mode -- "add and remove sites by changing the content of a folder" --
+# but it is the reason this script says so every time it runs, and the reason
+# sync mode, not this, is the default.
+set -euo pipefail
+. "$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/../lib" && pwd)/common.sh"
+
+usage() {
+  cat >&2 <<'USAGE'
+usage: httpeers-mount [--sudo] [--read-only] [--foreground]
+
+  Starts `rclone serve nfs` bound to loopback, then mounts it.
+
+  --sudo        run the `mount` command through sudo. Without it the exact
+                command is printed for you to run, because mounting NFS on
+                Linux needs root and this script will not acquire root behind
+                your back.
+  --read-only   serve the bucket read-only. Useful for browsing production.
+  --foreground  run the NFS server in the foreground (Ctrl-C stops it); do
+                not mount. For debugging the server on its own.
+
+Safe to run twice: an already-running server and an already-mounted point are
+detected and left alone.
+USAGE
+}
+
+use_sudo=0; read_only=0; foreground=0
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --sudo) use_sudo=1 ;;
+    --read-only) read_only=1 ;;
+    --foreground) foreground=1 ;;
+    -h|--help) usage; exit 0 ;;
+    *) usage; die "unknown argument: $1" ;;
+  esac
+  shift
+done
+
+load_config
+require_rclone
+
+# ---------------------------------------------------------------------------
+# Preflight. Every one of these fails on a stock Ubuntu 24.04 workstation, so
+# it is the normal path, not the exceptional one -- and it must name the fix
+# rather than half-starting something.
+# ---------------------------------------------------------------------------
+missing=0
+# The NFS SERVER now runs in a container (docker-compose.yml beside this script),
+# so the host's own rclone is irrelevant to this mode -- this machine's is
+# v1.60.1-DEV and has no `serve nfs` at all, while the image pins v1.74.4 which
+# does. What a container cannot supply is the CLIENT: mounting is a kernel
+# operation on the host, so mount.nfs and root are still required out here.
+if ! command -v docker >/dev/null 2>&1; then
+  err "docker is not installed -- the NFS server runs as a container."
+  info "    Fix:  https://docs.docker.com/engine/install/"
+  missing=1
+elif ! docker compose version >/dev/null 2>&1; then
+  err "docker compose (v2) is not available."
+  info "    Fix:  install the docker compose plugin"
+  missing=1
+fi
+if ! have_mount_nfs; then
+  err "mount.nfs is missing -- the NFS client utilities are not installed."
+  info "    This one cannot be containerised: mounting happens in the host kernel."
+  info "    Fix:  sudo apt install nfs-common"
+  missing=1
+fi
+if [ "$missing" -ne 0 ]; then
+  info ""
+  info "Nothing was started. Run the commands above, then re-run this script,"
+  info "or use sync mode instead, which needs neither:  httpeers-publish"
+  exit 1
+fi
+
+addr="$HTTPEERS_NFS_ADDR"
+host="${addr%:*}"
+port="${addr##*:}"
+mnt="$HTTPEERS_MOUNT_POINT"
+run="$HTTPEERS_RUN_DIR"
+pidfile="$run/serve-nfs.pid"
+logfile="$run/serve-nfs.log"
+mkdir -p "$run"
+
+# ---------------------------------------------------------------------------
+# The server -- a container.
+#
+# Credentials reach it as RCLONE_CONFIG_* environment variables rather than a
+# config file, so nothing secret is written into this directory. The port is
+# published on 127.0.0.1 only: an rclone NFS export is unauthenticated, and one
+# reachable from the network would hand over the whole bucket.
+# ---------------------------------------------------------------------------
+compose_file="$PUBLISH_ROOT/docker-compose.yml"
+[ -f "$compose_file" ] || die "missing $compose_file"
+
+require_var() {
+  [ -n "${!1:-}" ] || die "$1 is not set. Copy publish.env.example to publish.env and fill it in;
+    the credentials are on the server:  ssh kotelnikov@163.172.46.87 'grep S3_ /opt/httpeers/.env'"
+}
+require_var HTTPEERS_S3_ACCESS_KEY_ID
+require_var HTTPEERS_S3_SECRET_ACCESS_KEY
+
+export HTTPEERS_NFS_PORT="$port"
+export HTTPEERS_NFS_READ_ONLY=$([ "$read_only" = 1 ] && echo true || echo false)
+[ "$read_only" = 1 ] && info "serving READ-ONLY: writes to the mount will be refused."
+compose=(docker compose -f "$compose_file")
+
+if [ "$foreground" = 1 ]; then
+  info "${compose[*]} up nfs   (Ctrl-C to stop; the mount is not made in this mode)"
+  exec "${compose[@]}" up nfs
+fi
+
+if [ "$("${compose[@]}" ps -q nfs 2>/dev/null | wc -l)" -gt 0 ] \
+   && [ "$("${compose[@]}" ps --status running -q nfs 2>/dev/null | wc -l)" -gt 0 ]; then
+  info "nfs server container already running on $addr"
+else
+  info "starting the nfs server container ..."
+  "${compose[@]}" up -d nfs >/dev/null 2>&1 || {
+    err "the nfs server container failed to start. Its output:"
+    "${compose[@]}" logs --tail=30 nfs 2>&1 | sed 's/^/    /' >&2
+    exit 1
+  }
+fi
+
+# Wait for the port rather than for the container, and check the container is
+# still alive each round: a server that exits on bad credentials would otherwise
+# be discovered only by a mount error that says nothing about the cause.
+ready=0
+for _ in $(seq 1 40); do
+  if [ "$("${compose[@]}" ps --status running -q nfs 2>/dev/null | wc -l)" -eq 0 ]; then
+    err "the nfs server container exited. Its output:"
+    "${compose[@]}" logs --tail=30 nfs 2>&1 | sed 's/^/    /' >&2
+    exit 1
+  fi
+  if (echo > "/dev/tcp/$host/$port") 2>/dev/null; then ready=1; break; fi
+  sleep 0.5
+done
+if [ "$ready" != 1 ]; then
+  err "the nfs server is not accepting connections on $addr after 20s."
+  "${compose[@]}" logs --tail=30 nfs 2>&1 | sed 's/^/    /' >&2
+  exit 1
+fi
+info "nfs server listening on $addr (container httpeers_publish_nfs)"
+
+# ---------------------------------------------------------------------------
+# The mount
+# ---------------------------------------------------------------------------
+mkdir -p "$mnt"
+if mountpoint -q "$mnt" 2>/dev/null || grep -qs " $mnt nfs" /proc/mounts; then
+  info "$mnt is already mounted."
+  exit 0
+fi
+
+# vers=3 because rclone's NFS server speaks NFSv3 only; nolock because there
+# is no lock manager behind it and the kernel would otherwise block waiting
+# for one that never answers.
+mount_cmd=(mount -t nfs -o "port=$port,mountport=$port,tcp,vers=3,nolock,noatime" "$host:/" "$mnt")
+
+if [ "$(id -u)" -ne 0 ] && [ "$use_sudo" != 1 ]; then
+  info ""
+  bold "the server is up. Mounting needs root -- run:"
+  info ""
+  info "    sudo ${mount_cmd[*]}"
+  info ""
+  info "or re-run this script with --sudo. To undo everything: httpeers-unmount"
+  exit 0
+fi
+
+if [ "$(id -u)" -ne 0 ]; then
+  info "+ sudo ${mount_cmd[*]}"
+  sudo "${mount_cmd[@]}"
+else
+  info "+ ${mount_cmd[*]}"
+  "${mount_cmd[@]}"
+fi
+
+info ""
+bold "mounted: $mnt is the bucket."
+warn "there is no confirmation and no undo in this mode. Removing a directory here"
+warn "removes a live site immediately."
+note "S3 has no real directories: an EMPTY directory you create here does not exist in"
+note "the bucket and is not a site. A site begins to exist when the first file lands in"
+note "it, and disappears when the last one is removed."
+note "unmount with: httpeers-unmount"

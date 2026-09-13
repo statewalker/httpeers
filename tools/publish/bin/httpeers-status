@@ -1,0 +1,66 @@
+#!/usr/bin/env bash
+#
+# What differs between the local tree and the bucket. Read-only: this script
+# calls no rclone subcommand that can write.
+set -euo pipefail
+. "$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/../lib" && pwd)/common.sh"
+
+usage() {
+  cat >&2 <<'USAGE'
+usage: httpeers-status [--site NAME] [--porcelain]
+
+  --site NAME   compare only that one site's prefix.
+  --porcelain   machine-readable: one "<status> <path>" line per difference,
+                where <status> is A (add), M (change) or D (delete), plus
+                "S <name>" for a whole site that would disappear.
+
+Exit status: 0 in sync, 1 differences, 2 differences that include a deletion.
+USAGE
+}
+
+site=""; porcelain=0
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --site) site="${2:-}"; shift ;;
+    --site=*) site="${1#*=}" ;;
+    --porcelain) porcelain=1 ;;
+    -h|--help) usage; exit 0 ;;
+    *) usage; die "unknown argument: $1" ;;
+  esac
+  shift
+done
+
+load_config
+require_rclone
+
+src="$HTTPEERS_SITES_DIR"
+dst="$HTTPEERS_TARGET"
+if [ -n "$site" ]; then
+  valid_site_name "$site" || die "\"$site\" is not a valid site name (see httpeers-publish --help)."
+  src="$src/$site"
+  dst="$dst/$site"
+fi
+
+[ -d "$src" ] || die "no such directory: $src"
+
+work="$(mktemp -d)"
+trap 'rm -rf "$work"' EXIT
+compute_diff "$src" "$dst" "$work"
+
+if [ "$porcelain" = 1 ]; then
+  sed 's/^/A /' "$work/added"
+  sed 's/^/M /' "$work/changed"
+  sed 's/^/D /' "$work/deleted"
+  # Only meaningful for a whole-tree comparison; scoping to one site makes
+  # every path relative to that site, so the first segment is not a site name.
+  [ -z "$site" ] && sed 's/^/S /' "$work/sites-removed"
+else
+  info "local:  $src"
+  info "bucket: $dst"
+  info ""
+  print_diff "$work"
+fi
+
+[ "$DIFF_DELETED" -gt 0 ] && exit 2
+[ $((DIFF_ADDED + DIFF_CHANGED)) -gt 0 ] && exit 1
+exit 0

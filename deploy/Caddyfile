@@ -9,27 +9,86 @@
 # storage prefix on its own.
 {
 	email {$ACME_EMAIL}
-	# DNS-01, because HTTP-01 cannot issue a wildcard. The token is a Gandi
-	# Personal Access Token -- Gandi's older API Key auth is discontinued and
-	# this module does not accept one.
-	acme_dns gandi {$GANDI_BEARER_TOKEN}
+}
+
+# DNS-01, because HTTP-01 cannot issue a wildcard. The token is a Gandi
+# Personal Access Token -- Gandi's older API Key auth is discontinued and this
+# module does not accept one.
+#
+# A SNIPPET, NOT `acme_dns` IN GLOBAL OPTIONS, for two reasons. The global form
+# cannot carry the propagation settings below -- `acme_dns gandi {$VAR} { ... }`
+# does not parse, because `{` after a placeholder is read as a brace mismatch.
+# And these settings have to apply to every site block, so importing one
+# definition beats maintaining two copies that can drift.
+#
+# PROPAGATION_DELAY IS NOT PADDING. Without it, issuance failed against Let's
+# Encrypt with:
+#
+#   During secondary validation: Incorrect TXT record ... found at
+#   _acme-challenge.httpeers.net
+#
+# Caddy had written the new TXT and confirmed it on the authoritative
+# nameservers, but Let's Encrypt validates from several vantage points, and one
+# of them still saw the PREVIOUS challenge value -- Gandi's nameservers had not
+# converged. Caddy's own propagation check passed; LE's secondary check did not.
+# The delay makes Caddy wait after writing before asking LE to validate at all.
+#
+# Note this failure is invisible if ZeroSSL is reachable: it silently succeeds
+# where Let's Encrypt failed, and you end up on the fallback issuer without
+# noticing. Check which CA actually issued the certificate.
+(acme) {
+	tls {
+		dns gandi {$GANDI_BEARER_TOKEN}
+		propagation_delay 2m
+		propagation_timeout 10m
+		resolvers 1.1.1.1 8.8.8.8
+	}
 }
 
 relay.httpeers.net {
+	import acme
+
+	# The relay's bootstrap document, written by the relay onto the shared
+	# volume and served from here. The relay serves nothing itself; this is the
+	# whole of the serving side.
+	#
+	# CORS IS NOT OPTIONAL. Browser peers fetch this from their own origin -- a
+	# published site, a page on another host -- never from relay.httpeers.net.
+	# Without it, fetch() fails in every browser while curl succeeds. The
+	# document is public data, so `*` is correct.
+	handle /.well-known/httpeers-relay.json {
+		root * /srv/bootstrap
+		file_server
+		header Content-Type "application/json"
+		header Cache-Control "public, max-age=300"
+		header Access-Control-Allow-Origin "*"
+	}
+
 	# The relay speaks plain ws here; this block is where TLS stops. The relay
 	# must therefore advertise THIS address, not the one it binds --
 	# RELAY_ANNOUNCE_ADDRS in .env, and apps/relay/src/addresses.ts for why.
-	reverse_proxy relay:9090
+	#
+	# A catch-all `handle`, so that it stays mutually exclusive with the path
+	# above rather than competing with it. libp2p's WebSocket upgrade at / is
+	# untouched.
+	handle {
+		reverse_proxy relay:9090
+	}
+}
+
+s3.httpeers.net {
+	import acme
+
+	# Publishing. An exact hostname beats the wildcard, and it is already
+	# inside the wildcard certificate and resolved by the wildcard A record --
+	# so this endpoint cost no certificate and no DNS change.
+	reverse_proxy rustfs:9000
 }
 
 *.httpeers.net {
-	# Deliberately present before the static-site app exists.
-	#
-	# This block is what makes Caddy obtain the *.httpeers.net certificate at
-	# all. Deleting it until there is something to proxy to would defer the
-	# first DNS-01 issuance to the day that app ships -- which is the worst
-	# possible moment to discover a credential or zone problem. So it answers
-	# 503 for now, and this one directive becomes
-	# `reverse_proxy sites:3000` when the static-site host lands.
-	respond "no site is published at this address yet" 503
+	import acme
+
+	# Every other subdomain is a site. This line never changes again:
+	# publishing a new site is writing a prefix, not editing this file.
+	reverse_proxy sites:3000
 }

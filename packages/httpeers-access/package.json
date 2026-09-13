@@ -1,0 +1,56 @@
+{
+  "name": "@statewalker/httpeers-access",
+  "version": "0.1.0",
+  "type": "module",
+  "description": "Who is calling, and may they. Biscuit tokens, Datalog policy, revocation and one middleware — with no libp2p in the graph.",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+ssh://git@github.com/statewalker/httpeers.git",
+    "directory": "packages/httpeers-access"
+  },
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    },
+    "./issuer": {
+      "types": "./dist/issuer.d.ts",
+      "import": "./dist/issuer.js"
+    },
+    "./engine": {
+      "types": "./dist/engine.d.ts",
+      "import": "./dist/engine.js"
+    }
+  },
+  "files": [
+    "dist",
+    "src"
+  ],
+  "sideEffects": false,
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json",
+    "test": "pnpm run build && pnpm run typecheck && vitest run",
+    "typecheck": "tsc --noEmit",
+    "lint": "biome check src tests",
+    "lint:check": "biome check src tests"
+  },
+  "dependencies": {
+    "@biscuit-auth/biscuit-wasm": "0.6.0",
+    "@statewalker/httpeers-core": "workspace:*",
+    "multiformats": "14.0.5"
+  },
+  "devDependencies": {
+    "@libp2p/crypto": "5.1.22",
+    "@libp2p/interface": "3.2.5",
+    "@libp2p/peer-id": "6.0.14",
+    "@types/node": "catalog:",
+    "typescript": "catalog:",
+    "vitest": "catalog:"
+  },
+  "publishConfig": {
+    "access": "public"
+  }
+}
