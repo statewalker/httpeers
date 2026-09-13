@@ -41,6 +41,15 @@ if [ -n "$site" ]; then
   dst="$dst/$site"
 fi
 
+# Live mode makes this diff meaningless -- the folder IS the bucket, so it is
+# always empty -- and naming the transport is the difference between
+# "nothing to publish" and "you are already publishing every write".
+mnt_fs="$(mount_fs_at "${HTTPEERS_MOUNT_POINT:-}" || true)"
+case "$mnt_fs" in
+  fuse.rclone) info "mount:  $HTTPEERS_MOUNT_POINT is mounted over FUSE (live mode)" ;;
+  nfs|nfs4)    info "mount:  $HTTPEERS_MOUNT_POINT is mounted over NFS (live mode)" ;;
+esac
+
 [ -d "$src" ] || die "no such directory: $src"
 
 work="$(mktemp -d)"

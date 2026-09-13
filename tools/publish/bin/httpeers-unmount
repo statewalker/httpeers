@@ -24,6 +24,24 @@ done
 load_config
 mnt="$HTTPEERS_MOUNT_POINT"
 
+# WHICH TRANSPORT IS MOUNTED DECIDES HOW TO UNMOUNT IT, and the mount itself is
+# the only honest source for that -- a flag would let a person unmount a FUSE
+# mount with the NFS path and be told, wrongly, that nothing was mounted.
+#
+# FUSE unmounts with fusermount and no root; NFS needs umount and root, and only
+# NFS has a container to stop afterwards.
+mounted_fs="$(mount_fs_at "$mnt" || true)"
+
+case "$mounted_fs" in
+  fuse.rclone)
+    fuser_bin="$(command -v fusermount3 || command -v fusermount || true)"
+    [ -n "$fuser_bin" ] || die "mounted over FUSE but fusermount is gone; try: umount $mnt"
+    "$fuser_bin" -u "$mnt" || die "could not unmount $mnt"
+    info "unmounted $mnt (FUSE -- no root needed, and there is no server to stop)."
+    exit 0
+    ;;
+esac
+
 if mountpoint -q "$mnt" 2>/dev/null || grep -qs " $mnt nfs" /proc/mounts; then
   umount_cmd=(umount "$mnt")
   if [ "$(id -u)" -ne 0 ] && [ "$use_sudo" != 1 ]; then

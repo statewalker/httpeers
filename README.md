@@ -77,6 +77,32 @@ pnpm turbo test          # 506 tests in packages/, 663 with the two apps
 > `Ignored build scripts: node-datachannel` in a box, reports success, and
 > `@statewalker/httpeers-member/node` then throws on import.
 
+## Development
+
+The whole repository — the libraries above *and* the two apps. (*Working on
+them*, further up, is the narrower packages-only loop.)
+
+```sh
+pnpm install
+pnpm run typecheck
+pnpm run test        # binds real ports; starts real libp2p nodes
+pnpm run build
+```
+
+Running it locally, where the bound address *is* reachable and so no announce
+list is needed:
+
+```sh
+pnpm --filter @statewalker/httpeers-relay bootstrap     # writes .httpeers/relay.key
+RELAY_REQUIRE_ANNOUNCE=false pnpm --filter @statewalker/httpeers-relay dev
+```
+
+## Deployment
+
+See [`deploy/README.md`](deploy/README.md). In short: a wildcard A record and a
+wildcard certificate, after which **publishing a new subdomain changes nothing
+here** — no Caddyfile edit, no DNS record, no reload.
+
 ## What the relay is, and is not
 
 A stock libp2p **Circuit Relay v2** server over WebSockets, with **no
@@ -142,22 +168,6 @@ ceiling to above observed usage rather than guessing below it.
 `applyDefaultLimit` is all-or-nothing — it either attaches both figures or drops data *and*
 duration together — which is why both are declared. Declaring one and omitting the other would
 imply a ceiling that is not enforced.
-
-## Two things that are easy to get wrong
-
-**The address it binds is not the address peers dial.** TLS is terminated by
-the reverse proxy, so the relay speaks plain `ws` internally and must
-*advertise* `/dns4/relay.httpeers.net/tcp/443/tls/ws`. libp2p advertises what it
-listens on unless told otherwise, so without `RELAY_ANNOUNCE_ADDRS` the relay
-starts, reports healthy, and is undialable — with a symptom pointing at the
-relay's health rather than at its advertised address. It therefore refuses to
-start without one. See `apps/relay/src/addresses.ts`.
-
-**The signing key is the identity.** The relay's peerId is embedded in every
-multiaddr any client will ever dial, so a regenerated key silently invalidates
-every client's configuration at once. A missing key is a loud failure, never a
-fresh identity. The key lives on a volume, never in the image, and never in
-this repository. See `apps/relay/src/key.ts`.
 
 ## Bootstrapping from a URL
 
@@ -260,28 +270,21 @@ Two behaviours worth knowing, both easy to get wrong:
 Storage is chosen by environment (`s3` | `node` | `mem`) in `apps/sites/src/store.ts`,
 which is the only module that knows which backend is in use.
 
-## Development
+## Two things that are easy to get wrong
 
-```sh
-pnpm install
-pnpm run typecheck
-pnpm run test        # binds real ports; starts real libp2p nodes
-pnpm run build
-```
+**The address it binds is not the address peers dial.** TLS is terminated by
+the reverse proxy, so the relay speaks plain `ws` internally and must
+*advertise* `/dns4/relay.httpeers.net/tcp/443/tls/ws`. libp2p advertises what it
+listens on unless told otherwise, so without `RELAY_ANNOUNCE_ADDRS` the relay
+starts, reports healthy, and is undialable — with a symptom pointing at the
+relay's health rather than at its advertised address. It therefore refuses to
+start without one. See `apps/relay/src/addresses.ts`.
 
-Running it locally, where the bound address *is* reachable and so no announce
-list is needed:
-
-```sh
-pnpm --filter @statewalker/httpeers-relay bootstrap     # writes .httpeers/relay.key
-RELAY_REQUIRE_ANNOUNCE=false pnpm --filter @statewalker/httpeers-relay dev
-```
-
-## Deployment
-
-See [`deploy/README.md`](deploy/README.md). In short: a wildcard A record and a
-wildcard certificate, after which **publishing a new subdomain changes nothing
-here** — no Caddyfile edit, no DNS record, no reload.
+**The signing key is the identity.** The relay's peerId is embedded in every
+multiaddr any client will ever dial, so a regenerated key silently invalidates
+every client's configuration at once. A missing key is a loud failure, never a
+fresh identity. The key lives on a volume, never in the image, and never in
+this repository. See `apps/relay/src/key.ts`.
 
 ## Configuration
 

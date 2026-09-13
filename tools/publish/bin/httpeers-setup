@@ -126,47 +126,71 @@ fi
 
 if [ "$sync_only" = 0 ]; then
   bold ""
-  bold "live (NFS) mode"
+  bold "live mode"
 
-    # The NFS SERVER runs in a container, so the host's rclone version is
-    # irrelevant here -- the image pins one that has `serve nfs`. That is the
-    # whole reason it is containerised: this machine's rclone is v1.60.1-DEV and
-    # lacks the subcommand, and upgrading every workstation to keep them in step
-    # is a worse deal than pulling an image.
-    if ! command -v docker >/dev/null 2>&1; then
-      fail "docker is not installed -- the NFS server runs as a container." \
-           "  https://docs.docker.com/engine/install/"
-    elif ! docker compose version >/dev/null 2>&1; then
-      fail "docker compose (v2) is not available." \
-           "  install the docker compose plugin"
+  # TWO TRANSPORTS, AND ONLY ONE OF THEM HAS TO WORK. Each is checked on its
+  # own and reported on its own; a missing prerequisite is a failure only if it
+  # leaves no way to mount at all. Demanding the NFS client on a Linux box that
+  # will mount over FUSE would be a check that fails while the tool works.
+  os="$(uname -s)"
+  default="$(default_transport "$os")"
+  fuse_ok=0; nfs_ok=0
+
+  # -- FUSE ----------------------------------------------------------------
+  if [ "$os" = "Darwin" ]; then
+    note "  --   FUSE      not available on macOS without macFUSE (a kernel extension"
+    note "       installed and approved by hand). httpeers-mount --fuse refuses here."
+  elif [ ! -e /dev/fuse ]; then
+    note "  --   FUSE      /dev/fuse is missing -- this kernel has no FUSE support."
+  elif ! command -v fusermount3 >/dev/null 2>&1 && ! command -v fusermount >/dev/null 2>&1; then
+    note "  --   FUSE      fusermount is missing.  Fix:  sudo apt install fuse3"
+  elif ! rclone mount --help >/dev/null 2>&1; then
+    note "  --   FUSE      this rclone has no \`mount\` command."
+    note "       Fix:  curl https://rclone.org/install.sh | sudo bash"
+  else
+    fuse_ok=1
+    pass "fuse          fusermount + /dev/fuse + rclone mount"
+  fi
+
+  # -- NFS -----------------------------------------------------------------
+  # The NFS SERVER runs in a container, so the host's rclone version is
+  # irrelevant here -- the image pins one that has `serve nfs`. That is the
+  # whole reason it is containerised: this machine's rclone is v1.60.1-DEV and
+  # lacks the subcommand, and upgrading every workstation to keep them in step
+  # is a worse deal than pulling an image.
+  nfs_missing=
+  if ! command -v docker >/dev/null 2>&1; then
+    nfs_missing="docker is not installed (the NFS server runs as a container)"
+  elif ! docker compose version >/dev/null 2>&1; then
+    nfs_missing="docker compose (v2) is not available"
+  elif ! have_mount_nfs; then
+    nfs_missing="mount.nfs is missing -- the NFS client utilities are not installed"
+  elif [ "$(id -u)" -ne 0 ] && ! command -v sudo >/dev/null 2>&1; then
+    # Mounting NFS is privileged on Linux with no unprivileged equivalent, so
+    # this is a statement of fact, not a check that can be made to pass.
+    nfs_missing="mounting NFS needs root and sudo is not installed"
+  else
+    nfs_ok=1
+    pass "nfs           docker + mount.nfs + $([ "$(id -u)" -eq 0 ] && echo root || echo sudo)"
+    pass "nfs server    containerised (rclone/rclone image; the host rclone is not used here)"
+  fi
+  [ -n "$nfs_missing" ] && note "  --   NFS       $nfs_missing."
+
+  # -- the verdict ---------------------------------------------------------
+  if [ "$fuse_ok" = 0 ] && [ "$nfs_ok" = 0 ]; then
+    fail "no transport can mount the bucket: neither FUSE nor NFS is usable here." \
+         "Install one of them -- the two lines above say what each is missing." \
+         "Sync mode needs none of this: ./bin/httpeers-publish"
+  else
+    if [ "$default" = fuse ] && [ "$fuse_ok" = 1 ]; then
+      pass "transport     FUSE by default here (no docker and no root); --nfs forces the other"
+    elif [ "$default" = nfs ] && [ "$nfs_ok" = 1 ]; then
+      pass "transport     NFS by default here"
+    elif [ "$fuse_ok" = 1 ]; then
+      warn "the default transport here is NFS, which is not usable; mount with --fuse."
     else
-      pass "docker        $(docker --version 2>/dev/null | cut -d, -f1)"
-      pass "nfs server    containerised (rclone/rclone image; the host rclone is not used here)"
+      warn "the default transport here is FUSE, which is not usable; mount with --nfs."
     fi
-
-  if have_mount_nfs; then
-    pass "mount.nfs     $(command -v mount.nfs 2>/dev/null || echo /sbin/mount.nfs)"
-  else
-    fail "mount.nfs is missing -- the NFS client utilities are not installed." \
-         "sudo apt install nfs-common"
-  fi
-
-  # Mounting NFS is a privileged operation on Linux with no unprivileged
-  # equivalent, so this is a statement of fact, not a check that can pass.
-  if [ "$(id -u)" -eq 0 ]; then
-    pass "privileges    running as root"
-  elif command -v sudo >/dev/null 2>&1; then
-    pass "privileges    sudo present (mount -t nfs needs root; httpeers-mount --sudo uses it)"
-  else
-    fail "mounting NFS needs root and sudo is not installed." \
-         "Run httpeers-mount as root, or install sudo."
-  fi
-
-  if [ -e /dev/fuse ] && command -v fusermount3 >/dev/null 2>&1; then
-    note "  --   FUSE is available on this machine (fusermount3, /dev/fuse)."
-    note "       \`rclone mount\` would give the same writable folder with no root and"
-    note "       no packages -- but it needs rclone >= 1.65 too for a usable VFS cache"
-    note "       on this workflow, and NFS is what was asked for. See README."
   fi
 fi
 
