@@ -7,6 +7,7 @@
  * every consumer's bundle.
  */
 
+export { hubRelayService, type IsMember, membershipGater } from "./hub-relay.js";
 export { type Peer, servePeer, type ServePeerInit } from "./serve-peer.js";
 export {
   createNode,
