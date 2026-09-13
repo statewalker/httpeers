@@ -32,11 +32,14 @@ import type { Ed25519PrivateKey, Libp2p } from "@libp2p/interface";
 import { tcp } from "@libp2p/tcp";
 import { webRTC } from "@libp2p/webrtc";
 import { webSockets } from "@libp2p/websockets";
-import { createLibp2p } from "libp2p";
-
-import { ANONYMOUS, type Mounts, lookupPeer } from "@statewalker/httpeers-core";
-import { type RuleSet, ruleSet, selfCertifyingKeys, withAccess } from "@statewalker/httpeers-access";
+import {
+  type RuleSet,
+  ruleSet,
+  selfCertifyingKeys,
+  withAccess,
+} from "@statewalker/httpeers-access";
 import { mintToken } from "@statewalker/httpeers-access/issuer";
+import { ANONYMOUS, lookupPeer, type Mounts } from "@statewalker/httpeers-core";
 import {
   createHub,
   type Hub,
@@ -49,11 +52,12 @@ import {
   hubRelayService,
   membershipGater,
   type Peer,
-  signerOf,
   servePeer,
+  signerOf,
   waitForCircuitReservation,
 } from "@statewalker/httpeers-libp2p";
 import { startRelay } from "@statewalker/httpeers-relay";
+import { createLibp2p } from "libp2p";
 
 /**
  * The mesh's rules.

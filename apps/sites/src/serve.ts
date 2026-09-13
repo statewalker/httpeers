@@ -157,7 +157,7 @@ export function createApp(options: ServeOptions): Hono {
 
     if (notModified) {
       // A 304 carries validators but never Content-Length or a body.
-      const { ["Content-Length"]: _dropped, ...revalidation } = headers;
+      const { "Content-Length": _dropped, ...revalidation } = headers;
       return new Response(null, { status: 304, headers: revalidation });
     }
 

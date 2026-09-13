@@ -412,7 +412,6 @@ export function authorize(
   }
 }
 
-
 function denial(
   rules: RuleSet,
   facts: RequestFacts,

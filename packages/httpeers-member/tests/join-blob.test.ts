@@ -76,7 +76,7 @@ describe("joinUrl", () => {
 
     expect(url.origin).toBe("http://127.0.0.1:5175");
     expect(url.pathname).toBe("/");
-    expect(decodeJoinBlob(url.searchParams.get(JOIN_BLOB_PARAM)!)).toEqual(BLOB);
+    expect(decodeJoinBlob(url.searchParams.get(JOIN_BLOB_PARAM) ?? "")).toEqual(BLOB);
   });
 
   it("round-trips back out through the page's own reader", () => {

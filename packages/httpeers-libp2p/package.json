@@ -2,7 +2,7 @@
   "name": "@statewalker/httpeers-libp2p",
   "version": "0.1.0",
   "type": "module",
-  "description": "The transport: nodes, identity, and servePeer \u2014 the one place in the extraction that knows what libp2p is.",
+  "description": "The transport: nodes, identity, and servePeer — the one place in the extraction that knows what libp2p is.",
   "license": "MIT",
   "repository": {
     "type": "git",
@@ -57,6 +57,7 @@
     "libp2p": "3.3.8"
   },
   "devDependencies": {
+    "@biomejs/biome": "catalog:",
     "@statewalker/httpeers-access": "workspace:*",
     "@types/node": "catalog:",
     "typescript": "catalog:",

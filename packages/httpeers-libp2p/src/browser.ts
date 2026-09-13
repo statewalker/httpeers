@@ -45,7 +45,10 @@ type IdbStore = {
 type IdbDatabase = {
   objectStoreNames: { contains(name: string): boolean };
   createObjectStore(name: string): unknown;
-  transaction(name: string, mode: "readonly" | "readwrite"): { objectStore(name: string): IdbStore };
+  transaction(
+    name: string,
+    mode: "readonly" | "readwrite",
+  ): { objectStore(name: string): IdbStore };
   close(): void;
 };
 declare const indexedDB: { open(name: string, version: number): IdbRequest<IdbDatabase> };

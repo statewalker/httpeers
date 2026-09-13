@@ -18,8 +18,8 @@
  * leaving exactly the half-reset this exists to prevent.
  */
 
-import { describe, expect, it } from "vitest";
 import { resetBrowserState } from "@statewalker/httpeers-member/reset";
+import { describe, expect, it } from "vitest";
 
 const SW_URL = "/test-sw.js";
 

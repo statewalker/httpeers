@@ -12,8 +12,7 @@
  * not call another member through its own edge.
  */
 import { describe, expect, it } from "vitest";
-import { forwardLocalOnly } from "../src/index.js";
-import { registerAnonymous, registerPeer } from "../src/index.js";
+import { forwardLocalOnly, registerAnonymous, registerPeer } from "../src/index.js";
 
 const TARGET = "12D3KooWTarget";
 

@@ -18,11 +18,11 @@
  * presence interval and reconnecting needs no new invitation.
  */
 
-import { MemFilesApi } from "@statewalker/webrun-files-mem";
-import type { FilesApi } from "@statewalker/webrun-files";
 import { createMounts } from "@statewalker/httpeers-core";
 import type { PeerSession, SessionState } from "@statewalker/httpeers-member";
 import { createSession } from "@statewalker/httpeers-member/browser";
+import type { FilesApi } from "@statewalker/webrun-files";
+import { MemFilesApi } from "@statewalker/webrun-files-mem";
 import { ensureBiscuit } from "../shared/biscuit.js";
 import { createImagesEndpoint, type ImageInfo, imagePath } from "../shared/images.js";
 import { EDGE_KEY, meshRules } from "../shared/policy.js";

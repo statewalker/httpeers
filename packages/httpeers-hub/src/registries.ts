@@ -6,9 +6,18 @@
  * test, with no real timers involved. Persistence is a later task's job —
  * nothing here touches the filesystem or a database.
  */
-import type { Advertisement, AdvertisementStore, MemberRecord, MemberStore, PresenceRecord, PresenceStore, PresenceWriteResult } from "@statewalker/httpeers-core";
+
 import type { RuleSet } from "@statewalker/httpeers-access";
 import { assertValid, validateRoles } from "@statewalker/httpeers-access";
+import type {
+  Advertisement,
+  AdvertisementStore,
+  MemberRecord,
+  MemberStore,
+  PresenceRecord,
+  PresenceStore,
+  PresenceWriteResult,
+} from "@statewalker/httpeers-core";
 
 /**
  * Durable membership: who belongs to the mesh, and with what roles.

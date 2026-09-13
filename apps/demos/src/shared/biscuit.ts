@@ -9,10 +9,10 @@
  * and why leaving them out kills the page rather than throwing.
  */
 
-import { initBiscuit } from "@statewalker/httpeers-access/engine";
 // Aliased to `module/biscuit_bg.js`: the real entry would arm the binding with
 // a URL string on import and there would be nothing left to fix.
 import * as binding from "@biscuit-auth/biscuit-wasm";
+import { initBiscuit } from "@statewalker/httpeers-access/engine";
 import * as snippet from "#biscuit-snippet";
 
 /** Where the wasm is served from. A static asset beside the bundle, copied into `public/`. */

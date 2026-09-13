@@ -74,7 +74,15 @@ describe("initBiscuit, in a browser", () => {
     const decision = authorize(
       rules,
       { operation: "GET", resource: "/hello", now: 2000 },
-      { sub: "p", iss: "h", mesh: "h", roles: ["member"], iat: 1000, exp: 1_000_000, audience: "unrestricted" },
+      {
+        sub: "p",
+        iss: "h",
+        mesh: "h",
+        roles: ["member"],
+        iat: 1000,
+        exp: 1_000_000,
+        audience: "unrestricted",
+      },
     );
     expect(decision.allowed).toBe(true);
   }, 60_000);

@@ -93,14 +93,16 @@ describe("fileBytesStore", () => {
     const identity = identityStore({ backend: store });
 
     await identity.loadOrCreate();
-    const before = peerIdOf(await identity.read() as NonNullable<Awaited<ReturnType<typeof identity.read>>>);
+    const before = peerIdOf(
+      (await identity.read()) as NonNullable<Awaited<ReturnType<typeof identity.read>>>,
+    );
     void planted;
 
     await identity.loadOrCreate();
     await identity.loadOrCreate();
 
-    expect(peerIdOf((await identity.read()) as NonNullable<Awaited<ReturnType<typeof identity.read>>>)).toBe(
-      before,
-    );
+    expect(
+      peerIdOf((await identity.read()) as NonNullable<Awaited<ReturnType<typeof identity.read>>>),
+    ).toBe(before);
   });
 });

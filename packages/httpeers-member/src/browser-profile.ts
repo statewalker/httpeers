@@ -34,12 +34,11 @@ import { noise } from "@chainsafe/libp2p-noise";
 import { yamux } from "@chainsafe/libp2p-yamux";
 import { circuitRelayTransport } from "@libp2p/circuit-relay-v2";
 import { identify } from "@libp2p/identify";
+import type { Ed25519PrivateKey, Libp2p } from "@libp2p/interface";
 import { webRTC } from "@libp2p/webrtc";
 import { webSockets } from "@libp2p/websockets";
-import type { Ed25519PrivateKey, Libp2p } from "@libp2p/interface";
-import { createLibp2p, type ServiceFactoryMap } from "libp2p";
 import { hubRelayService, type IsMember, membershipGater } from "@statewalker/httpeers-libp2p";
-import { loadOrCreateIdentity } from "./identity.js";
+import { createLibp2p, type ServiceFactoryMap } from "libp2p";
 
 /**
  * Re-exported from `./identity.ts`, which is where they live now -- see

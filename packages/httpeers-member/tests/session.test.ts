@@ -14,12 +14,12 @@
  * whatever mesh the page last saw.
  */
 import { generateKeyPair } from "@libp2p/crypto/keys";
-import type { Ed25519PrivateKey } from "@libp2p/interface";
-import type { Libp2p } from "@libp2p/interface";
+import type { Ed25519PrivateKey, Libp2p } from "@libp2p/interface";
+import { type RuleSet, ruleSet } from "@statewalker/httpeers-access";
 import type { MeshConfig, Mounts } from "@statewalker/httpeers-core";
 import { createMounts } from "@statewalker/httpeers-core";
-import { type RuleSet, ruleSet } from "@statewalker/httpeers-access";
 import { beforeAll, describe, expect, it } from "vitest";
+import { peerIdOf } from "../src/identity.js";
 import { encodeJoinBlob } from "../src/join-blob.js";
 import type { MeshMemory } from "../src/mesh-memory.js";
 import {
@@ -29,8 +29,7 @@ import {
   type SessionState,
   type StartPeer,
 } from "../src/session.js";
-import { MemberJoinError, type MemberHandle, type MemberPlatform } from "../src/start-member.js";
-import { peerIdOf } from "../src/identity.js";
+import { type MemberHandle, MemberJoinError, type MemberPlatform } from "../src/start-member.js";
 
 const DEPLOYMENT: MeshConfig = {
   relayAddrs: ["/ip4/127.0.0.1/tcp/9090/ws/p2p/12D3KooWDeployRelay"],
@@ -56,7 +55,9 @@ beforeAll(async () => {
 });
 
 /** An identity store over a variable, not a database. */
-function fakeIdentity(initial: Ed25519PrivateKey | null): IdentityStore & { current(): Ed25519PrivateKey | null } {
+function fakeIdentity(
+  initial: Ed25519PrivateKey | null,
+): IdentityStore & { current(): Ed25519PrivateKey | null } {
   let key = initial;
   return {
     read: async () => key,
@@ -140,8 +141,7 @@ function harness(init: HarnessInit = {}): Harness {
     key: "peers",
     mounts: init.mounts ?? createMounts(),
     rules:
-      init.rules ??
-      ruleSet({ version: 1, rules: [], policies: ['allow if resource("/hello");'] }),
+      init.rules ?? ruleSet({ version: 1, rules: [], policies: ['allow if resource("/hello");'] }),
     platform: { createNode: async () => FAKE_NODE } satisfies MemberPlatform,
     search: init.search ?? "",
     onChange: (state) => states.push(state),
@@ -283,7 +283,12 @@ describe("createPeerSession -- refusals", () => {
     expect(state.phase.kind).toBe("blocked");
     // Not a fault to retry, so the invitation field is closed and only the
     // reset control remains.
-    expect(state.controls).toEqual({ join: false, disconnect: false, reconnect: false, reset: true });
+    expect(state.controls).toEqual({
+      join: false,
+      disconnect: false,
+      reconnect: false,
+      reset: true,
+    });
   });
 
   it("a refused invitation reopens the field with its own reason", async () => {

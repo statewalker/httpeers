@@ -29,11 +29,10 @@
  * everything here, so nothing that imported it from there had to change.
  */
 import { privateKeyFromProtobuf, privateKeyToProtobuf } from "@libp2p/crypto/keys";
-import { peerIdFromPrivateKey } from "@libp2p/peer-id";
 import type { Ed25519PrivateKey } from "@libp2p/interface";
+import { peerIdFromPrivateKey } from "@libp2p/peer-id";
 import { generateKey } from "@statewalker/httpeers-libp2p";
 import type { AsyncBytesBackend } from "./kv.js";
-
 
 /** Where this origin's identity key lives in IndexedDB (via `idb-keyval`, the same store `@statewalker/webrun-http-browser` already uses). */
 export const IDENTITY_STORAGE_KEY = "httpeers:identity-key";
@@ -100,9 +99,7 @@ export function peerIdOf(key: Ed25519PrivateKey): string {
  * lesson note 22 §5/§6 draws about reading this workspace's own source
  * before re-deriving something already sitting in it.
  */
-export async function loadOrCreateIdentity(
-  init: IdentityStoreInit,
-): Promise<Ed25519PrivateKey> {
+export async function loadOrCreateIdentity(init: IdentityStoreInit): Promise<Ed25519PrivateKey> {
   const stored = await readIdentity(init);
   if (stored != null) return stored;
   const key = await generateKey();
@@ -124,9 +121,7 @@ export async function loadOrCreateIdentity(
  * returns. So the read is its own step, and creation happens only when the
  * page actually goes on to join.
  */
-export async function readIdentity(
-  init: IdentityStoreInit,
-): Promise<Ed25519PrivateKey | null> {
+export async function readIdentity(init: IdentityStoreInit): Promise<Ed25519PrivateKey | null> {
   const stored = await backendOf(init).get(keyOf(init));
   if (stored == null) return null;
   return decodeIdentity(stored);

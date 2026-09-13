@@ -34,26 +34,23 @@
  * be library code. The caller passes a built `RuleSet` instead.
  */
 
-import { peerIdFromString } from "@libp2p/peer-id";
-import type { FetchHandler, Mounts, PeerIdStr } from "@statewalker/httpeers-core";
 import type { Ed25519PrivateKey, Libp2p } from "@libp2p/interface";
+import { peerIdFromString } from "@libp2p/peer-id";
 import type { RuleSet } from "@statewalker/httpeers-access";
+import { RevocationCache, withAccess } from "@statewalker/httpeers-access";
+import type { FetchHandler, MeshView, Mounts, PeerIdStr } from "@statewalker/httpeers-core";
 import { ANONYMOUS, forwardLocalOnly, lookupPeer } from "@statewalker/httpeers-core";
-import { withAccess } from "@statewalker/httpeers-access";
-import { servePeer } from "@statewalker/httpeers-libp2p";
-import { RevocationCache } from "@statewalker/httpeers-access";
 import {
-  type ConnectionKind,
-  classifyConnection,
-} from "./connection-kind.js";
-import {
-  createEdgeDispatch,
-  type EdgeDispatchInit,
-} from "./edge-dispatch.js";
-import type {
-  AdvertisementInput,
-  PresenceRefusal,
-} from "./join.js";
+  dialRelay,
+  leaveRelay,
+  reachHub,
+  reserveOnHub,
+  servePeer,
+  superviseHubReservation,
+} from "@statewalker/httpeers-libp2p";
+import { type ConnectionKind, classifyConnection } from "./connection-kind.js";
+import { createEdgeDispatch, type EdgeDispatchInit } from "./edge-dispatch.js";
+import type { AdvertisementInput, PresenceRefusal } from "./join.js";
 import {
   createRouteEnsurer,
   nextInitialSeq,
@@ -62,14 +59,6 @@ import {
   resumeMembership,
   startJoin,
 } from "./join.js";
-import type { MeshView } from "@statewalker/httpeers-core";
-import {
-  leaveRelay,
-  reachHub,
-  reserveOnHub,
-  superviseHubReservation,
-} from "@statewalker/httpeers-libp2p";
-import { dialRelay } from "@statewalker/httpeers-libp2p";
 
 /** The mesh a member joins: exactly `httpeers.json`'s two fields. */
 export interface MeshConfig {

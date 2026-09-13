@@ -127,9 +127,7 @@ async function runSearch(): Promise<void> {
 
   el("search-status").textContent = "searching…";
   try {
-    const res = await callMesh(
-      `${live.baseUrl}${peer}/search?q=${encodeURIComponent(query)}`,
-    );
+    const res = await callMesh(`${live.baseUrl}${peer}/search?q=${encodeURIComponent(query)}`);
     const { results } = (await res.json()) as { results: SearchResult[] };
     el("results").replaceChildren(
       ...results.map((result) => {

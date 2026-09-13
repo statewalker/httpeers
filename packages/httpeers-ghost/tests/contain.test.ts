@@ -61,8 +61,7 @@ describe("the CSP", () => {
   it("leaves a non-HTML response alone", async () => {
     // A CSP governs a DOCUMENT. Putting one on an asset changes nothing and
     // suggests to a reader that it does.
-    const asset = async () =>
-      new Response("body", { headers: { "content-type": "text/plain" } });
+    const asset = async () => new Response("body", { headers: { "content-type": "text/plain" } });
     const guarded = contain(asset, { baseUrl: BASE, mode: "csp" });
 
     const response = await guarded(new Request(`${BASE}asset.txt`));

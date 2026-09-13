@@ -17,12 +17,8 @@
  * over idb-keyval specifically.
  */
 
-import {
-  EMPTY_SNAPSHOT,
-  type HubSnapshot,
-  type SnapshotStore,
-} from "./hub-state.js";
 import type { FilesApi } from "@statewalker/webrun-files";
+import { EMPTY_SNAPSHOT, type HubSnapshot, type SnapshotStore } from "./hub-state.js";
 
 /** The whole persistence contract. Three methods, because three is what the hub uses. */
 export interface KeyValueStorage {

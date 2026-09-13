@@ -43,6 +43,7 @@
     "multiformats": "14.0.5"
   },
   "devDependencies": {
+    "@biomejs/biome": "catalog:",
     "@libp2p/crypto": "5.1.22",
     "@libp2p/interface": "3.2.5",
     "@libp2p/peer-id": "6.0.14",

@@ -25,8 +25,7 @@
  *      joins after the server started is reachable with no rebuild.
  */
 
-import type { FetchHandler } from "@statewalker/httpeers-core";
-import type { MeshView } from "@statewalker/httpeers-core";
+import type { FetchHandler, MeshView } from "@statewalker/httpeers-core";
 import { stripPeerBinding } from "@statewalker/httpeers-core";
 
 /** What the gateway needs of a member. `MemberHandle` satisfies it; so does a test double. */

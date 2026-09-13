@@ -22,8 +22,8 @@
  */
 
 import type { PeerIdStr, ProvenPeer } from "@statewalker/httpeers-core";
-import type { Duplex } from "@statewalker/webrun-streams";
 import { duplexOverPort, serveDuplexOverPort } from "@statewalker/webrun-rpc";
+import type { Duplex } from "@statewalker/webrun-streams";
 import type { PeerConnection, PeerLink } from "./index.js";
 
 /**

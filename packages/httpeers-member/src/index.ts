@@ -8,7 +8,7 @@
  * `baseUrl` is the browser-only part.
  */
 
-export { classifyConnection, type ConnectionKind, describeConnection } from "./connection-kind.js";
+export { type ConnectionKind, classifyConnection, describeConnection } from "./connection-kind.js";
 export { describeError } from "./describe-error.js";
 
 export {
@@ -19,6 +19,15 @@ export {
   stripEdgePrefix,
   targetPeerId,
 } from "./edge-dispatch.js";
+/**
+ * The mesh as ordinary HTTP.
+ *
+ * `createGateway` turns a member into a `FetchHandler` dispatching
+ * `/{peerId}/{path}` — so a client with no peer object, no token and no
+ * knowledge of libp2p can `fetch()` a mesh resource. `GatewaySource` is
+ * structurally a subset of `MemberHandle`, so a member IS one.
+ */
+export { createGateway, GATEWAY_MARKER, type GatewayInit, type GatewaySource } from "./gateway.js";
 export {
   clearIdentity,
   decodeIdentity,
@@ -32,27 +41,23 @@ export {
 export {
   decodeJoinBlob,
   encodeJoinBlob,
+  invitationFromQrText,
   JOIN_BLOB_PARAM,
   type JoinBlob,
   type JoinInput,
-  invitationFromQrText,
   joinUrl,
   readJoinInputFromSearch,
   readJoinInputFromText,
 } from "./join-blob.js";
 export type { AsyncBytesBackend, AsyncKeyValueBackend } from "./kv.js";
 export { parseMeshConfig } from "./mesh-config.js";
-export { createMeshMemory, type CreateMeshMemoryInit, MESH_STORAGE_KEY, type MeshMemory } from "./mesh-memory.js";
-/**
- * The mesh as ordinary HTTP.
- *
- * `createGateway` turns a member into a `FetchHandler` dispatching
- * `/{peerId}/{path}` — so a client with no peer object, no token and no
- * knowledge of libp2p can `fetch()` a mesh resource. `GatewaySource` is
- * structurally a subset of `MemberHandle`, so a member IS one.
- */
-export { createGateway, GATEWAY_MARKER, type GatewayInit, type GatewaySource } from "./gateway.js";
-export { peerRequest, type PeerRequestInit } from "./peer-request.js";
+export {
+  type CreateMeshMemoryInit,
+  createMeshMemory,
+  MESH_STORAGE_KEY,
+  type MeshMemory,
+} from "./mesh-memory.js";
+export { type PeerRequestInit, peerRequest } from "./peer-request.js";
 /**
  * The session machine — ISOMORPHIC, and exported from the root on purpose.
  *
@@ -84,6 +89,6 @@ export {
   MemberJoinError,
   type MemberPlatform,
   type MemberState,
-  startMember,
   type StartMemberInit,
+  startMember,
 } from "./start-member.js";

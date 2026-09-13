@@ -13,8 +13,8 @@
  */
 
 import type { Ed25519PrivateKey } from "@libp2p/interface";
-import { mountEdge } from "./edge.js";
 import { createBrowserNode } from "./browser-profile.js";
+import { mountEdge } from "./edge.js";
 import { watchPageWake } from "./page-wake.js";
 import type { MemberPlatform } from "./start-member.js";
 

@@ -5,10 +5,11 @@
  * TRANSPORT-NEUTRAL, like `./reservation.ts`: nothing here is browser-only,
  * so the same code runs in a page and under the Node tests.
  */
+
+import type { Libp2p } from "@libp2p/interface";
 import { peerIdFromString } from "@libp2p/peer-id";
 import { multiaddr } from "@multiformats/multiaddr";
 import { lastPeerIdOf } from "./multiaddr-parts.js";
-import type { Libp2p } from "@libp2p/interface";
 import { type RelaySupervisor, superviseRelay } from "./reservation.js";
 
 /**

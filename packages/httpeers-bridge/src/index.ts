@@ -23,12 +23,12 @@
  */
 
 import {
-  PeerRequestTimeoutError,
-  registerPeer,
   type FetchHandler,
   type PeerIdStr,
+  PeerRequestTimeoutError,
   type ProvenPeer,
   type Remote,
+  registerPeer,
 } from "@statewalker/httpeers-core";
 import { fetchOverDuplex, serveFetchOverDuplex } from "@statewalker/webrun-http-streams";
 import type { Duplex } from "@statewalker/webrun-streams";
@@ -164,7 +164,12 @@ export function createRemoteOverLink(init: CreateRemoteOverLinkInit): Remote {
  */
 class Semaphore {
   #free: number;
-  readonly #waiting: Array<{ resolve: () => void; reject: (e: unknown) => void; signal?: AbortSignal; onAbort?: () => void }> = [];
+  readonly #waiting: Array<{
+    resolve: () => void;
+    reject: (e: unknown) => void;
+    signal?: AbortSignal;
+    onAbort?: () => void;
+  }> = [];
 
   constructor(size: number) {
     this.#free = size;

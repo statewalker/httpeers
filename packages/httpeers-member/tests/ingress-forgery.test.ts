@@ -20,8 +20,8 @@
  * could legitimately observe.
  */
 
-import { describe, expect, it } from "vitest";
 import { lookupPeer, PEER_ID_HEADER } from "@statewalker/httpeers-core";
+import { describe, expect, it } from "vitest";
 import { createEdgeDispatch } from "../src/edge-dispatch.js";
 import { createGateway } from "../src/gateway.js";
 

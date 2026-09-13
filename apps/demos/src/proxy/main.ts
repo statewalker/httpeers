@@ -1,18 +1,22 @@
 /**
  * The proxy page: expose an outside origin to the mesh.
  *
- * ISO-FUNCTIONAL with the sandbox's `pages/proxy/main.ts`, and the demo that
- * shows what `@statewalker/webrun-http-proxy` is for. The whole proxy — route
- * table, matching, rewriting, the listing, hop-by-hop hygiene, streaming —
- * came out of httpeers in the extraction and has nothing mesh-specific left in
- * it. What this page adds is the mesh half: the table is mounted at `/proxy`
- * so other peers reach it, and the one header the proxy must not forward is
- * named here rather than known there.
+ * ISO-FUNCTIONAL with the sandbox's `pages/proxy/main.ts`.
  *
- * `routes` IS A THUNK, AND THAT IS LOAD-BEARING. The endpoint is built ONCE
- * and re-reads the table on every request, because this page edits routes and
- * types credentials WHILE traffic flows. A snapshot taken at construction
- * would serve the old table until something restarted it.
+ * ROUTING IS A PLAIN HONO ROUTER. `@statewalker/webrun-http-proxy` used to
+ * ship a route table as well, and it turned out to be the uninteresting half:
+ * prefix matching, path rewriting and a listing are what a router does, and
+ * every caller already has one. The package keeps the part that is genuinely
+ * its own -- `urlUpstream`, which re-issues a request to an outside origin
+ * with the caller's credential consumed, identity headers stripped, hop-by-hop
+ * headers dropped and the body streamed.
+ *
+ * THE ROUTER IS REBUILT WHEN THE TABLE CHANGES, which is the shape a router
+ * wants; the old table took a thunk and re-read it per request. Both solve the
+ * same problem -- this page edits routes and types credentials WHILE traffic
+ * flows -- and rebuilding is the one a reader of Hono already understands.
+ * Credentials are still read per REQUEST, inside `urlUpstream`, so typing one
+ * takes effect without rebuilding anything.
  *
  * SECRETS ARE NEVER PERSISTED. A route's credential NAME is configuration and
  * is saved; its VALUE lives in memory for this session only. `StoredRoute` has
@@ -24,12 +28,12 @@
 import { createMounts, PEER_ID_HEADER } from "@statewalker/httpeers-core";
 import type { PeerSession, SessionState } from "@statewalker/httpeers-member";
 import { createSession } from "@statewalker/httpeers-member/browser";
-import type { Route, StoredRoute } from "@statewalker/webrun-http-proxy";
-import { rehydrate, routeTable, urlUpstream } from "@statewalker/webrun-http-proxy";
-import { localStorageRouteStore } from "@statewalker/webrun-http-proxy/browser";
+import { MARKER, type Upstream, urlUpstream } from "@statewalker/webrun-http-proxy";
+import { Hono } from "hono";
 import { ensureBiscuit } from "../shared/biscuit.js";
 import { EDGE_KEY, meshRules } from "../shared/policy.js";
 import { needsPermissiveGater, readRelayAddrs } from "../shared/relay.js";
+import { localStorageRouteStore, type StoredRoute } from "../shared/route-store.js";
 
 const el = <T extends HTMLElement>(id: string): T => {
   const found = document.querySelector<T>(`#${id}`);
@@ -39,39 +43,58 @@ const el = <T extends HTMLElement>(id: string): T => {
 
 const store = localStorageRouteStore();
 
-/** The live table. Re-read per request by the endpoint — see the module comment. */
-let routes: Route[] = [];
+/** The current router. Rebuilt when the table changes — see the module comment. */
+let router: (request: Request) => Promise<Response> = async () =>
+  new Response("no routes yet", { status: 503 });
 /** Credential VALUES for this session, by prefix. Never written anywhere. */
 const secrets = new Map<string, { name: string; value: string }>();
 
 let session: PeerSession | undefined;
-/** The route table as a handler. Held so the local console can call it without a round trip. */
-let endpoint: (request: Request) => Promise<Response> = async () =>
-  new Response("no routes yet", { status: 503 });
+
+/** One stored route as a live upstream, carrying whatever secret was typed this session. */
+function upstreamFor(route: StoredRoute): Upstream {
+  const secret = secrets.get(route.prefix);
+  return urlUpstream({
+    base: route.upstream,
+    // Read at REQUEST time, so typing a credential takes effect on the next
+    // call rather than needing anything rebuilt.
+    credential: () => (secret == null ? {} : { [secret.name]: secret.value }),
+    // THE ONE THING THE PROXY USED TO KNOW ABOUT MESHES. A third-party origin
+    // has no business learning which peer called, and the header travels by
+    // default now that proven identity is a header.
+    stripRequestHeaders: [PEER_ID_HEADER],
+  });
+}
 
 /**
- * Stored routes plus whatever secrets were typed this session.
+ * The route table as a Hono app.
  *
- * `rehydrate` is the package's own helper for exactly this: stored routes are
- * inert data, and turning each into a live `Upstream` is the caller's job
- * because only the caller holds the credentials.
+ * `:rest{.*}` captures the remainder and Hono matches on SEGMENT boundaries,
+ * so `/open` does not swallow `/openai` -- which the table this replaced had
+ * to implement by hand.
  */
-function hydrate(stored: readonly StoredRoute[]): Route[] {
-  return rehydrate(stored, {
-    upstreamFor: (route) => {
-      const secret = secrets.get(route.prefix);
-      return urlUpstream({
-        base: route.upstream,
-        // Read at REQUEST time, so typing a credential takes effect on the
-        // next call rather than needing the table rebuilt.
-        credential: () => (secret == null ? {} : { [secret.name]: secret.value }),
-        // THE ONE THING THE PROXY USED TO KNOW ABOUT MESHES. A third-party
-        // origin has no business learning which peer called, and the header
-        // travels by default now that proven identity is a header.
-        stripRequestHeaders: [PEER_ID_HEADER],
-      });
-    },
-  });
+function buildRouter(stored: readonly StoredRoute[]): (request: Request) => Promise<Response> {
+  const app = new Hono();
+
+  // The listing: prefixes and descriptions, never headers -- a header value
+  // may be a credential.
+  app.get("/", (c) =>
+    c.json({ routes: stored.map((r) => ({ prefix: r.prefix, upstream: r.describe })) }),
+  );
+
+  for (const route of stored) {
+    const upstream = upstreamFor(route);
+    const forward = (c: { req: { url: string; raw: Request } }): Promise<Response> => {
+      const url = new URL(c.req.url);
+      const rest = url.pathname.slice(route.prefix.length) || "/";
+      return upstream(new Request(`http://upstream${rest}${url.search}`, c.req.raw));
+    };
+    app.all(`${route.prefix}/:rest{.*}`, forward);
+    app.all(route.prefix, forward);
+  }
+
+  app.notFound(() => new Response("no route", { status: 404, headers: { [MARKER]: "no-route" } }));
+  return async (request) => app.fetch(request);
 }
 
 async function reloadRoutes(): Promise<void> {
@@ -79,7 +102,7 @@ async function reloadRoutes(): Promise<void> {
   // visit may seed defaults, a visit after the operator deleted every route
   // must not bring them back.
   const stored = (await store.load()) ?? [];
-  routes = hydrate(stored);
+  router = buildRouter(stored);
   renderRoutes(stored);
 }
 
@@ -190,7 +213,7 @@ async function sendConsole(event: SubmitEvent): Promise<void> {
   el("console-status").textContent = "sending…";
   try {
     const target = `http://proxy.local${path.startsWith("/") ? path : `/${path}`}`;
-    const res = await endpoint(
+    const res = await router(
       new Request(target, { method: el<HTMLSelectElement>("console-method").value }),
     );
     const body = await res.text();
@@ -227,9 +250,9 @@ async function main(): Promise<void> {
   const relayAddrs = await readRelayAddrs();
 
   const mounts = createMounts();
-  // Built ONCE; `routes` is re-read per request through the thunk.
-  endpoint = routeTable({ routes: () => routes });
-  mounts.provide("/proxy", endpoint);
+  // The mount delegates to whatever router is current, so editing the table
+  // takes effect without re-mounting anything.
+  mounts.provide("/proxy", (request) => router(request));
 
   session = createSession({
     key: EDGE_KEY,

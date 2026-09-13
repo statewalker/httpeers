@@ -48,15 +48,6 @@ export {
   withPolicy,
 } from "./rules.js";
 export type { Signer } from "./signer.js";
-// Verification.
-export {
-  LIMITS,
-  TokenVerificationError,
-  type VerifyTokenOptions,
-  verifyToken,
-  warmUpTokens,
-} from "./tokens.js";
-
 /**
  * Revocation for a stream that is ALREADY OPEN.
  *
@@ -74,5 +65,13 @@ export {
   type StreamHandler,
   StreamRevoked,
 } from "./stream-guard.js";
+// Verification.
+export {
+  LIMITS,
+  TokenVerificationError,
+  type VerifyTokenOptions,
+  verifyToken,
+  warmUpTokens,
+} from "./tokens.js";
 
 export type { MeshId, SubjectId } from "./types.js";

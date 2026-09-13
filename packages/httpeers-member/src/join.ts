@@ -15,15 +15,12 @@
  * -- see that function.
  */
 
-import type { PeerId } from "@libp2p/interface";
+import type { Libp2p, PeerId } from "@libp2p/interface";
 import { peerIdFromString } from "@libp2p/peer-id";
 import { multiaddr } from "@multiformats/multiaddr";
-import type { PeerIdStr } from "@statewalker/httpeers-core";
-import type { ChangeEntry } from "@statewalker/httpeers-access";
-import type { RevocationCache, RuleSet } from "@statewalker/httpeers-access";
+import type { ChangeEntry, RevocationCache, RuleSet } from "@statewalker/httpeers-access";
+import type { MeshView, PeerIdStr } from "@statewalker/httpeers-core";
 import type { Peer } from "@statewalker/httpeers-libp2p";
-import type { Libp2p } from "@libp2p/interface";
-import type { MeshView } from "@statewalker/httpeers-core";
 import { hubRoute, reachHub } from "@statewalker/httpeers-libp2p";
 import { peerRequest } from "./peer-request.js";
 
@@ -152,11 +149,14 @@ export async function redeemInvitation(
   hubPeerId: PeerIdStr,
   invitationId: string,
 ): Promise<InviteRedeemResponse> {
-  const res = await peer.call(hubPeerId, peerRequest("/.well-known/invite", {
-    method: "POST",
-    headers: { "content-type": "application/json" },
-    body: JSON.stringify({ id: invitationId }),
-  }));
+  const res = await peer.call(
+    hubPeerId,
+    peerRequest("/.well-known/invite", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ id: invitationId }),
+    }),
+  );
   if (!res.ok) {
     const body = await res.text().catch(() => "");
     throw new Error(
@@ -296,15 +296,18 @@ export interface ResumeMembershipInit {
  * what to say about it (`./peer-runtime.ts` does).
  */
 export async function resumeMembership(init: ResumeMembershipInit): Promise<ResumeOutcome> {
-  const res = await init.peer.call(init.hubPeerId, peerRequest("/.well-known/presence", {
-    method: "POST",
-    headers: { "content-type": "application/json" },
-    body: JSON.stringify({
-      seq: init.seq,
-      addrs: init.addrs,
-      ...(init.advertisements !== undefined ? { advertisements: init.advertisements } : {}),
+  const res = await init.peer.call(
+    init.hubPeerId,
+    peerRequest("/.well-known/presence", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        seq: init.seq,
+        addrs: init.addrs,
+        ...(init.advertisements !== undefined ? { advertisements: init.advertisements } : {}),
+      }),
     }),
-  }));
+  );
 
   if (!res.ok) {
     const body = await res.text().catch(() => "");
@@ -484,12 +487,15 @@ export function startJoin(init: JoinInit): JoinHandle {
       const addrs = node.getMultiaddrs().map((addr) => addr.toString());
       const advertisements = init.advertisements?.() ?? [];
 
-      const res = await peer.call(hubPeerId, peerRequest("/.well-known/presence", {
-        method: "POST",
-        token,
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({ seq, addrs, advertisements }),
-      }));
+      const res = await peer.call(
+        hubPeerId,
+        peerRequest("/.well-known/presence", {
+          method: "POST",
+          token,
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ seq, addrs, advertisements }),
+        }),
+      );
       if (!res.ok) {
         // A refusal is not a transport fault and must not be swallowed with
         // one: 403 means this peer is no longer a member (revoked, or the
@@ -508,7 +514,10 @@ export function startJoin(init: JoinInit): JoinHandle {
       token = body.token; // rotates every heartbeat -- the hub mints a fresh token on each call.
 
       if (body.versions.mesh !== meshVersion) {
-        const meshRes = await peer.call(hubPeerId, peerRequest("/.well-known/mesh", { method: "GET", token }));
+        const meshRes = await peer.call(
+          hubPeerId,
+          peerRequest("/.well-known/mesh", { method: "GET", token }),
+        );
         if (meshRes.ok) {
           meshViewCache = (await meshRes.json()) as MeshView;
           meshVersion = body.versions.mesh;
@@ -516,10 +525,13 @@ export function startJoin(init: JoinInit): JoinHandle {
       }
 
       if (body.versions.rules !== rulesVersion) {
-        const rulesRes = await peer.call(hubPeerId, peerRequest("/.well-known/rules", {
-          method: "GET",
-          token,
-        }));
+        const rulesRes = await peer.call(
+          hubPeerId,
+          peerRequest("/.well-known/rules", {
+            method: "GET",
+            token,
+          }),
+        );
         if (rulesRes.ok) {
           rulesCache = (await rulesRes.json()) as RuleSet;
           rulesVersion = body.versions.rules;
@@ -527,10 +539,13 @@ export function startJoin(init: JoinInit): JoinHandle {
       }
 
       if (body.versions.policy !== revocationCache.knownVersion()) {
-        const revRes = await peer.call(hubPeerId, peerRequest("/.well-known/revocations", {
-          method: "GET",
-          token,
-        }));
+        const revRes = await peer.call(
+          hubPeerId,
+          peerRequest("/.well-known/revocations", {
+            method: "GET",
+            token,
+          }),
+        );
         if (revRes.ok) {
           const revBody = (await revRes.json()) as RevocationsResponse;
           revocationEntriesCache = revBody.entries;

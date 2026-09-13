@@ -18,11 +18,20 @@
  *   `createEdgeDispatch` behind `mountEdge`.
  */
 
-import type { Libp2p } from "@libp2p/interface";
-import type { Ed25519PrivateKey } from "@libp2p/interface";
-import { ANONYMOUS, forwardLocalOnly, lookupPeer, type PeerIdStr } from "@statewalker/httpeers-core";
-import { type RuleSet, roleNames, selfCertifyingKeys, withAccess } from "@statewalker/httpeers-access";
+import type { Ed25519PrivateKey, Libp2p } from "@libp2p/interface";
+import {
+  type RuleSet,
+  roleNames,
+  selfCertifyingKeys,
+  withAccess,
+} from "@statewalker/httpeers-access";
 import { mintToken } from "@statewalker/httpeers-access/issuer";
+import {
+  ANONYMOUS,
+  forwardLocalOnly,
+  lookupPeer,
+  type PeerIdStr,
+} from "@statewalker/httpeers-core";
 import { createHub, type Hub, usesTransportIdentity } from "@statewalker/httpeers-hub";
 // The IndexedDB store is behind the hub's BROWSER entry, which is the whole
 // point of that split: the root stays runnable where there is no IndexedDB.

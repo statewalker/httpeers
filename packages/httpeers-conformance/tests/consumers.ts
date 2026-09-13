@@ -18,8 +18,8 @@ import type { FetchHandler, MeshView, Mounts, PeerIdStr } from "@statewalker/htt
 import {
   ANONYMOUS,
   createMounts,
-  forwardLocalOnly,
   createPeerRouter,
+  forwardLocalOnly,
   json,
   lookupPeer,
   registerPeer,
@@ -40,8 +40,8 @@ import {
   verifyToken,
   withAccess,
 } from "@statewalker/httpeers-access";
-import { generateSigner, mintToken } from "@statewalker/httpeers-access/issuer";
 import { initBiscuit } from "@statewalker/httpeers-access/engine";
+import { generateSigner, mintToken } from "@statewalker/httpeers-access/issuer";
 
 export async function rung11_siteOverAnyTransport(issuer: string, selfPeer: string) {
   const rules: RuleSet = ruleSet({
@@ -60,7 +60,13 @@ export async function rung11_siteOverAnyTransport(issuer: string, selfPeer: stri
     selfPeer,
     keys: selfCertifyingKeys(),
     provenPeer: (req) => lookupPeer(req) ?? ANONYMOUS,
-  })(createPeerRouter({ selfPeerId: selfPeer, mounts, remote: async () => new Response(null, { status: 403 }) }));
+  })(
+    createPeerRouter({
+      selfPeerId: selfPeer,
+      mounts,
+      remote: async () => new Response(null, { status: 403 }),
+    }),
+  );
 
   return guarded;
 }
@@ -139,6 +145,7 @@ export async function rung12_hub(selfPeerId: PeerIdStr, rules: RuleSet): Promise
 // Rung 05 — the reverse proxy and exposing a local app, as one mechanism
 // ---------------------------------------------------------------------------
 
+import { PEER_ID_HEADER } from "@statewalker/httpeers-core";
 import {
   assertNoSecrets,
   type Route,
@@ -146,9 +153,8 @@ import {
   type StoredRoute,
   urlUpstream,
 } from "@statewalker/webrun-http-proxy";
-import { fileRouteStore } from "@statewalker/webrun-http-proxy/node";
 import { localStorageRouteStore } from "@statewalker/webrun-http-proxy/browser";
-import { PEER_ID_HEADER } from "@statewalker/httpeers-core";
+import { fileRouteStore } from "@statewalker/webrun-http-proxy/node";
 
 export function rung05_expose(local: FetchHandler): FetchHandler {
   const routes: Route[] = [
@@ -264,6 +270,7 @@ export function rung01_page(
 
 import {
   createDuplexMounts,
+  createNode,
   generateKey,
   openDuplex,
   peerIdOf,
@@ -271,7 +278,6 @@ import {
   servePeer,
 } from "@statewalker/httpeers-libp2p";
 import { nodeTransports } from "@statewalker/httpeers-libp2p/node";
-import { createNode } from "@statewalker/httpeers-libp2p";
 
 export async function rung09_duplex() {
   const node = await createNode({ privateKey: await generateKey(), transports: nodeTransports() });
@@ -295,7 +301,10 @@ export function rung10_revocation() {
 // Rung 01 — servePeer, the seam three assemblies collapse into
 // ---------------------------------------------------------------------------
 
-export async function rung01_servePeer(mounts: Mounts, guard: (next: FetchHandler) => FetchHandler) {
+export async function rung01_servePeer(
+  mounts: Mounts,
+  guard: (next: FetchHandler) => FetchHandler,
+) {
   const node = await createNode({ privateKey: await generateKey(), transports: nodeTransports() });
   const peer = await servePeer({ node, mounts, access: guard });
   await peer.call("12D3KooWOther", new Request("http://peer.local/hello"));
@@ -363,8 +372,7 @@ export async function rung12_browserHub(
     selfPeerId,
     policies: rules,
     storage: memoryStorage(),
-    mintToken: async (sub, roles) =>
-      mintToken({ signer, sub, roles, ttlMs: 5 * 60_000 }),
+    mintToken: async (sub, roles) => mintToken({ signer, sub, roles, ttlMs: 5 * 60_000 }),
   });
   isMember = (peerId) => hub.isMember(peerId);
 

@@ -26,17 +26,14 @@ import { noise } from "@chainsafe/libp2p-noise";
 import { yamux } from "@chainsafe/libp2p-yamux";
 import { identify } from "@libp2p/identify";
 import type { Ed25519PrivateKey, Libp2p } from "@libp2p/interface";
-import { multiaddr } from "@multiformats/multiaddr";
+
 // Re-exported so `peer.ts` (and any other consumer) can type an already-
 // constructed node, or a retained signing key, without itself importing
 // `@libp2p/interface` — this file stays the only one that does.
 export type { Ed25519PrivateKey, Libp2p } from "@libp2p/interface";
-// Only the parse error is still read here: `mapPeerCallError` classifies it.
-// The fetch-over-duplex calls themselves moved to `httpeers-bridge`.
-import { HttpParseError } from "@statewalker/webrun-http-streams";
+
 import { createRemoteOverLink, serveFetchOverLink } from "@statewalker/httpeers-bridge";
-import { libp2pLink } from "./link.js";
-import { createLibp2p } from "libp2p";
+import type { FetchHandler, PeerIdStr, Remote } from "@statewalker/httpeers-core";
 import {
   PeerCallError,
   PeerProtocolUnsupportedError,
@@ -46,8 +43,11 @@ import {
   PeerUnreachableError,
   UnknownPeerCallError,
 } from "@statewalker/httpeers-core";
-import { registerPeer } from "@statewalker/httpeers-core";
-import type { FetchHandler, PeerIdStr, Remote } from "@statewalker/httpeers-core";
+// Only the parse error is still read here: `mapPeerCallError` classifies it.
+// The fetch-over-duplex calls themselves moved to `httpeers-bridge`.
+import { HttpParseError } from "@statewalker/webrun-http-streams";
+import { createLibp2p } from "libp2p";
+import { libp2pLink } from "./link.js";
 
 /**
  * A namespaced protocol id, passed explicitly rather than left at
@@ -209,7 +209,6 @@ export const DEFAULT_REQUEST_TIMEOUT_MS = 8_000;
  */
 export const DEFAULT_MAX_CONCURRENT_OUTBOUND = DEFAULT_MAX_STREAMS;
 
-
 /**
  * Node.js `net`'s own connection-establishment errno codes -- structured,
  * documented properties (`err.code`), never a message string. Needed
@@ -286,7 +285,10 @@ export function mapPeerCallError(err: unknown, peerId: PeerIdStr): PeerCallError
   // (not every `HttpParseError`) because a genuinely malformed response
   // (a foreign codec, corrupted bytes) is a different, real condition this
   // must not misclassify as a reset.
-  if (err instanceof HttpParseError && err.message.includes("stream ended before any bytes arrived")) {
+  if (
+    err instanceof HttpParseError &&
+    err.message.includes("stream ended before any bytes arrived")
+  ) {
     return new PeerStreamResetError(peerId, cause);
   }
 
@@ -333,7 +335,6 @@ export function mapPeerCallError(err: unknown, peerId: PeerIdStr): PeerCallError
       return new UnknownPeerCallError(peerId, cause);
   }
 }
-
 
 export interface CreateNodeInit {
   /**
@@ -404,8 +405,7 @@ export async function createNode(init: CreateNodeInit): Promise<Libp2p> {
     ...(privateKey != null ? { privateKey } : {}),
     ...(connectionGater != null ? { connectionGater } : {}),
     addresses: { listen },
-    // biome-ignore lint/suspicious/noExplicitAny: libp2p's own factory types are
-    // not expressible without importing its whole component graph.
+    // biome-ignore lint/suspicious/noExplicitAny: libp2p's own factory types are not expressible without importing its whole component graph.
     transports: transports as any,
     connectionEncrypters: [noise()],
     streamMuxers: [yamux()],

@@ -3,7 +3,7 @@
   "version": "0.1.0",
   "private": true,
   "type": "module",
-  "description": "The httpeers circuit relay \u2014 a stock libp2p Circuit Relay v2 server, and nothing else.",
+  "description": "The httpeers circuit relay — a stock libp2p Circuit Relay v2 server, and nothing else.",
   "license": "MIT",
   "repository": {
     "type": "git",
@@ -33,6 +33,7 @@
     "libp2p": "3.3.8"
   },
   "devDependencies": {
+    "@biomejs/biome": "catalog:",
     "@types/node": "catalog:",
     "tsx": "catalog:",
     "typescript": "catalog:",

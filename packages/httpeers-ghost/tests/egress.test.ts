@@ -7,8 +7,9 @@
  * must learn nothing about the viewer that the viewer did not choose to send,
  * and must not receive a claim it might be tempted to believe.
  */
-import { describe, expect, it } from "vitest";
+
 import { lookupPeer, PEER_ID_HEADER, registerPeer } from "@statewalker/httpeers-core";
+import { describe, expect, it } from "vitest";
 import { pinnedPeer } from "../src/pin.js";
 
 const HOST = `12D3KooW${"H".repeat(44)}`;

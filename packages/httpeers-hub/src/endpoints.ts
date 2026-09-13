@@ -16,12 +16,26 @@
  * better HTTP regardless.
  */
 
-import type { Advertisement, AdvertisementStore, FetchHandler, MemberStore, Mounts, PeerIdStr, PresenceStore, UsesTransportIdentity } from "@statewalker/httpeers-core";
 import type { RuleSet } from "@statewalker/httpeers-access";
-import type { RevocationRegistry } from "@statewalker/httpeers-access/issuer";
-import { ANONYMOUS, createMounts, json, lookupClaims, lookupPeer } from "@statewalker/httpeers-core";
 import { capabilityNames, deriveCapabilities } from "@statewalker/httpeers-access";
-import { createAdvertisementStore, createPresenceStore } from "./registries.js";
+import type { RevocationRegistry } from "@statewalker/httpeers-access/issuer";
+import type {
+  Advertisement,
+  AdvertisementStore,
+  FetchHandler,
+  MemberStore,
+  Mounts,
+  PeerIdStr,
+  PresenceStore,
+  UsesTransportIdentity,
+} from "@statewalker/httpeers-core";
+import {
+  ANONYMOUS,
+  createMounts,
+  json,
+  lookupClaims,
+  lookupPeer,
+} from "@statewalker/httpeers-core";
 import { Hono } from "hono";
 import { createAdminEndpoints } from "./admin.js";
 // `./hub-state.js`, not `./persist.js`: the latter is the NODE facade (it
@@ -32,6 +46,7 @@ import { createAdminEndpoints } from "./admin.js";
 import type { InvitationStore } from "./hub-state.js";
 import type { AdvertisementPayload, MeshView } from "./mesh-view.js";
 import { buildMeshView } from "./mesh-view.js";
+import { createAdvertisementStore, createPresenceStore } from "./registries.js";
 
 /** The capability that grants admin visibility — sees `hidden` members and gates `/admin/*` (Task 8's `DELETE /admin/members/{peerId}` included). */
 export const ADMIN_CAPABILITY = "std:mesh.admin";

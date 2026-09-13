@@ -45,9 +45,10 @@
  * destroys something -- `resetIdentity` -- says what it costs and is named
  * separately.
  */
-import type { MeshConfig as HttpeersConfig, Mounts } from "@statewalker/httpeers-core";
-import type { RuleSet } from "@statewalker/httpeers-access";
+
 import type { Ed25519PrivateKey } from "@libp2p/interface";
+import type { RuleSet } from "@statewalker/httpeers-access";
+import type { MeshConfig as HttpeersConfig, Mounts } from "@statewalker/httpeers-core";
 import type { IdentityStoreInit } from "./identity.js";
 import { clearIdentity, loadOrCreateIdentity, peerIdOf, readIdentity } from "./identity.js";
 import type { AdvertisementInput, PresenceRefusal } from "./join.js";

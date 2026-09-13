@@ -18,6 +18,7 @@
     "lint:check": "biome check tests"
   },
   "devDependencies": {
+    "@biomejs/biome": "catalog:",
     "@chainsafe/libp2p-noise": "17.0.0",
     "@chainsafe/libp2p-yamux": "8.0.1",
     "@libp2p/circuit-relay-v2": "4.2.11",

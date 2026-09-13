@@ -28,9 +28,10 @@
  * *before* the invitation is even looked up, so a code whose invitation
  * record did not survive a restart still cannot be redeemed twice.
  */
-import type { MemberRecord, MemberStore } from "@statewalker/httpeers-core";
+
 import type { RuleSet } from "@statewalker/httpeers-access";
 import { assertValid, validateRoles } from "@statewalker/httpeers-access";
+import type { MemberRecord, MemberStore } from "@statewalker/httpeers-core";
 
 export interface HubSnapshot {
   members: MemberRecord[];

@@ -25,9 +25,9 @@ export {
 } from "./errors.js";
 // The transport-proven caller, carried beside a Request rather than inside it.
 export {
+  ANONYMOUS_HEADER_VALUE,
   cacheClaims,
   copyPeerBinding,
-  ANONYMOUS_HEADER_VALUE,
   forwardLocalOnly,
   lookupClaims,
   lookupClaimsResult,

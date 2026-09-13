@@ -24,8 +24,9 @@
  * old token" operation, not an error condition — so this handler does not
  * 404 on an unknown peerId.
  */
-import type { FetchHandler, MemberStore } from "@statewalker/httpeers-core";
+
 import type { RevocationRegistry } from "@statewalker/httpeers-access/issuer";
+import type { FetchHandler, MemberStore } from "@statewalker/httpeers-core";
 import { json } from "@statewalker/httpeers-core";
 import { Hono } from "hono";
 

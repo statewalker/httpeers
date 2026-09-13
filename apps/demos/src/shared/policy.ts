@@ -45,7 +45,7 @@ export function meshRules(): RuleSet {
     ],
     policies: [
       'allow if capability("std:mesh.read"), resource("/.well-known")' +
-      ' or capability("std:mesh.read"), resource($r), $r.starts_with("/.well-known/");',
+        ' or capability("std:mesh.read"), resource($r), $r.starts_with("/.well-known/");',
       'allow if capability("app:images.read"), resource($r), $r.starts_with("/images");',
       'allow if capability("app:search.query"), resource($r), $r.starts_with("/search");',
       // BOTH FORMS, and deliberately: `/proxy` is the route LISTING and
@@ -56,8 +56,8 @@ export function meshRules(): RuleSet {
         ' or capability("app:proxy.use"), resource($r), $r.starts_with("/proxy/");',
       'allow if capability("std:mesh.admin"), resource("/admin")' +
         ' or capability("std:mesh.admin"), resource($r), $r.starts_with("/admin/");',
-      ],
-    });
+    ],
+  });
   return built;
 }
 

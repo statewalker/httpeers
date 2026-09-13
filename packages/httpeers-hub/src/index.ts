@@ -2,11 +2,18 @@
  * Minting membership, holding the registries, and saying who is in the mesh.
  */
 
-export { createHub, type CreateHubInit, type Hub } from "./create-hub.js";
-export { ADMIN_CAPABILITY, createHubEndpoints, DEFAULT_PRESENCE_TTL_MS, type HubEndpoints, type HubEndpointsInit, usesTransportIdentity } from "./endpoints.js";
+export { type CreateHubInit, createHub, type Hub } from "./create-hub.js";
 export {
-  createHubState,
+  ADMIN_CAPABILITY,
+  createHubEndpoints,
+  DEFAULT_PRESENCE_TTL_MS,
+  type HubEndpoints,
+  type HubEndpointsInit,
+  usesTransportIdentity,
+} from "./endpoints.js";
+export {
   type CreateHubStateInit,
+  createHubState,
   EMPTY_SNAPSHOT,
   type HubSnapshot,
   type InvitationRecord,

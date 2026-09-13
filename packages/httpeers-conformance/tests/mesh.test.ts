@@ -13,14 +13,14 @@
  * imported, green across 637 type-checked tests.
  */
 
-import { afterEach, describe, expect, it } from "vitest";
-import { createMounts, json, PEER_ID_HEADER } from "@statewalker/httpeers-core";
 import { access } from "@statewalker/httpeers-access";
-import { MemberJoinError, type MemberHandle, startMember } from "@statewalker/httpeers-member";
+import { createMounts, json, PEER_ID_HEADER } from "@statewalker/httpeers-core";
+import { type MemberHandle, MemberJoinError, startMember } from "@statewalker/httpeers-member";
+import { afterEach, describe, expect, it } from "vitest";
 import {
   HEARTBEAT_INTERVAL_MS,
-  type Mesh,
   MESH_RULES,
+  type Mesh,
   startMesh,
   testPlatform,
 } from "./mesh-harness.js";
@@ -29,7 +29,11 @@ let mesh: Mesh | null = null;
 const members: MemberHandle[] = [];
 
 afterEach(async () => {
-  while (members.length > 0) await members.pop()?.stop().catch(() => {});
+  while (members.length > 0)
+    await members
+      .pop()
+      ?.stop()
+      .catch(() => {});
   await mesh?.stop();
   mesh = null;
 }, 30_000);

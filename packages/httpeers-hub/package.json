@@ -51,6 +51,7 @@
     }
   },
   "devDependencies": {
+    "@biomejs/biome": "catalog:",
     "@statewalker/webrun-files": "catalog:",
     "@types/node": "catalog:",
     "typescript": "catalog:",

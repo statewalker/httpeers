@@ -1,6 +1,10 @@
-import { describe, expect, it } from "vitest";
-import { createAdvertisementStore, createMemberStore, createPresenceStore } from "../src/registries.js";
 import { ruleSet } from "@statewalker/httpeers-access";
+import { describe, expect, it } from "vitest";
+import {
+  createAdvertisementStore,
+  createMemberStore,
+  createPresenceStore,
+} from "../src/registries.js";
 
 /**
  * A minimal rule set mentioning exactly the role names these tests use — the
@@ -116,7 +120,7 @@ describe("createPresenceStore", () => {
   });
 
   it("a delayed retry cannot resurrect a peer that has since left", () => {
-    let time = 1_000;
+    const time = 1_000;
     const store = createPresenceStore(() => time);
     store.heartbeat("peer-a", 1, 5_000);
     store.heartbeat("peer-a", 2, 5_000); // peer-a's real, newer state
@@ -159,7 +163,12 @@ describe("createAdvertisementStore", () => {
 
     const ad = store.post("peer-a", "echo-service", { path: "/echo" });
 
-    expect(ad).toEqual({ peerId: "peer-a", key: "echo-service", payload: { path: "/echo" }, postedAt: 500 });
+    expect(ad).toEqual({
+      peerId: "peer-a",
+      key: "echo-service",
+      payload: { path: "/echo" },
+      postedAt: 500,
+    });
     expect(store.get("peer-a", "echo-service")).toEqual(ad);
   });
 

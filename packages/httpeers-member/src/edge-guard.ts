@@ -57,6 +57,7 @@ export function assertKeyMatchesPrefix(key: string, prefix: string): void {
   if (!prefix.endsWith("/")) {
     throw new Error(
       `mountEdge: prefix "${prefix}" does not end with "/" -- the resulting baseUrl would ` +
+        // biome-ignore lint/suspicious/noTemplateCurlyInString: quoting what a page writes, not interpolating.
         "not either, and every mesh call a page composes as `${baseUrl}${peerId}/...` would " +
         "run the two together into one segment the ServiceWorker cannot route, falling " +
         "through to the origin server. `BrowserPeerHandle.baseUrl` promises a trailing " +

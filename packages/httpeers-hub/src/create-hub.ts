@@ -23,9 +23,9 @@
  * `httpeers-libp2p`.
  */
 
-import type { FetchHandler, MeshView, Mounts, PeerIdStr } from "@statewalker/httpeers-core";
 import type { RuleSet } from "@statewalker/httpeers-access";
 import { RevocationRegistry } from "@statewalker/httpeers-access/issuer";
+import type { FetchHandler, MeshView, Mounts, PeerIdStr } from "@statewalker/httpeers-core";
 import { createHubEndpoints, type HubEndpointsInit } from "./endpoints.js";
 import {
   createHubState,

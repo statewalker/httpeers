@@ -24,9 +24,10 @@
  * resolution as "ready" is exactly the race that note documents this project
  * already got bitten by once.
  */
+
+import type { Libp2p } from "@libp2p/interface";
 import { multiaddr } from "@multiformats/multiaddr";
 import { lastPeerIdOf } from "./multiaddr-parts.js";
-import type { Libp2p } from "@libp2p/interface";
 
 /** Dial the relay named by `relayAddr` (`httpeers.json`'s `relayAddrs[0]`). Resolving means the link is up -- NOT that a circuit reservation exists yet; see `waitForCircuitReservation`. */
 export async function dialRelay(node: Libp2p, relayAddr: string): Promise<void> {

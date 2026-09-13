@@ -30,13 +30,13 @@
  * failing the same way on every later load, with the operator's original
  * mistake no longer visible anywhere.
  */
-import type { AsyncKeyValueBackend } from "./kv.js";
-import { parseMeshConfig } from "./mesh-config.js";
 
 // `MeshConfig` in `httpeers-core` — the shape `httpeers.json` has. It was
 // `HttpeersConfig`, declared in the browser peer assembly, which meant a Node
 // member had to import a browser module to name the file it reads.
 import type { MeshConfig as HttpeersConfig } from "@statewalker/httpeers-core";
+import type { AsyncKeyValueBackend } from "./kv.js";
+import { parseMeshConfig } from "./mesh-config.js";
 
 /** Where the remembered mesh lives, namespaced like `./identity.ts`'s key and `./snapshot-store.ts`'s snapshot. */
 export const MESH_STORAGE_KEY = "httpeers:mesh";

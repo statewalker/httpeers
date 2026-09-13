@@ -19,7 +19,11 @@ import { multiaddr } from "@multiformats/multiaddr";
 import type { PeerConnection, PeerLink } from "@statewalker/httpeers-bridge";
 import type { PeerIdStr, ProvenPeer } from "@statewalker/httpeers-core";
 import type { Duplex } from "@statewalker/webrun-streams";
-import { connect, type ConnectionContext, serveConnections } from "@statewalker/webrun-streams-libp2p";
+import {
+  type ConnectionContext,
+  connect,
+  serveConnections,
+} from "@statewalker/webrun-streams-libp2p";
 import { DEFAULT_DRAIN_TIMEOUT_MS, DEFAULT_MAX_STREAMS, PROTOCOL } from "./transport.js";
 
 export interface Libp2pLinkInit {

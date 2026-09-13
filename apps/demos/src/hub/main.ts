@@ -12,7 +12,12 @@
  * down and the hub never comes up — which is exactly when they need both.
  */
 
-import { encodeJoinBlob, joinUrl, loadOrCreateIdentity, peerIdOf } from "@statewalker/httpeers-member";
+import {
+  encodeJoinBlob,
+  joinUrl,
+  loadOrCreateIdentity,
+  peerIdOf,
+} from "@statewalker/httpeers-member";
 import { idbBytesBackend } from "@statewalker/httpeers-member/browser";
 import { qrSvg } from "@statewalker/httpeers-qr";
 import { ensureBiscuit } from "../shared/biscuit.js";
@@ -224,11 +229,16 @@ async function main(): Promise<void> {
           relayAddrs: [handle.relayAddr],
           hubPeerId: handle.peerId,
         });
-        renderInvitation(roles, blob, joinUrl(location.origin, {
-          invitationId: created.id,
-          relayAddrs: [handle.relayAddr],
-          hubPeerId: handle.peerId,
-        }), created.expiresAt);
+        renderInvitation(
+          roles,
+          blob,
+          joinUrl(location.origin, {
+            invitationId: created.id,
+            relayAddrs: [handle.relayAddr],
+            hubPeerId: handle.peerId,
+          }),
+          created.expiresAt,
+        );
       } catch (err) {
         showError(`Could not mint an invitation: ${String(err)}`);
       } finally {

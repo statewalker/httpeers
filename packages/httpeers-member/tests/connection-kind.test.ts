@@ -4,7 +4,9 @@ import { classifyConnection, describeConnection } from "../src/connection-kind.j
 describe("classifyConnection", () => {
   it("calls a /webrtc address direct — the relay is out of the data path", () => {
     expect(
-      classifyConnection(["/dns4/relay.httpeers.net/tcp/443/tls/ws/p2p/12D3Relay/p2p-circuit/webrtc/p2p/12D3Peer"]),
+      classifyConnection([
+        "/dns4/relay.httpeers.net/tcp/443/tls/ws/p2p/12D3Relay/p2p-circuit/webrtc/p2p/12D3Peer",
+      ]),
     ).toBe("direct");
   });
 
@@ -12,7 +14,9 @@ describe("classifyConnection", () => {
   // the WebRTC upgrade never completed and every byte crosses the relay.
   it("calls a bare circuit address relayed", () => {
     expect(
-      classifyConnection(["/dns4/relay.httpeers.net/tcp/443/tls/ws/p2p/12D3Relay/p2p-circuit/p2p/12D3Peer"]),
+      classifyConnection([
+        "/dns4/relay.httpeers.net/tcp/443/tls/ws/p2p/12D3Relay/p2p-circuit/p2p/12D3Peer",
+      ]),
     ).toBe("relayed");
   });
 

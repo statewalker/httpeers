@@ -16,16 +16,25 @@
  */
 
 import { del, get, set } from "idb-keyval";
-import { createMeshMemory } from "./mesh-memory.js";
-import { createIdentityStore, createPeerSession } from "./session.js";
-import type { PeerSession, PeerSessionInit } from "./session.js";
 import { browserPlatform } from "./browser-platform.js";
 import type { AsyncBytesBackend, AsyncKeyValueBackend } from "./kv.js";
+import { createMeshMemory } from "./mesh-memory.js";
+import type { PeerSession, PeerSessionInit } from "./session.js";
+import { createIdentityStore, createPeerSession } from "./session.js";
 
-export { browserPlatform, type BrowserPlatformInit } from "./browser-platform.js";
-export { createBrowserNode, type CreateBrowserNodeInit, dialNeedsPermissiveGater } from "./browser-profile.js";
+export { type BrowserPlatformInit, browserPlatform } from "./browser-platform.js";
+export {
+  type CreateBrowserNodeInit,
+  createBrowserNode,
+  dialNeedsPermissiveGater,
+} from "./browser-profile.js";
 export { DEFAULT_SERVICE_WORKER_URL, type MountEdgeInit, mountEdge } from "./edge.js";
-export { type WakeDocument, type WakeWindow, type WatchPageWakeInit, watchPageWake } from "./page-wake.js";
+export {
+  type WakeDocument,
+  type WakeWindow,
+  type WatchPageWakeInit,
+  watchPageWake,
+} from "./page-wake.js";
 
 // THE SESSION ITSELF IS NOT RE-EXPORTED HERE. It is isomorphic and lives at
 // the root, and two import paths to one symbol is how a package ends up with
@@ -85,4 +94,4 @@ export function createSession(init: CreateSessionInit): PeerSession {
     reload: init.reload ?? ((): void => location.reload()),
   });
 }
-export { resetBrowserState, type ResetResult } from "./reset.js";
+export { type ResetResult, resetBrowserState } from "./reset.js";

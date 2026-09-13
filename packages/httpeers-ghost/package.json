@@ -33,6 +33,7 @@
     "@statewalker/httpeers-core": "workspace:*"
   },
   "devDependencies": {
+    "@biomejs/biome": "catalog:",
     "@types/node": "catalog:",
     "typescript": "catalog:",
     "vitest": "catalog:"

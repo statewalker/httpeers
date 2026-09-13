@@ -22,13 +22,12 @@ export {
   type DuplexHandler,
   type DuplexMounts,
   NO_MOUNT,
-  openDuplex,
   type OpenDuplexInit,
+  openDuplex,
   type PeerDuplex,
-  serveDuplex,
   type ServeDuplexInit,
+  serveDuplex,
 } from "./duplex.js";
-export { hubRelayService, type IsMember, membershipGater } from "./hub-relay.js";
 export {
   hubRoute,
   leaveRelay,
@@ -37,33 +36,7 @@ export {
   type SuperviseHubReservationInit,
   superviseHubReservation,
 } from "./hub-link.js";
-export { lastPeerIdOf } from "./multiaddr-parts.js";
-export {
-  type CircuitAddrs,
-  circuitAddrs,
-  dialRelay,
-  type RelaySupervisor,
-  RESERVATION_POLL_ATTEMPTS,
-  RESERVATION_POLL_INTERVAL_MS,
-  retryDelayMs,
-  type SuperviseRelayInit,
-  superviseRelay,
-  type WaitForCircuitReservationInit,
-  waitForCircuitReservation,
-} from "./reservation.js";
-export { type Peer, servePeer, type ServePeerInit } from "./serve-peer.js";
-export {
-  createNode,
-  type CreateNodeInit,
-  createRemote,
-  type CreateRemoteInit,
-  DEFAULT_DRAIN_TIMEOUT_MS,
-  DEFAULT_MAX_STREAMS,
-  PROTOCOL,
-  serveTransport,
-  type ServeTransportInit,
-  type TransportFactory,
-} from "./transport.js";
+export { hubRelayService, type IsMember, membershipGater } from "./hub-relay.js";
 export {
   type BytesStore,
   decodeKey,
@@ -77,3 +50,30 @@ export {
   type SignerLike,
   signerOf,
 } from "./identity.js";
+export { lastPeerIdOf } from "./multiaddr-parts.js";
+export {
+  type CircuitAddrs,
+  circuitAddrs,
+  dialRelay,
+  RESERVATION_POLL_ATTEMPTS,
+  RESERVATION_POLL_INTERVAL_MS,
+  type RelaySupervisor,
+  retryDelayMs,
+  type SuperviseRelayInit,
+  superviseRelay,
+  type WaitForCircuitReservationInit,
+  waitForCircuitReservation,
+} from "./reservation.js";
+export { type Peer, type ServePeerInit, servePeer } from "./serve-peer.js";
+export {
+  type CreateNodeInit,
+  type CreateRemoteInit,
+  createNode,
+  createRemote,
+  DEFAULT_DRAIN_TIMEOUT_MS,
+  DEFAULT_MAX_STREAMS,
+  PROTOCOL,
+  type ServeTransportInit,
+  serveTransport,
+  type TransportFactory,
+} from "./transport.js";

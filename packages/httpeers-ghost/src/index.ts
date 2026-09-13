@@ -10,9 +10,9 @@
 
 export {
   type Containment,
-  contain,
   type ContainOptions,
+  contain,
   frameSandbox,
   policyFor,
 } from "./contain.js";
-export { type Landing, PIN_REFUSED, pinnedPeer, type PinnedPeerInit } from "./pin.js";
+export { type Landing, PIN_REFUSED, type PinnedPeerInit, pinnedPeer } from "./pin.js";

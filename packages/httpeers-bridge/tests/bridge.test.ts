@@ -16,8 +16,8 @@
  * own entry point rather than looking like a peer transport you could deploy.
  */
 
-import { describe, expect, it } from "vitest";
 import { createMounts, createPeerRouter, json, lookupPeer } from "@statewalker/httpeers-core";
+import { describe, expect, it } from "vitest";
 import { createRemoteOverLink, serveFetchOverLink } from "../src/index.js";
 import { pairedLinks } from "../src/ports.js";
 
