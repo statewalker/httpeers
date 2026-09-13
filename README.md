@@ -241,11 +241,14 @@ here** — no Caddyfile edit, no DNS record, no reload.
 dependencies at a sibling `webrun-wire` checkout.
 
 **The version ranges in each package's own `package.json` are the truth** —
-`^0.1.2` and so on — and they are what a published package carries. The
-override exists only because those versions are **not on npm yet**: they
-contain nine cancellation and teardown fixes that `httpeers-libp2p` depends on,
-and the npm registry still holds the identical-numbered builds from before
-them.
+`^0.2.0` for `webrun-streams`, `^0.1.2` for `webrun-streams-libp2p`, `^0.2.2`
+for `webrun-http-streams` — and they are what a published package carries.
+
+Those versions do **not exist on npm yet**. `webrun-wire` has five pending
+changesets that were never released, plus one more for the nine cancellation
+and teardown fixes `httpeers-libp2p` depends on; running `changeset version`
+there moves fourteen packages at once. The numbers above are what that run
+produces, not guesses.
 
 So publishing `webrun-wire` is a **prerequisite** for publishing
 `httpeers-libp2p`, not a follow-up. Once it is done, delete this override; the

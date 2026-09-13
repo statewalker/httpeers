@@ -38,8 +38,8 @@
     "@libp2p/peer-id": "6.0.14",
     "@multiformats/multiaddr": "13.0.3",
     "@statewalker/httpeers-core": "workspace:*",
-    "@statewalker/webrun-http-streams": "^0.2.1",
-    "@statewalker/webrun-streams": "^0.1.2",
+    "@statewalker/webrun-http-streams": "^0.2.2",
+    "@statewalker/webrun-streams": "^0.2.0",
     "@statewalker/webrun-streams-libp2p": "^0.1.2",
     "libp2p": "3.3.8"
   },
