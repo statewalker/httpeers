@@ -1,0 +1,58 @@
+<!doctype html>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>httpeers · images</title>
+<style>
+  body { font: 15px/1.6 system-ui, sans-serif; margin: 0 auto; max-width: 48rem; padding: 1.5rem 1rem 4rem; }
+  h1 { font-size: 1.4rem; margin-bottom: .2rem; }
+  h2 { font-size: 1.05rem; margin-top: 2rem; }
+  .mono { font-family: ui-monospace, monospace; font-size: .85em; word-break: break-all; }
+  dl { display: grid; grid-template-columns: max-content 1fr; gap: .3rem .8rem; }
+  dt { color: #52525b; }
+  button { font: inherit; padding: .4rem .8rem; cursor: pointer; }
+  input[type=text] { font: inherit; padding: .4rem; width: 100%; box-sizing: border-box; }
+  .muted { color: #52525b; }
+  .err { background: #fee2e2; padding: .8rem 1rem; border-radius: 6px; white-space: pre-wrap; }
+  .note { background: #eff6ff; padding: .8rem 1rem; border-radius: 6px; }
+  #gallery { display: grid; grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); gap: .6rem; margin-top: .6rem; }
+  #gallery figure { margin: 0; }
+  #gallery img { width: 100%; border-radius: 6px; display: block; }
+  #gallery figcaption { font-size: .8em; color: #52525b; }
+</style>
+
+<h1>httpeers · images</h1>
+<p class="muted">A peer that serves pictures to the mesh.</p>
+
+<dl>
+  <dt>peer</dt><dd class="mono" id="peer-id">…</dd>
+  <dt>state</dt><dd id="state">starting…</dd>
+  <dt>serving</dt><dd id="serving">—</dd>
+</dl>
+
+<div id="error" class="err" hidden></div>
+
+<section id="join-form" hidden>
+  <h2>Join a mesh</h2>
+  <p class="note" id="session-status"></p>
+  <p><input type="text" id="invite" placeholder="paste a join link, a join blob, or an invitation id" /></p>
+  <p><button id="join">Join</button></p>
+</section>
+
+<section id="session-controls" hidden>
+  <h2>Session</h2>
+  <p class="muted" id="live-status"></p>
+  <p>
+    <button id="disconnect">Disconnect</button>
+    <button id="reconnect" hidden>Reconnect</button>
+  </p>
+</section>
+
+<h2>Gallery <span class="muted" id="gallery-source"></span></h2>
+<p><button id="add">Add a picture</button> <span class="muted" id="add-status"></span></p>
+<div id="gallery"></div>
+
+<h2>Reset</h2>
+<p class="muted">Forget this browser's identity and everything stored here.</p>
+<p><a href="/reset.html">Reset this app →</a></p>
+
+<script type="module" src="./main.ts"></script>

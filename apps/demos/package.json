@@ -5,14 +5,17 @@
   "type": "module",
   "description": "The four demo sites \u2014 hub, app, images and proxy \u2014 built on the extracted libraries.",
   "scripts": {
-    "build": "pnpm run build:hub",
+    "build": "pnpm run build:hub && pnpm run build:images",
     "build:hub": "node scripts/copy-assets.mjs && vite build --config vite.hub.config.ts",
     "dev:hub": "node scripts/copy-assets.mjs && vite --config vite.hub.config.ts",
     "test": "echo \"no unit tests: the demos are exercised by httpeers-browser-conformance\"",
     "typecheck": "tsc --noEmit",
     "lint": "biome check src",
     "lint:check": "biome check src",
-    "prebuild": "node scripts/copy-assets.mjs"
+    "prebuild": "node scripts/copy-assets.mjs",
+    "smoke": "node scripts/smoke.mjs",
+    "build:images": "node scripts/copy-assets.mjs && vite build --config vite.images.config.ts",
+    "dev:images": "node scripts/copy-assets.mjs && vite --config vite.images.config.ts"
   },
   "dependencies": {
     "@biscuit-auth/biscuit-wasm": "0.6.0",
@@ -24,10 +27,14 @@
     "@statewalker/httpeers-libp2p": "workspace:*",
     "@statewalker/httpeers-member": "workspace:*",
     "@statewalker/httpeers-qr": "workspace:*",
-    "@statewalker/webrun-http-browser": "workspace:*"
+    "@statewalker/webrun-files": "catalog:",
+    "@statewalker/webrun-files-mem": "catalog:",
+    "@statewalker/webrun-http-browser": "workspace:*",
+    "hono": "catalog:"
   },
   "devDependencies": {
     "@types/node": "catalog:",
+    "playwright": "^1.63.0",
     "typescript": "catalog:",
     "vite": "^8.3.0"
   }
