@@ -50,6 +50,14 @@ A Node caller writes `member.fetch(...)`; a page writes
 `fetch(`${baseUrl}${peer}/x`)` and the ServiceWorker hands it to the same
 handler. `baseUrl` is the browser-only extra, which is why it is optional.
 
+**The edge is a local ingress and strips the proven-peer header.** A page
+builds the requests that enter its own edge, so a header there is a claim, not
+a fact. `createEdgeDispatch` used to branch on "does this already have a
+binding" to mean "it arrived from the network" — safe while that binding was a
+WeakMap no page could write, and a forgery hole the moment it became a header.
+The branch is gone: a network request never reaches the edge, because
+`serveTransport` dispatches to `peer.dispatch` directly.
+
 **A member must be told it may route its own traffic.** The edge hands
 `/{peerId}/{path}` to the peer's router, and that router refuses to forward
 unless asked — relaying is its own capability, deny by default. `startMember`
@@ -126,7 +134,7 @@ re-exporting `mountEdge` from `index.ts` and watching three named tests fail.
 
 ## Tests
 
-**91.** `tests/consumer.test.ts` compiles a real dependent against all three
+**94.** `tests/consumer.test.ts` compiles a real dependent against all three
 entry points under three tsconfig shapes — the `NodeNext` row is the only one
 that honours the `exports` map, and for a subpath there is no legacy `types`
 field to fall back to.

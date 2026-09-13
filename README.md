@@ -3,7 +3,9 @@
 A peer-to-peer mesh where **everything is a `fetch()`**. Two halves live here:
 
 - **`packages/`** — eight libraries a page or a process builds a mesh out of,
-  plus a private conformance suite that holds them to it.
+  plus a private conformance suite that holds them to it. The reverse proxy
+  moved to [`@statewalker/webrun-http-proxy`](https://github.com/statewalker/webrun-wire),
+  where nothing about it is mesh-specific.
 - **`apps/` and `deploy/`** — the deployable services the mesh needs to exist:
   the circuit relay, the static-site host, and the ingress that fronts both.
   Live at `relay.httpeers.net`, `s3.httpeers.net` and `*.httpeers.net`.
@@ -36,15 +38,24 @@ what libp2p is.
 |---|---|
 | [`httpeers-core`](packages/httpeers-core) | The handler contract, the mount router, the peer-context sidecar. **No dependencies at all.** |
 | [`httpeers-access`](packages/httpeers-access) | Who is calling, and may they: Biscuit tokens, Datalog policy, revocation, one middleware. No libp2p. |
+| [`httpeers-bridge`](packages/httpeers-bridge) | Fetch over a duplex, both directions, with **no transport in it**. `PeerLink` is the seam; `./ports` runs a mesh over `MessageChannel`. |
 | [`httpeers-libp2p`](packages/httpeers-libp2p) | The transport — nodes, identity, reachability, `servePeer`. The only package that knows what libp2p is. |
 | [`httpeers-hub`](packages/httpeers-hub) | Minting membership and holding the registries. No transport, which is what lets a hub run in a tab. |
 | [`httpeers-member`](packages/httpeers-member) | Everything a participant does: `startMember`, the session, the edge, the gateway. |
-| [`httpeers-expose`](packages/httpeers-expose) | The reverse proxy and "expose a local app", as one mechanism. |
 | [`httpeers-ghost`](packages/httpeers-ghost) | A remote peer's app rendered as a page that can reach only that peer. |
 | [`httpeers-qr`](packages/httpeers-qr) | Invitations as QR: pure encode/decode, plus a browser entry that scans from the camera. |
 | [`httpeers-conformance`](packages/httpeers-conformance) | Private. Every prototype rebuilt on the published API, every entry point imported, and one real mesh. |
 
 ### Two rules the packages are built on
+
+**Proven identity is a header, and every ingress strips it.** `x-httpeers-peer`
+carries the peer the *transport* proved. It travels in a header rather than a
+side-table so that it survives a re-created `Request` — which is what handlers
+do — and so the security property can be tested in plain HTTP. The cost is that
+a header is whatever the caller typed, so `registerPeer`, `registerAnonymous`
+and `stripPeerBinding` all strip before they write, and every entry point calls
+exactly one of them. `httpeers-conformance` proves it over a real libp2p
+connection: a peer claiming to be somebody else is overwritten by the handshake.
 
 **Isomorphic by default, platform behind an entry point.** A package's root
 runs in Node, in a worker and in a page alike; anything that cannot goes behind

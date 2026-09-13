@@ -34,7 +34,7 @@ is a tested requirement rather than a note.
 |---|---|
 | `types` | `FetchHandler`, `PeerIdStr`, `MeshClaims`, the store **interfaces**, `json()` |
 | `router` | The mount table: longest-prefix matching, and `/{peerId}/…` peer routing |
-| `peer-context` | The `WeakMap<Request, …>` sidecar carrying the transport-proven peer, and `forwardLocalOnly` |
+| `peer-context` | The proven-peer HEADER (`x-httpeers-peer`), `forwardLocalOnly`, and the claims cache |
 | `errors` | The peer-call error taxonomy, each with a stable `kind` discriminant |
 | `clock` | A strictly-increasing millisecond clock |
 
@@ -48,6 +48,35 @@ registries change when membership does, and belong to the hub.
 
 The store **interfaces** stay because the type is produced by one package and
 consumed by another that must not depend on it.
+
+## Proven identity is a header
+
+`x-httpeers-peer` carries the peer the **transport** proved — not a `WeakMap`,
+which is what it used to be.
+
+The WeakMap was unforgeable but did not survive a re-created `Request`, and
+re-creating one is what handlers do: seven places in these packages build a new
+`Request` from an old one, and exactly **one** carried the binding across. The
+rest were outbound-by-design, so it was correct by author discipline, with no
+test guarding it and no way for third-party middleware — a Hono router, your
+own wrapper — to know the rule existed.
+
+A header survives all of it for free and is inspectable, which is what lets the
+security property be tested in plain HTTP. The cost is that a header is
+whatever the caller typed, so **stripping is the only way to write one**:
+
+| | |
+|---|---|
+| `registerPeer(req, peer)` | strip, then write what the transport proved |
+| `registerAnonymous(req)` | strip, then write "proven to be nobody" |
+| `stripPeerBinding(req)` | strip and assert nothing — a **local** ingress |
+
+Every entry point calls exactly one. A path that forgets is the forgery hole,
+so each adapter tests its own ingress rather than trusting a note.
+
+`ANONYMOUS` is a `Symbol.for`, so it has a wire spelling
+(`ANONYMOUS_HEADER_VALUE`) that no peerId can collide with. `ProvenPeer` is
+unchanged in memory: only the encoding is new.
 
 ## `forwardLocalOnly`, and why it is named here
 
@@ -68,8 +97,9 @@ see it. So the policy is a named export rather than an exercise:
 createPeerRouter({ selfPeerId, mounts, remote, allowForward: forwardLocalOnly });
 ```
 
-`undefined` from `lookupPeer` means no binding was ever made — the request
-never passed through an inbound transport handler. `ANONYMOUS` is **not**
+`undefined` from `lookupPeer` means no binding was made — the request carries
+no proven-peer header, so it originated at our own edge (which strips one
+before dispatching). `ANONYMOUS` is **not**
 absence: it means the transport proved there was no identity, which is still
 "arrived from the network". Reading the sentinel as absence would turn the peer
 into an open relay, so the check is against `undefined` and nothing else, and
@@ -85,4 +115,4 @@ are `@statewalker/httpeers-access`. The registries they guard are
 
 ---
 
-**45 tests.** No runtime dependencies.
+**57 tests.** No runtime dependencies.

@@ -91,7 +91,7 @@ and `tests/boundary.test.ts` asserts it.
 
 ## Tests
 
-**19.** `tests/contain.test.ts` drives a real host app fixture
+**20.** `tests/contain.test.ts` drives a real host app fixture
 (`tests/host-app.ts`) through all three modes against the same escape, which is
 the only way the comparison means anything — a containment tested against a
 different attack from the one that motivated it proves nothing.

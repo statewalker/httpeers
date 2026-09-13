@@ -145,13 +145,23 @@ import {
   routeTable,
   type StoredRoute,
   urlUpstream,
-} from "@statewalker/httpeers-expose";
-import { fileRouteStore } from "@statewalker/httpeers-expose/node";
-import { localStorageRouteStore } from "@statewalker/httpeers-expose/browser";
+} from "@statewalker/webrun-http-proxy";
+import { fileRouteStore } from "@statewalker/webrun-http-proxy/node";
+import { localStorageRouteStore } from "@statewalker/webrun-http-proxy/browser";
+import { PEER_ID_HEADER } from "@statewalker/httpeers-core";
 
 export function rung05_expose(local: FetchHandler): FetchHandler {
   const routes: Route[] = [
-    { prefix: "/openai", describe: "OpenAI", upstream: urlUpstream({ base: "https://api.openai.com/v1" }) },
+    {
+      prefix: "/openai",
+      describe: "OpenAI",
+      upstream: urlUpstream({
+        base: "https://api.openai.com/v1",
+        // THE ONE THING THE PROXY USED TO KNOW ABOUT MESHES, now passed in:
+        // a third-party origin has no business learning which peer called.
+        stripRequestHeaders: [PEER_ID_HEADER],
+      }),
+    },
     { prefix: "/local", describe: "in-process", upstream: local },
   ];
   // A THUNK, because the proxy page edits routes while traffic flows.
