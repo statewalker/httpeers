@@ -1,0 +1,79 @@
+{
+  "name": "@statewalker/httpeers-member",
+  "version": "0.1.0",
+  "type": "module",
+  "description": "Everything a participant does: hold an identity, redeem or resume, connect, keep the link, advertise, discover, call, and serve.",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+ssh://git@github.com/statewalker/httpeers.git",
+    "directory": "packages/httpeers-member"
+  },
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    },
+    "./node": {
+      "types": "./dist/node.d.ts",
+      "import": "./dist/node.js"
+    },
+    "./browser": {
+      "types": "./dist/browser.d.ts",
+      "import": "./dist/browser.js"
+    }
+  },
+  "files": [
+    "dist",
+    "src"
+  ],
+  "sideEffects": false,
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json",
+    "test": "pnpm run build && pnpm run typecheck && vitest run",
+    "typecheck": "tsc --noEmit",
+    "lint": "biome check src tests",
+    "lint:check": "biome check src tests"
+  },
+  "dependencies": {
+    "@statewalker/httpeers-access": "workspace:*",
+    "@statewalker/httpeers-core": "workspace:*",
+    "@statewalker/httpeers-libp2p": "workspace:*",
+    "@libp2p/interface": "3.2.5",
+    "@libp2p/peer-id": "6.0.14",
+    "@multiformats/multiaddr": "13.0.3"
+  },
+  "peerDependencies": {
+    "@statewalker/webrun-http-browser": "^0.4.0",
+    "idb-keyval": "^6.3.0"
+  },
+  "peerDependenciesMeta": {
+    "@statewalker/webrun-http-browser": {
+      "optional": true
+    },
+    "idb-keyval": {
+      "optional": true
+    }
+  },
+  "devDependencies": {
+    "@chainsafe/libp2p-noise": "17.0.0",
+    "@chainsafe/libp2p-yamux": "8.0.1",
+    "@libp2p/circuit-relay-v2": "4.2.11",
+    "@libp2p/crypto": "5.1.22",
+    "@libp2p/identify": "4.1.12",
+    "@libp2p/tcp": "11.0.26",
+    "@libp2p/webrtc": "6.0.29",
+    "@libp2p/websockets": "10.1.19",
+    "@statewalker/webrun-http-browser": "workspace:*",
+    "@types/node": "catalog:",
+    "idb-keyval": "^6.3.0",
+    "libp2p": "3.3.8",
+    "typescript": "catalog:",
+    "vitest": "catalog:"
+  },
+  "publishConfig": {
+    "access": "public"
+  }
+}

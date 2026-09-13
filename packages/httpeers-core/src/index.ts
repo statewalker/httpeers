@@ -50,6 +50,7 @@ export type {
   MemberRecord,
   MemberStore,
   MeshClaims,
+  MeshConfig,
   MeshView,
   MeshViewAdvertisement,
   MeshViewMember,

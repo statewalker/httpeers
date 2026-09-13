@@ -348,3 +348,15 @@ export interface MeshView {
   members: MeshViewMember[];
   advertisements: MeshViewAdvertisement[];
 }
+
+/**
+ * The mesh a member joins — exactly `httpeers.json`'s two fields.
+ *
+ * In core because both `httpeers-member` (which reads one to join) and any
+ * page that ships one need the shape, and neither should have to depend on the
+ * other to name it.
+ */
+export interface MeshConfig {
+  relayAddrs: string[];
+  hubPeerId: PeerIdStr;
+}
