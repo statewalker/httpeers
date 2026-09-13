@@ -19,6 +19,7 @@ import { ensureBiscuit } from "../shared/biscuit.js";
 import { type HubHandle, type HubState, startHub } from "../shared/hub-runtime.js";
 import { EDGE_KEY, meshRules } from "../shared/policy.js";
 import { needsPermissiveGater, readRelayAddrs } from "../shared/relay.js";
+import { createSearchEndpoint, fixtureUpstream, SEARCH_ADVERTISEMENT } from "../shared/search.js";
 
 /** How long a minted invitation stays redeemable. */
 const INVITATION_TTL_MS = 30 * 60_000;
@@ -174,6 +175,11 @@ async function main(): Promise<void> {
     privateKey,
     relayAddrs,
     rules: meshRules(),
+    // THE HUB SERVES SEARCH, and advertises it in the same breath. Mounting
+    // without advertising is how the prototype ended up with an endpoint that
+    // was served, gated and invisible.
+    extraMounts: { "/search": createSearchEndpoint({ upstream: fixtureUpstream }) },
+    ownAdvertisements: [SEARCH_ADVERTISEMENT],
     // Decided from the ADDRESS being dialled, never this page's hostname: a
     // page served from a LAN address dialling a loopback relay is still a
     // development setup, and the hostname test would deny every dial while

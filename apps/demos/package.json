@@ -5,7 +5,7 @@
   "type": "module",
   "description": "The four demo sites \u2014 hub, app, images and proxy \u2014 built on the extracted libraries.",
   "scripts": {
-    "build": "pnpm run build:hub && pnpm run build:images",
+    "build": "pnpm run build:hub && pnpm run build:images && pnpm run build:app",
     "build:hub": "node scripts/copy-assets.mjs && vite build --config vite.hub.config.ts",
     "dev:hub": "node scripts/copy-assets.mjs && vite --config vite.hub.config.ts",
     "test": "echo \"no unit tests: the demos are exercised by httpeers-browser-conformance\"",
@@ -15,7 +15,9 @@
     "prebuild": "node scripts/copy-assets.mjs",
     "smoke": "node scripts/smoke.mjs",
     "build:images": "node scripts/copy-assets.mjs && vite build --config vite.images.config.ts",
-    "dev:images": "node scripts/copy-assets.mjs && vite --config vite.images.config.ts"
+    "dev:images": "node scripts/copy-assets.mjs && vite --config vite.images.config.ts",
+    "build:app": "node scripts/copy-assets.mjs && vite build --config vite.app.config.ts",
+    "dev:app": "node scripts/copy-assets.mjs && vite --config vite.app.config.ts"
   },
   "dependencies": {
     "@biscuit-auth/biscuit-wasm": "0.6.0",

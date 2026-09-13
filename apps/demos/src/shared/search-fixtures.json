@@ -1,0 +1,32 @@
+[
+  {
+    "id": "fx-1",
+    "title": "The relay is not a service",
+    "snippet": "circuitRelayServer() gives every peer dialability; it serves no application code of its own — notes 04 §6 and 07 §3.",
+    "url": "https://example.invalid/notes/relay-is-not-a-service"
+  },
+  {
+    "id": "fx-2",
+    "title": "Capabilities, not roles — café édition",
+    "snippet": "A `.access` entry names what code checks, never who someone is. Renaming a role touches no policy file at all — safe even with an é in the title.",
+    "url": "https://example.invalid/notes/capabilities-not-roles"
+  },
+  {
+    "id": "fx-3",
+    "title": "Search results live in the body 🔍",
+    "snippet": "HTTP header values are latin1 by specification — 🔍 and é both fail before the request reaches the wire if you put them in a header instead.",
+    "url": "https://example.invalid/notes/results-in-the-body"
+  },
+  {
+    "id": "fx-4",
+    "title": "Revocation is a role change to the empty set",
+    "snippet": "No clock synchronisation: both iat and changedAt are minted by the hub, so the comparison is between two hub-issued timestamps.",
+    "url": "https://example.invalid/notes/revocation-is-a-role-change"
+  },
+  {
+    "id": "fx-5",
+    "title": "Two ports, two origins, two ServiceWorker scopes",
+    "snippet": "The static server binds two ports so the main app page and the image peer page never share a SwHttpAdapter key.",
+    "url": "https://example.invalid/notes/two-ports-two-origins"
+  }
+]

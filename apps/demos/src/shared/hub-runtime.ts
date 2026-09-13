@@ -50,6 +50,18 @@ export type HubState =
 
 export interface StartHubInit {
   key: string;
+  /**
+   * Services this hub serves itself, and the advertisements that make them
+   * discoverable.
+   *
+   * The prototype HARD-MOUNTED a demo `/search` inside the hub's own
+   * endpoints, which made the hub's package carry an application's service and
+   * -- worse -- mounted it without advertising it, so it was served, gated and
+   * INVISIBLE. `createHub` takes both halves as parameters now, and supplying
+   * them together here is what keeps them in step.
+   */
+  extraMounts?: Record<string, (request: Request) => Promise<Response>>;
+  ownAdvertisements?: Array<{ id: string; kind: string; title: string }>;
   /** This hub's signing key. Its peerId IS the mesh — see `signerOf`. */
   privateKey: Ed25519PrivateKey;
   relayAddrs: string[];
@@ -119,6 +131,8 @@ export async function startHub(init: StartHubInit): Promise<HubHandle> {
       // durable state, and a hub that forgot them on refresh would re-admit
       // every spent code.
       storage: idbStorage(),
+      extraMounts: init.extraMounts,
+      ownAdvertisements: init.ownAdvertisements,
       mintToken: async (sub, roles) => mintToken({ signer, sub, roles, ttlMs: 5 * 60_000 }),
     });
     isMember = (peerId) => hub.isMember(peerId);

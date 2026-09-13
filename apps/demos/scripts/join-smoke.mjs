@@ -50,8 +50,30 @@ async function serve(page) {
 
 const hub = await serve("hub");
 const images = await serve("images");
+const app = await serve("app");
 const browser = await chromium.launch();
 const problems = [];
+
+/** Mint one invitation and return its blob, waiting until it differs from `previous`. */
+async function mint(tab, previous) {
+  await tab.click("#mint");
+  await tab.waitForSelector("#invitation:not([hidden])", { timeout: 30_000 });
+  await tab.waitForFunction(
+    (before) => {
+      const rows = [...document.querySelectorAll("#invitation-rows dt")];
+      const dt = rows.find((el) => el.textContent === "blob");
+      const value = dt?.nextElementSibling?.querySelector("span")?.textContent ?? "";
+      return value !== "" && value !== before;
+    },
+    previous,
+    { timeout: 30_000 },
+  );
+  return tab.evaluate(() => {
+    const rows = [...document.querySelectorAll("#invitation-rows dt")];
+    const dt = rows.find((el) => el.textContent === "blob");
+    return dt?.nextElementSibling?.querySelector("span")?.textContent ?? "";
+  });
+}
 
 function watch(tab, name) {
   tab.on("pageerror", (e) => problems.push(`${name} PAGEERROR ${e.message}`));
@@ -72,14 +94,7 @@ try {
   const meshId = (await hubTab.textContent("#mesh-id"))?.trim();
   console.log(`hub      : ready — ${meshId}`);
 
-  await hubTab.click("#mint");
-  // The blob row is rendered once the invitation exists.
-  await hubTab.waitForSelector("#invitation:not([hidden])", { timeout: 30_000 });
-  const blob = await hubTab.evaluate(() => {
-    const rows = [...document.querySelectorAll("#invitation-rows dt")];
-    const dt = rows.find((el) => el.textContent === "blob");
-    return dt?.nextElementSibling?.querySelector("span")?.textContent ?? "";
-  });
+  const blob = await mint(hubTab, "");
   if (blob === "") throw new Error("the hub minted no blob");
   console.log(`invite   : ${blob.slice(0, 48)}… (${blob.length} chars)`);
 
@@ -122,10 +137,74 @@ try {
     console.log(`hub sees : ${members.includes(peerId) ? "the member" : "NOBODY"}`);
   }
 
+  // --- the consumer joins, discovers the provider, and CALLS it -----------
+  const appTab = await browser.newPage();
+  watch(appTab, "app");
+  await appTab.goto(app.url);
+  await appTab.waitForFunction(
+    () => document.querySelector("#state")?.textContent === "needs-invitation",
+    { timeout: 60_000 },
+  );
+
+  // A FRESH invitation. They are single-use, and reading the blob straight
+  // after the click races `invitations.create` -- which on the first run handed
+  // the app the one `images` had already redeemed, so its join was refused and
+  // the page sat in `needs-invitation` until the wait timed out.
+  const blob2 = await mint(hubTab, blob);
+  await appTab.fill("#invite", blob2);
+  await appTab.click("#join");
+  await appTab.waitForFunction(
+    () => {
+      const s = document.querySelector("#state")?.textContent ?? "";
+      return s === "live" || s === "failed" || s === "blocked";
+    },
+    { timeout: 120_000 },
+  ).catch(() => {});
+  const appState = (await appTab.textContent("#state"))?.trim();
+  console.log(`app      : ${appState} — ${(await appTab.textContent("#peer-id"))?.trim()}`);
+
+  // The provider has to appear in the app's mesh view first: it arrives on
+  // this page's own heartbeat, not instantly.
+  await appTab
+    .waitForFunction(
+      () => (document.querySelector("#images-provider")?.textContent ?? "").includes("—"),
+      { timeout: 60_000 },
+    )
+    .catch(() => {});
+  console.log(`discovers: ${(await appTab.textContent("#images-provider"))?.trim()}`);
+
+  await appTab.click("#load-images");
+  await appTab
+    .waitForFunction(
+      () => {
+        const t = document.querySelector("#images-status")?.textContent ?? "";
+        return t !== "" && t !== "loading…";
+      },
+      { timeout: 90_000 },
+    )
+    .catch(() => {});
+  const imagesStatus = (await appTab.textContent("#images-status"))?.trim();
+  const rendered = await appTab.evaluate(() => document.querySelectorAll("#gallery img").length);
+  console.log(`app calls: ${imagesStatus} (${rendered} <img> rendered)`);
+
+  await appTab.fill("#query", "relay");
+  await appTab.click("#do-search");
+  await appTab
+    .waitForFunction(
+      () => {
+        const t = document.querySelector("#search-status")?.textContent ?? "";
+        return t !== "" && t !== "searching…";
+      },
+      { timeout: 90_000 },
+    )
+    .catch(() => {});
+  console.log(`app search: ${(await appTab.textContent("#search-status"))?.trim()}`);
+
   if (problems.length > 0) console.log(`problems : ${problems.slice(0, 6).join(" | ").slice(0, 900)}`);
-  process.exitCode = state === "live" ? 0 : 1;
+  process.exitCode = state === "live" && appState === "live" ? 0 : 1;
 } finally {
   await browser.close();
   hub.server.close();
   images.server.close();
+  app.server.close();
 }
