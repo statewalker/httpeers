@@ -33,6 +33,7 @@ import {
   createRevocations,
   guardStream,
   type RuleSet,
+  roleNames,
   ruleSet,
   selfCertifyingKeys,
   verifyToken,
@@ -289,4 +290,124 @@ export async function rung01_servePeer(mounts: Mounts, guard: (next: FetchHandle
   await peer.call("12D3KooWOther", new Request("http://peer.local/hello"));
   registerPeer(new Request("http://peer.local/x"), peer.peerId);
   return peer;
+}
+
+// ---------------------------------------------------------------------------
+// Rung 04 / 12, the BROWSER half — a hub in a tab
+// ---------------------------------------------------------------------------
+
+import {
+  circuitAddrs,
+  dialRelay,
+  superviseRelay,
+  waitForCircuitReservation,
+} from "@statewalker/httpeers-libp2p";
+import { createEdgeDispatch } from "@statewalker/httpeers-member";
+import { createBrowserNode, mountEdge } from "@statewalker/httpeers-member/browser";
+
+/**
+ * `startBrowserHub`, rebuilt on the packages — the prototype's 498-line
+ * `browser/hub-runtime.ts`, and the question this file exists to answer: is
+ * the library sufficient, or does the hub lifecycle need a home of its own?
+ *
+ * THE ANSWER IS THAT IT IS APP WIRING, exactly as the NODE hub's `main.ts` is.
+ * Both hubs orchestrate the same seven imported pieces; neither adds a
+ * mechanism. What differs between them is a transport list and where the
+ * snapshot lives, and both of those are already injected. Putting this in a
+ * package would have meant a dependency edge from `httpeers-hub` to
+ * `httpeers-libp2p` — the very edge that package's boundary test forbids, and
+ * forbids for a reason: a hub is membership and a mount table, and keeping the
+ * wire out is what lets it be tested without one AND what makes a hub in a tab
+ * possible at all.
+ *
+ * So this compiles and is not extracted. If it ever stops compiling, THAT is
+ * the signal that something is missing from the packages.
+ */
+export async function rung12_browserHub(
+  privateKey: Parameters<typeof createBrowserNode>[0]["privateKey"],
+  selfPeerId: PeerIdStr,
+  rules: RuleSet,
+  relayAddr: string,
+) {
+  // The hub relays signalling for ITS OWN MEMBERS and nobody else. The member
+  // store does not exist yet -- it is built below -- so the gater reads it
+  // through a thunk that answers no until then. That ordering cycle is why
+  // `membershipGater` takes a thunk rather than a value.
+  let isMember = (_peerId: string): boolean => false;
+  const node = await createBrowserNode({
+    privateKey,
+    dev: true,
+    isMember: (peerId) => isMember(peerId),
+  });
+
+  await dialRelay(node, relayAddr);
+  const reserved = await waitForCircuitReservation(node);
+  // BOTH variants come back and only one works: the bare `/p2p-circuit` is a
+  // LIMITED connection on which libp2p silently refuses the protocol.
+  const addrs = circuitAddrs(node);
+  const supervisor = superviseRelay({ node, relayAddr });
+
+  const signer = await generateSigner();
+  const hub = await createHub({
+    selfPeerId,
+    policies: rules,
+    storage: memoryStorage(),
+    mintToken: async (sub, roles) =>
+      mintToken({ signer, sub, roles, ttlMs: 5 * 60_000 }),
+  });
+  isMember = (peerId) => hub.isMember(peerId);
+
+  // The hub's own mounts, behind the same access guard every peer uses.
+  const guard = withAccess({
+    issuer: signer.mesh,
+    rules,
+    selfPeer: selfPeerId,
+    keys: selfCertifyingKeys(),
+    provenPeer: (req) => lookupPeer(req) ?? ANONYMOUS,
+  });
+  const peer = await servePeer({ node, mounts: hub.mounts, access: guard });
+
+  // A HUB PAGE IS REACHED THROUGH ITS OWN fetch() LIKE ANY OTHER PAGE — the
+  // same `createEdgeDispatch` a member uses, over `peer.dispatch`, which is
+  // exactly the reuse `Peer.dispatch` is exposed for.
+  //
+  // The hub mints a token FOR ITSELF. Its own endpoints are behind the same
+  // guard as everyone else's, so a hub with no token could not read its own
+  // mesh view through its own edge.
+  const selfToken = await mintToken({
+    signer,
+    sub: peer.peerId,
+    roles: ["admin"],
+    ttlMs: 5 * 60_000,
+  });
+  const dispatch = createEdgeDispatch({
+    key: "peers",
+    dispatch: peer.dispatch,
+    token: () => selfToken,
+  });
+  const edge = await mountEdge({ key: "peers", dispatch });
+
+  return {
+    peerId: peer.peerId,
+    relayAddr,
+    circuitAddr: addrs.webrtc ?? reserved,
+    baseUrl: edge.baseUrl,
+    // Every operator control the prototype's handle exposed, straight off
+    // `Hub` -- no adapter, which is the actual acceptance criterion.
+    invitations: hub.invitations,
+    members: hub.members,
+    meshView: () => hub.meshView(),
+    revocations: hub.revocations,
+    // Read off the RULES, never a hard-coded list: a role added to the policy
+    // appears in the operator UI without anybody updating a second place.
+    // Since the rules ARE the role registry, a role exists exactly when some
+    // rule fires on it.
+    roles: () => roleNames(hub.rules),
+    async stop() {
+      await edge.stop();
+      supervisor.stop();
+      await hub.stop();
+      await node.stop();
+    },
+  };
 }
