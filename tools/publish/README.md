@@ -202,43 +202,66 @@ are cached in the `sites` app and there is no publish hook to invalidate on (des
 ./bin/httpeers-unmount --sudo   # unmount, then stop the server
 ```
 
-### It does not run on this machine yet
+### What the host needs
 
-Both of these are missing, and `httpeers-setup` and `httpeers-mount` both refuse and start
-nothing until they are fixed:
+The NFS **server** is a container, so the host does not need a modern `rclone` for it — see
+*The server is a container* below. The host still needs two things, and `httpeers-mount` refuses
+and starts nothing until both are there:
 
-| Missing | Why | Fix |
+| Needed | Why | Fix |
 |---|---|---|
-| **`rclone serve nfs`** | added in rclone **1.65**. This machine has **v1.60.1-DEV**, whose `rclone serve` offers only `dlna`, `docker`, `http`, `restic`, `sftp`, `webdav`. Distro packages lag badly. | `curl https://rclone.org/install.sh \| sudo bash` |
-| **`mount.nfs`** | the NFS client utilities are not installed | `sudo apt install nfs-common` |
+| **docker + compose v2** | the server runs from the official rclone image | https://docs.docker.com/engine/install/ |
+| **`mount.nfs`** | the NFS *client* does the mounting, and that is the host's job | `sudo apt install nfs-common` |
 
 Mounting NFS also needs root on Linux, with no unprivileged equivalent. `httpeers-mount` prints
-the exact `mount` command and stops; `--sudo` makes it run that command through `sudo`, visibly.
-It never acquires root behind your back.
+the exact `mount` command rather than running it, unless you pass `--sudo`.
 
-The command it builds:
+### The server is a container
 
-```sh
-rclone serve nfs httpeers:sites --addr 127.0.0.1:20490 --vfs-cache-mode writes
-sudo mount -t nfs -o port=20490,mountport=20490,tcp,vers=3,nolock,noatime 127.0.0.1:/ ./mnt
+`rclone serve nfs` arrived in **rclone 1.65**. Rather than make every machine upgrade its system
+rclone and then keep them in step, the server runs from the official image, which pins the
+version for everyone:
+
+```
+docker-compose.yml   ->  rclone/rclone:1.74.4, `serve nfs`, published on 127.0.0.1 only
 ```
 
-`--vfs-cache-mode writes` is not tuning. `serve nfs` defaults to `off`, under which writes to the
-mount fail outright — without it the mode does not work at all. `vers=3` because rclone's NFS
-server speaks NFSv3 only, and `nolock` because there is no lock manager behind it and the kernel
-would otherwise block waiting for one that never answers.
+This host's rclone is `v1.60.1-DEV` and has no `serve nfs` at all; the image has `v1.74.4` and
+does. `httpeers-mount` starts the container, waits for the port, and then mounts it.
 
-> **This command line has never been executed.** Neither prerequisite exists on this machine, so
-> the flags above come from rclone's documentation for `serve nfs`, not from a mount that was
-> observed working. Everything up to the refusal *is* tested — that `httpeers-mount` detects both
-> gaps, names the fix, and starts nothing. Treat the first successful mount as the moment these
-> flags are confirmed, and correct them here if they turn out wrong.
+**What the container cannot supply is the client.** Mounting is a kernel operation on the host,
+so `mount.nfs` (`nfs-common`) and root are still required outside the container. That is the one
+remaining prerequisite:
 
-`httpeers-unmount` unmounts **before** stopping the server, always. The other order leaves the
-kernel holding a mount whose backend is gone, and every process that touches it — including an
-unrelated `ls` from a shell prompt, or a file manager indexing the tree — blocks uninterruptibly.
-It also sends `TERM` and waits rather than `KILL`: the VFS write cache holds uploads that have
-not reached the bucket yet, and rclone flushes them on a clean shutdown.
+```sh
+sudo apt install nfs-common
+```
+
+### Why loopback only
+
+An rclone NFS export is **unauthenticated**. The port is published on `127.0.0.1` so that
+anyone who can route to this machine cannot mount the whole bucket. Do not change that binding
+to `0.0.0.0`.
+
+### Two flags that are not tuning
+
+- **`--vfs-cache-mode=writes`** — without it `serve nfs` is read-only and every write to the
+  mount is refused. The whole premise of live mode is a writable folder, so this is load-bearing.
+- **`down`, never `down -v`** on stopping. The VFS cache volume holds writes that have not
+  reached the bucket yet; rclone flushes them on a clean stop, and discarding the volume loses
+  them silently. `httpeers-unmount` does the right thing.
+
+### Credentials
+
+Passed to the container as `RCLONE_CONFIG_*` environment variables, so no credential is written
+into this directory. They come from `publish.env`, which is gitignored.
+
+### The one leak in the mental model
+
+**S3 has no directories.** `mkdir abc.httpeers.net` in the mount does *not* create a site — an
+empty prefix does not exist in the bucket. A site begins when the first **file** lands and ends
+when the last one is removed. This is the only place "add and remove sites by changing the
+folder" is not literally true, and it is specific to live mode; sync mode has no such gap.
 
 ### Two things that will surprise you
 
@@ -346,50 +369,3 @@ httpeers-publish --yes --allow-site-removal
 ```
 
 The empty-tree refusal outranks both flags together and has no override.
-
-## Live mode (NFS) — the server is a container
-
-`rclone serve nfs` arrived in **rclone 1.65**. Rather than make every machine upgrade its system
-rclone and then keep them in step, the server runs from the official image, which pins the
-version for everyone:
-
-```
-docker-compose.yml   ->  rclone/rclone:1.74.4, `serve nfs`, published on 127.0.0.1 only
-```
-
-This host's rclone is `v1.60.1-DEV` and has no `serve nfs` at all; the image has `v1.74.4` and
-does. `httpeers-mount` starts the container, waits for the port, and then mounts it.
-
-**What the container cannot supply is the client.** Mounting is a kernel operation on the host,
-so `mount.nfs` (`nfs-common`) and root are still required outside the container. That is the one
-remaining prerequisite:
-
-```sh
-sudo apt install nfs-common
-```
-
-### Why loopback only
-
-An rclone NFS export is **unauthenticated**. The port is published on `127.0.0.1` so that
-anyone who can route to this machine cannot mount the whole bucket. Do not change that binding
-to `0.0.0.0`.
-
-### Two flags that are not tuning
-
-- **`--vfs-cache-mode=writes`** — without it `serve nfs` is read-only and every write to the
-  mount is refused. The whole premise of live mode is a writable folder, so this is load-bearing.
-- **`down`, never `down -v`** on stopping. The VFS cache volume holds writes that have not
-  reached the bucket yet; rclone flushes them on a clean stop, and discarding the volume loses
-  them silently. `httpeers-unmount` does the right thing.
-
-### Credentials
-
-Passed to the container as `RCLONE_CONFIG_*` environment variables, so no credential is written
-into this directory. They come from `publish.env`, which is gitignored.
-
-### The one leak in the mental model
-
-**S3 has no directories.** `mkdir abc.httpeers.net` in the mount does *not* create a site — an
-empty prefix does not exist in the bucket. A site begins when the first **file** lands and ends
-when the last one is removed. This is the only place "add and remove sites by changing the
-folder" is not literally true, and it is specific to live mode; sync mode has no such gap.
