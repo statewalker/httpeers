@@ -2,7 +2,7 @@
   "name": "@statewalker/httpeers-qr",
   "version": "0.1.0",
   "type": "module",
-  "description": "QR encoding and decoding as pure functions \u2014 a string in, an SVG out; pixels in, a string out. No camera, no DOM, no canvas.",
+  "description": "QR for httpeers: encoding and decoding as pure functions, plus a browser entry that scans from the live camera or a picture.",
   "license": "MIT",
   "repository": {
     "type": "git",
@@ -15,6 +15,10 @@
     ".": {
       "types": "./dist/index.d.ts",
       "import": "./dist/index.js"
+    },
+    "./browser": {
+      "types": "./dist/browser.d.ts",
+      "import": "./dist/browser.js"
     }
   },
   "files": [
@@ -35,11 +39,20 @@
   },
   "devDependencies": {
     "@types/node": "catalog:",
+    "html5-qrcode": "^2.3.8",
     "sharp": "^0.35.4",
     "typescript": "catalog:",
     "vitest": "catalog:"
   },
   "publishConfig": {
     "access": "public"
+  },
+  "peerDependencies": {
+    "html5-qrcode": "^2.3.8"
+  },
+  "peerDependenciesMeta": {
+    "html5-qrcode": {
+      "optional": true
+    }
   }
 }

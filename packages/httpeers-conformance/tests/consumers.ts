@@ -77,9 +77,34 @@ export const rung02_engine = initBiscuit;
 // ---------------------------------------------------------------------------
 
 import { decodeQr, type Pixels, qrModules, qrSvg } from "@statewalker/httpeers-qr";
+import { scanFile, scanFromCamera } from "@statewalker/httpeers-qr/browser";
 
 export function rung03_qrRoundTrip(text: string, pixels: Pixels) {
   return { svg: qrSvg(text), size: qrModules(text).length, decoded: decodeQr(pixels) };
+}
+
+/**
+ * The prototype's ACTUAL join flow: a live camera, and a file picker for the
+ * cases it cannot serve.
+ *
+ * The two halves meet here and nowhere in either package — `httpeers-qr`
+ * scans and does not know what an invitation is, `httpeers-member` knows and
+ * does not scan. `accept` is the seam, and this is the compile-time proof
+ * that the seam actually fits.
+ */
+export async function rung03_scanToJoin(host: { id: string }, session: PeerSession) {
+  const camera = await scanFromCamera(host, {
+    accept: invitationFromQrText,
+    onCode: (code) => void session.join(code),
+  });
+  const fromPicture = async (file: Blob) => {
+    const scan = await scanFile(file, { accept: invitationFromQrText });
+    // A QR that is not an invitation is a DISTINCT outcome from no QR at all:
+    // one means "you scanned the wrong thing", the other "try a better view".
+    if (scan.ok) await session.join(scan.value);
+    else if (scan.reason === "not-accepted") console.warn("not an invitation:", scan.text);
+  };
+  return { camera, fromPicture };
 }
 
 // ---------------------------------------------------------------------------
@@ -155,7 +180,13 @@ export function rung06_ghost(remote: (peerId: PeerIdStr, request: Request) => Pr
 // ---------------------------------------------------------------------------
 
 import type { MemberHandle, MemberPlatform } from "@statewalker/httpeers-member";
-import { createGateway, encodeJoinBlob, readJoinInputFromText, startMember } from "@statewalker/httpeers-member";
+import {
+  createGateway,
+  encodeJoinBlob,
+  invitationFromQrText,
+  readJoinInputFromText,
+  startMember,
+} from "@statewalker/httpeers-member";
 import { nodePlatform } from "@statewalker/httpeers-member/node";
 
 export async function rung01_member(

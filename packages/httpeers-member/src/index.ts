@@ -35,6 +35,7 @@ export {
   JOIN_BLOB_PARAM,
   type JoinBlob,
   type JoinInput,
+  invitationFromQrText,
   joinUrl,
   readJoinInputFromSearch,
   readJoinInputFromText,

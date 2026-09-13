@@ -175,3 +175,55 @@ export function readJoinInputFromText(text: string): JoinInput | null {
   if (trimmed.startsWith("eyJ")) return { kind: "blob", blob: decodeJoinBlob(trimmed) };
   return { kind: "invitation-id", invitationId: trimmed };
 }
+
+/**
+ * The invitation inside a QR code's text, or `null` — a PREDICATE, not a
+ * parser.
+ *
+ * WHY IT NEVER THROWS, AND WHY IT IS STRICTER THAN `readJoinInputFromText`. A
+ * live scanner sees a poster, a wifi sticker and a payment code before it sees
+ * an invitation, and it has to keep scanning through all of them. So every
+ * "no" here is the same quiet `null`: a scan that stopped on the first wrong
+ * QR, or threw on a malformed URL, would be worse than one that carries on
+ * looking. `readJoinInputFromText` is the opposite and rightly so — somebody
+ * PASTED that, so they meant it, and a complaint is what they need.
+ *
+ * WHAT COUNTS. A bare string must be SHAPED like a join blob (base64url of a
+ * JSON object, so `eyJ` and nothing outside the base64url alphabet); a bare
+ * invitation id does NOT count, because from a QR there is nothing to tell one
+ * from any other short string. In a LINK the parameter names itself, so both
+ * `?join=` and `?invite=` count — which is how a Node-hub deployment's
+ * invitation stays scannable.
+ *
+ * This is a shape check, not validation. The hub decides whether a code is
+ * real, current and unspent; all this does is tell "you scanned the wrong QR"
+ * apart from "the hub refused this code", which are different problems with
+ * different fixes.
+ *
+ * Lives here, not in `@statewalker/httpeers-qr`, because it is entirely about
+ * the JOIN format — and a QR package that knew the join format could not be
+ * used for anything else.
+ */
+export function invitationFromQrText(text: string): string | null {
+  const trimmed = text.trim();
+  if (trimmed === "") return null;
+
+  if (trimmed.includes("://") || trimmed.includes("?")) {
+    try {
+      const params = new URL(trimmed, "http://scan.invalid/").searchParams;
+      const blob = params.get(JOIN_BLOB_PARAM)?.trim();
+      if (blob != null && blob !== "") return blob;
+      const invite = params.get("invite")?.trim();
+      return invite != null && invite !== "" ? invite : null;
+    } catch {
+      return null;
+    }
+  }
+
+  return looksLikeJoinBlob(trimmed) ? trimmed : null;
+}
+
+/** `eyJ` is `{"` in base64; 40 is well below a real blob and well above a stray word. */
+function looksLikeJoinBlob(value: string): boolean {
+  return value.startsWith("eyJ") && /^[A-Za-z0-9_-]{40,}$/.test(value);
+}
