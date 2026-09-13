@@ -41,6 +41,18 @@ const FORBIDDEN: Array<[string, RegExp]> = [
  */
 const DOM_ONLY = /\b(document|window|navigator|localStorage|sessionStorage)\b/;
 
+/**
+ * The PLATFORM entry points, listed by name.
+ *
+ * `./node` exists to hold `tcp()` and `./browser` to hold WebRTC; the rule
+ * they are exempt from is the rule they exist to break. Listing them rather
+ * than pattern-matching is the point — a new platform file has to be added
+ * here deliberately, which is a line in a diff somebody can argue with, and
+ * the alternative (exempting anything matching `*-node.ts`, say) lets a file
+ * become platform-bound by being renamed.
+ */
+const PLATFORM_ENTRIES = new Set(["node.ts", "browser.ts"]);
+
 function sources(dir: string): string[] {
   return readdirSync(dir, { withFileTypes: true }).flatMap((entry) =>
     entry.isDirectory()
@@ -70,9 +82,18 @@ describe("the isomorphism boundary", () => {
     expect(named).toContain("index.ts");
   });
 
+  it("every platform entry named here exists, and every one that exists is named", () => {
+    // Guards the exemption itself. A name left in this list after the file is
+    // gone silently widens it for a future file of the same name; a platform
+    // file that is not in the list should be failing the checks below, and if
+    // it is not, something else is wrong.
+    const platform = named.filter((n) => PLATFORM_ENTRIES.has(n));
+    expect(platform.sort()).toEqual([...PLATFORM_ENTRIES].filter((n) => named.includes(n)).sort());
+  });
+
   for (const file of files) {
     const name = file.slice(SRC.length + 1);
-    it(`${name} imports no platform`, () => {
+    it.skipIf(PLATFORM_ENTRIES.has(name))(`${name} imports no platform`, () => {
       const code = codeOf(file);
       for (const [what, pattern] of FORBIDDEN) {
         expect(code, `${name} imports ${what}`).not.toMatch(pattern);
@@ -91,8 +112,14 @@ describe("the isomorphism boundary", () => {
       dependencies?: Record<string, string>;
     };
     expect(Object.keys(pkg.dependencies ?? {})).not.toContain("@statewalker/httpeers-access");
-    // Node-only transports are a dev dependency here: the root must not bind
-    // the package to one platform, so `./node` supplies tcp.
-    expect(Object.keys(pkg.dependencies ?? {})).not.toContain("@libp2p/tcp");
+
+    // `@libp2p/tcp` IS a dependency, and should be: `./node` imports it, so
+    // it is a real runtime requirement of that entry point. The invariant
+    // worth asserting is not "tcp is absent from the manifest" — an earlier
+    // version of this test claimed that and was simply wrong once `./node`
+    // existed — but that nothing in the ROOT graph imports it, which the
+    // per-file checks above enforce. A browser consumer installs the package
+    // and never pulls tcp into a bundle, because nothing it imports reaches it.
+    expect(Object.keys(pkg.dependencies ?? {})).toContain("@libp2p/tcp");
   });
 });

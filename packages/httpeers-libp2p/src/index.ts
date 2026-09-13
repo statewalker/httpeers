@@ -7,6 +7,19 @@
  * every consumer's bundle.
  */
 
+export { type Peer, servePeer, type ServePeerInit } from "./serve-peer.js";
+export {
+  createNode,
+  type CreateNodeInit,
+  createRemote,
+  type CreateRemoteInit,
+  DEFAULT_DRAIN_TIMEOUT_MS,
+  DEFAULT_MAX_STREAMS,
+  PROTOCOL,
+  serveTransport,
+  type ServeTransportInit,
+  type TransportFactory,
+} from "./transport.js";
 export {
   type BytesStore,
   decodeKey,
