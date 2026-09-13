@@ -18,6 +18,16 @@
     "lint:check": "biome check tests"
   },
   "devDependencies": {
+    "@chainsafe/libp2p-noise": "17.0.0",
+    "@chainsafe/libp2p-yamux": "8.0.1",
+    "@libp2p/circuit-relay-v2": "4.2.11",
+    "@libp2p/crypto": "5.1.22",
+    "@libp2p/identify": "4.1.12",
+    "@libp2p/interface": "3.2.5",
+    "@libp2p/tcp": "11.0.26",
+    "@libp2p/webrtc": "6.0.29",
+    "@libp2p/websockets": "10.1.19",
+    "@multiformats/multiaddr": "13.0.3",
     "@statewalker/httpeers-access": "workspace:*",
     "@statewalker/httpeers-core": "workspace:*",
     "@statewalker/httpeers-expose": "workspace:*",
@@ -26,7 +36,9 @@
     "@statewalker/httpeers-libp2p": "workspace:*",
     "@statewalker/httpeers-member": "workspace:*",
     "@statewalker/httpeers-qr": "workspace:*",
+    "@statewalker/httpeers-relay": "workspace:*",
     "@types/node": "catalog:",
+    "libp2p": "3.3.8",
     "typescript": "catalog:",
     "vitest": "catalog:"
   }

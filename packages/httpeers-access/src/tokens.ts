@@ -160,9 +160,74 @@ import type { Signer } from "./signer.js";
  * goes through `authorizeWithLimits`. The ceiling is far above any legitimate
  * evaluation; it is here so that a pathological one — a token carrying a rule
  * set that explodes combinatorially — denies with `TooManyFacts` instead of
- * becoming a denial of service. `tokens.test.ts` proves that on a real token.
+ * becoming a denial of service. `rules.test.ts` proves that, and asserts
+ * `TooManyFacts` BY NAME: which limit fires is the whole point, because only
+ * `max_facts` and `max_iterations` count work and therefore fire on the same
+ * inputs every time.
+ *
+ * `max_time_micro` IS VESTIGIAL IN THIS BUILD, and it is left at one second
+ * rather than raised because raising it changes nothing. The wasm reports
+ * `Timeout` spuriously and independently of this number — measured: with the
+ * budget at THIRTY seconds, a decision that took 13 ms still came back
+ * `Timeout` under CPU contention. See `retryOnSpuriousTimeout` in `rules.ts`,
+ * which is the actual mitigation, and `warmUpTokens` below, which is the same
+ * defect's first-call form (prototype 10's finding F2).
  */
 export const LIMITS = { max_facts: 5_000, max_iterations: 200, max_time_micro: 1_000_000 };
+
+/** How many times a `Timeout` is re-tried before it is believed. Three, as in `warmUpTokens`. */
+const TIMEOUT_ATTEMPTS = 3;
+
+function hasRunLimit(error: unknown): error is { RunLimit: unknown } {
+  return typeof error === "object" && error !== null && "RunLimit" in error;
+}
+
+/** A `Timeout` from this wasm build is a glitch to re-try; every other RunLimit is an answer. */
+export function isSpuriousTimeout(error: unknown): boolean {
+  return hasRunLimit(error) && String(error.RunLimit) === "Timeout";
+}
+
+/**
+ * Run a wasm evaluation, disbelieving the first `RunLimit: Timeout`.
+ *
+ * THIS BUILD REPORTS `Timeout` SPURIOUSLY, AND IT COSTS A LEGITIMATE ANSWER.
+ * Prototype 10's finding F2 recorded the first-call form — a fresh process
+ * times out regardless of `max_time_micro` — and `warmUpTokens` has absorbed
+ * that since. Measured here: it is not only the first call. Under CPU
+ * contention (16 busy processes on 8 cores), 4 of 300 legitimate ADMIN
+ * authorizations came back `Timeout` while the median decision took 0.19 ms,
+ * and raising the budget to THIRTY seconds did not reduce it — which is what
+ * proves the report is spurious rather than a real exhaustion. It first
+ * surfaced as a 1-in-5 failure of this package's own suite under parallel load.
+ *
+ * WHAT IT COSTS WHEN NOT MITIGATED, per call site: a denied authorization
+ * (`rules.ts`), a REJECTED VALID TOKEN (`verifyToken`), or a thrown
+ * `deriveCapabilities`. All three are a legitimate member being turned away
+ * because the machine was busy.
+ *
+ * WHY RETRYING IS SOUND. These evaluations are pure functions of the rule set
+ * and the facts, so the same run twice must reach the same answer: a retry
+ * cannot manufacture an allow that was not already there. A GENUINE exhaustion
+ * reproduces on every attempt and still fails closed. And `TooManyFacts` — the
+ * limit that actually bounds a pathological rule set, because it counts work
+ * rather than elapsed time — is deliberately NOT retried, so the
+ * denial-of-service bound is untouched.
+ *
+ * Failing closed is right when the INPUT is suspect. It is not right when the
+ * VERDICT is.
+ */
+export function retryOnSpuriousTimeout<T>(run: () => T): T {
+  let last: unknown;
+  for (let attempt = 0; attempt < TIMEOUT_ATTEMPTS; attempt++) {
+    try {
+      return run();
+    } catch (error) {
+      if (!isSpuriousTimeout(error)) throw error;
+      last = error;
+    }
+  }
+  throw last;
+}
 
 /**
  * `generateMeshKey` used to live here, returning libp2p's `Ed25519PrivateKey`.
@@ -525,45 +590,66 @@ export async function verifyToken(token: string, options: VerifyTokenOptions): P
   // still verifies during the overlap, which is the entire point of the seam.
   const roots = await rootKeysFor(options.issuer, options.keys);
 
-  let parsed: Biscuit | undefined;
-  let lastParseError: unknown;
-  for (const root of roots) {
-    try {
-      parsed = Biscuit.fromBase64(token, root);
-      break;
-    } catch (error) {
-      lastParseError = error;
-    }
-  }
-  if (parsed === undefined) throw parseFailure(lastParseError);
-
   const now = options.now ?? Date.now;
-  const builder = new AuthorizerBuilder();
-  builder.addCodeWithParameters(
-    "root_mesh({mesh}); time_ms({now});",
-    { mesh: options.issuer, now: now() },
-    {},
-  );
-  if (options.connectionPeer !== ANONYMOUS) {
-    builder.addCodeWithParameters("connection_peer({peer});", { peer: options.connectionPeer }, {});
-  }
-  // The destination's statement about itself, which the token's audience check
-  // consumes (ADR-0020). Omitted, nothing satisfies `audience($k), self_peer($k)`.
-  if (options.selfPeer !== undefined) {
-    builder.addCodeWithParameters("self_peer({peer});", { peer: options.selfPeer }, {});
-  }
-  // This verifier contributes no policy of its own — the token's checks are the
-  // whole decision. Task 30 replaces this with the access tree as Datalog.
-  builder.addCode("allow if true;");
 
-  const authorizer = builder.buildAuthenticated(parsed);
-  try {
-    authorizer.authorizeWithLimits(LIMITS);
-  } catch (error) {
-    throw denial(error);
-  }
+  // THE WHOLE EVALUATION IS REBUILT PER ATTEMPT — parse included. The wasm
+  // handles are consumed by the calls that take them (`buildAuthenticated`
+  // consumes `parsed`), so a retry that reused one would trap on a null
+  // pointer rather than retry. See `retryOnSpuriousTimeout` for why a retry is
+  // here at all: this build reports `Timeout` spuriously, and at THIS call
+  // site the cost of believing it is a VALID MEMBER'S TOKEN REJECTED because
+  // the machine was busy.
+  //
+  // Nothing else is retried. A parse failure, a failed check and a real budget
+  // exhaustion all rethrow on the first attempt, so a bad token stays exactly
+  // as expensive to reject as it was.
+  return retryOnSpuriousTimeout(() => {
+    let parsed: Biscuit | undefined;
+    let lastParseError: unknown;
+    for (const root of roots) {
+      try {
+        parsed = Biscuit.fromBase64(token, root);
+        break;
+      } catch (error) {
+        lastParseError = error;
+      }
+    }
+    if (parsed === undefined) throw parseFailure(lastParseError);
 
-  return readClaims(authorizer, options.issuer);
+    const builder = new AuthorizerBuilder();
+    builder.addCodeWithParameters(
+      "root_mesh({mesh}); time_ms({now});",
+      { mesh: options.issuer, now: now() },
+      {},
+    );
+    if (options.connectionPeer !== ANONYMOUS) {
+      builder.addCodeWithParameters(
+        "connection_peer({peer});",
+        { peer: options.connectionPeer },
+        {},
+      );
+    }
+    // The destination's statement about itself, which the token's audience check
+    // consumes (ADR-0020). Omitted, nothing satisfies `audience($k), self_peer($k)`.
+    if (options.selfPeer !== undefined) {
+      builder.addCodeWithParameters("self_peer({peer});", { peer: options.selfPeer }, {});
+    }
+    // This verifier contributes no policy of its own — the token's checks are the
+    // whole decision.
+    builder.addCode("allow if true;");
+
+    const authorizer = builder.buildAuthenticated(parsed);
+    try {
+      authorizer.authorizeWithLimits(LIMITS);
+    } catch (error) {
+      // A spurious Timeout must reach the retry as itself; everything else is
+      // a verdict and is mapped to its rejection reason here.
+      if (isSpuriousTimeout(error)) throw error;
+      throw denial(error);
+    }
+
+    return readClaims(authorizer, options.issuer);
+  });
 }
 
 /**

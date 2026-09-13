@@ -71,7 +71,7 @@ import type {
   UsesTransportIdentity,
 } from "@statewalker/httpeers-core";
 import { json, lookupClaims, lookupPeer } from "@statewalker/httpeers-core";
-import { LIMITS, warmUpTokens } from "./tokens.js";
+import { LIMITS, retryOnSpuriousTimeout, warmUpTokens } from "./tokens.js";
 
 // ---------------------------------------------------------------------------
 // The fact vocabulary a rule may consume
@@ -295,14 +295,21 @@ export function capabilityNames(rules: RuleSet): string[] {
 export function deriveCapabilities(rules: RuleSet, roles: readonly string[]): Set<string> {
   assertBuilt(rules);
   warmUpTokens();
-  const builder = new AuthorizerBuilder();
-  for (const role of roles) {
-    if (typeof role !== "string") continue; // never let a non-string reach wasm
-    builder.addCodeWithParameters("role({role});", { role }, {});
-  }
-  addRules(builder, rules);
-  const authorizer = builder.buildUnauthenticated();
-  const facts = authorizer.queryWithLimits(Rule.fromString("held($c) <- capability($c)"), LIMITS);
+  // EVERYTHING IS REBUILT PER ATTEMPT, deliberately: these wasm handles are
+  // consumed by the call that takes them, so a retry that reused one would
+  // trap on a null pointer instead of retrying. `warmUpTokens` makes the same
+  // point about its own throwaway token.
+  const facts = retryOnSpuriousTimeout(() => {
+    const builder = new AuthorizerBuilder();
+    for (const role of roles) {
+      if (typeof role !== "string") continue; // never let a non-string reach wasm
+      builder.addCodeWithParameters("role({role});", { role }, {});
+    }
+    addRules(builder, rules);
+    return builder
+      .buildUnauthenticated()
+      .queryWithLimits(Rule.fromString("held($c) <- capability($c)"), LIMITS);
+  });
   return new Set(
     facts
       .map((fact: { terms(): unknown[] }) => fact.terms()[0])
@@ -397,13 +404,14 @@ export function authorize(
   };
 
   try {
-    const index = build().authorizeWithLimits(LIMITS);
+    const index = retryOnSpuriousTimeout(() => build().authorizeWithLimits(LIMITS));
     const matched = rules.policies[index];
     return { allowed: true, matched, failed: [], reason: `allowed by policy: ${matched ?? ""}` };
   } catch (error) {
     return denial(rules, facts, error, build);
   }
 }
+
 
 function denial(
   rules: RuleSet,
@@ -452,7 +460,7 @@ function denial(
     const sufficient: string[] = [];
     for (const cap of candidates) {
       try {
-        build(cap).authorizeWithLimits(LIMITS);
+        retryOnSpuriousTimeout(() => build(cap).authorizeWithLimits(LIMITS));
         sufficient.push(cap);
       } catch {
         /* this capability would not have helped */

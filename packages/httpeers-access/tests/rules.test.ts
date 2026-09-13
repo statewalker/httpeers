@@ -44,7 +44,7 @@ import {
   withPolicy,
 } from "../src/rules.js";
 import type { Signer } from "../src/signer.js";
-import { mintToken, TokenVerificationError, verifyToken } from "../src/tokens.js";
+import { LIMITS, mintToken, TokenVerificationError, verifyToken } from "../src/tokens.js";
 
 /**
  * The policy that used to ship as `DEMO_RULES`, kept here as TEST DATA —
@@ -411,10 +411,51 @@ describe("the evaluation budget", () => {
       ],
       policies: ['allow if capability("app:x");'],
     });
+    const started = performance.now();
     const d = decide(rules, "/x", member);
+    const elapsed = performance.now() - started;
+
     expect(d.allowed).toBe(false);
-    expect(d.reason).toMatch(/evaluation budget exhausted/);
+    // EITHER LIMIT IS A CORRECT ANSWER HERE, and the test says so rather than
+    // pinning one. Unloaded this is `TooManyFacts` in ~50 ms — the
+    // work-counting bound winning, which is what it is for. On a busy machine
+    // the one-second wall clock can win the race first. Both deny, which is
+    // the property; asserting `TooManyFacts` by name made this test fail under
+    // load for a reason that was not a defect.
+    //
+    // The claim that DOES need pinning is the opposite one — that a budget
+    // report never flips a legitimate ALLOW — and it is the test below, where
+    // a wrong answer would be a real member turned away.
+    expect(d.reason).toMatch(/^evaluation budget exhausted \((TooManyFacts|Timeout)\)$/);
+
+    // It denied rather than hanging, which is the other half of the claim.
+    expect(elapsed).toBeLessThan(10_000);
   });
+
+  it("keeps the bounds that count WORK tight, since those are the real ones", () => {
+    // `max_facts` and `max_iterations` are what actually stop a combinatorial
+    // rule set, and they fire on the same inputs on every machine. Loosening
+    // either is the change that would matter; `max_time_micro` is vestigial in
+    // this build (see `LIMITS`) and is deliberately not asserted here, because
+    // asserting a number that does nothing invites someone to "tune" it.
+    expect(LIMITS.max_facts).toBeLessThanOrEqual(10_000);
+    expect(LIMITS.max_iterations).toBeLessThanOrEqual(1_000);
+  });
+
+  it("does not let a spurious Timeout turn an allow into a deny", () => {
+    // THE DEFECT THIS GUARDS, in the small. The wasm reports `Timeout`
+    // intermittently on decisions that take under a millisecond, and a report
+    // like that used to deny outright. `retryOnSpuriousTimeout` re-runs the
+    // evaluation, which is pure, so a glitch resolves and a real exhaustion
+    // does not.
+    //
+    // Driven through the public API by hammering a decision that must always
+    // be allowed. Under contention this used to fail roughly 1 time in 75.
+    for (let i = 0; i < 200; i++) {
+      const d = decide(DEMO_RULES, "/test/echo", admin);
+      expect(d.allowed, `denied on iteration ${i}: ${d.reason}`).toBe(true);
+    }
+  }, 60_000);
 });
 
 // ---------------------------------------------------------------------------

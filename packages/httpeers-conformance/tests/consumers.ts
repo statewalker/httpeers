@@ -18,6 +18,7 @@ import type { FetchHandler, MeshView, Mounts, PeerIdStr } from "@statewalker/htt
 import {
   ANONYMOUS,
   createMounts,
+  forwardLocalOnly,
   createPeerRouter,
   json,
   lookupPeer,
@@ -365,7 +366,15 @@ export async function rung12_browserHub(
     keys: selfCertifyingKeys(),
     provenPeer: (req) => lookupPeer(req) ?? ANONYMOUS,
   });
-  const peer = await servePeer({ node, mounts: hub.mounts, access: guard });
+  const peer = await servePeer({
+    node,
+    mounts: hub.mounts,
+    access: guard,
+    // The hub page reaches the mesh through its OWN edge, so its router has to
+    // be willing to forward what that edge hands it. Deny-by-default is right
+    // for requests off the wire and fatal for these -- see `forwardLocalOnly`.
+    allowForward: forwardLocalOnly,
+  });
 
   // A HUB PAGE IS REACHED THROUGH ITS OWN fetch() LIKE ANY OTHER PAGE — the
   // same `createEdgeDispatch` a member uses, over `peer.dispatch`, which is

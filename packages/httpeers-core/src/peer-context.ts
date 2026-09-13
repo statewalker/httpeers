@@ -83,3 +83,31 @@ export function lookupClaims(req: Request): MeshClaims | null | undefined {
 export function lookupClaimsResult(req: Request): ClaimsResult | undefined {
   return claims.get(req);
 }
+
+/**
+ * The forwarding policy every assembly with a local edge actually wants:
+ * forward what originated HERE, never what arrived from the network.
+ *
+ * WHY THIS IS NAMED RATHER THAN INLINED. `createPeerRouter` denies forwarding
+ * by default and asks the caller for a policy, which is right — relaying is a
+ * capability and R-2 says deny by default. But every caller that mounts a
+ * local edge needs the same policy, and the extraction proved what happens
+ * when one of them re-derives it by omission: `startMember` passed no policy,
+ * the router denied everything, and a member could not call another member
+ * through its own edge at all. The types were perfectly happy; only a mesh
+ * standing up for real found it.
+ *
+ * `undefined` from `lookupPeer` means NO BINDING WAS EVER MADE — the request
+ * never passed through an inbound transport handler, so it originated at our
+ * own edge. `ANONYMOUS` is NOT absence: it means the transport proved there
+ * was no identity, which is still "arrived from the network". Reading the
+ * sentinel as absence would turn this peer into an open relay for anonymous
+ * callers, which is exactly the R-2 hole, so the check is against `undefined`
+ * and nothing else.
+ *
+ * A peer that should relay for OTHERS needs a different, explicit policy —
+ * that is a deliberate capability, not this.
+ */
+export async function forwardLocalOnly(req: Request, _target: PeerIdStr): Promise<boolean> {
+  return lookupPeer(req) === undefined;
+}

@@ -27,6 +27,7 @@ export {
 export {
   cacheClaims,
   copyPeerBinding,
+  forwardLocalOnly,
   lookupClaims,
   lookupClaimsResult,
   lookupPeer,

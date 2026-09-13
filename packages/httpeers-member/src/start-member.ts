@@ -38,7 +38,7 @@ import { peerIdFromString } from "@libp2p/peer-id";
 import type { FetchHandler, Mounts, PeerIdStr } from "@statewalker/httpeers-core";
 import type { Ed25519PrivateKey, Libp2p } from "@libp2p/interface";
 import type { RuleSet } from "@statewalker/httpeers-access";
-import { ANONYMOUS, lookupPeer } from "@statewalker/httpeers-core";
+import { ANONYMOUS, forwardLocalOnly, lookupPeer } from "@statewalker/httpeers-core";
 import { withAccess } from "@statewalker/httpeers-access";
 import { servePeer } from "@statewalker/httpeers-libp2p";
 import { RevocationCache } from "@statewalker/httpeers-access";
@@ -203,6 +203,16 @@ export async function startMember(init: StartMemberInit): Promise<MemberHandle> 
     const peer = await servePeer({
       node,
       mounts: init.mounts,
+      // WITHOUT THIS A MEMBER CANNOT CALL ANOTHER MEMBER AT ALL. The edge
+      // hands `/{peerId}/{path}` to `peer.dispatch`, and the router refuses to
+      // forward unless asked — deny by default, which is right (R-2: relaying
+      // is its own capability). `createPeer` in the prototype supplied this
+      // policy; the extraction split it into `servePeer` + `withAccess` and
+      // dropped it, and every type check stayed green because a missing
+      // optional callback is not a type error. A real mesh found it in one
+      // call: 403 `this peer does not relay for you`, from the CALLER's own
+      // router.
+      allowForward: forwardLocalOnly,
       access: withAccess({
         issuer: hubPeerId,
         rules: init.rules,
