@@ -14,6 +14,7 @@
     "lint:check": "biome check tests"
   },
   "devDependencies": {
+    "@statewalker/httpeers-access": "workspace:*",
     "@statewalker/httpeers-core": "workspace:*",
     "@statewalker/httpeers-member": "workspace:*",
     "@statewalker/webrun-http-browser": "workspace:*",

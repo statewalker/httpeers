@@ -8,10 +8,21 @@
  * bytes by hand and arming the shim afterwards does work — measured in a real
  * Chromium (extraction prototype 02).
  *
- * WHY YOU PROBABLY DO NOT NEED IT. The architecture puts access checks in the
- * PAGE, not the worker: the ServiceWorker is one side-effecting import of a
- * dispatcher and holds no application code, so the ordinary import works and
- * this seam is an option rather than a requirement.
+ * WHEN YOU NEED IT. Under Node the ordinary import works: `.wasm` resolves to
+ * an instantiated module. **Under a bundler it does not.** Vite resolves a
+ * `.wasm` import to a URL STRING, so biscuit-wasm's own entry runs
+ * `__wbg_set_wasm("<url>")` and the first call into the binding reads
+ * `.memory` off a string. A PAGE therefore needs this seam, not only a worker
+ * -- measured in Chromium, in `httpeers-browser-conformance`.
+ *
+ * A bundled caller needs three things, and each was found by a failure:
+ *   1. ALIAS `@biscuit-auth/biscuit-wasm` to `module/biscuit_bg.js`, or its
+ *      entry loads anyway and overwrites what this armed. (Symptom: the page
+ *      dies outright rather than throwing.)
+ *   2. Keep it out of the dependency pre-bundler, or an optimized copy becomes
+ *      a second module instance and the armed one is not the one called.
+ *      (Symptom: `undefined` reading `biscuitbuilder_new`.)
+ *   3. Import the binding through that same specifier, for the same reason.
  *
  * TWO COSTS, BOTH REAL AND BOTH INHERITED, measured rather than assumed:
  *
@@ -20,11 +31,13 @@
  *     wildcard, so `@biscuit-auth/biscuit-wasm/module/biscuit_bg.js` cannot be
  *     imported by any strict resolver. Using it means a documented bundler
  *     alias, a vendored copy, or an upstream change.
- *  2. The wasm imports SEVEN generated snippet modules beyond the binding
- *     module, and their directory names are content hashes. Supplying only
- *     `biscuit_bg.js` fails with `Import #17 "./snippets/…": module is not an
- *     object or function`. They have to be gathered by a bundler feature such
- *     as `import.meta.glob`, which ties the seam to a bundler that has one.
+ *  2. The wasm imports snippet modules whose directory names are content
+ *     hashes. Seven directories ship; `WebAssembly.Module.imports` reports the
+ *     binary referencing exactly ONE of them
+ *     (`biscuit-auth-314ca57174ae0e6d/inline0.js`, a `performance.now()`
+ *     wrapper) at 0.6.0 -- measured, where this comment previously said seven.
+ *     One import can be named by hand; a future version referencing more would
+ *     want `import.meta.glob` or the equivalent.
  *
  * Because of (1) and (2) this module deliberately does NOT reach into
  * biscuit-wasm itself. It takes the already-loaded binding module from the
@@ -60,11 +73,17 @@ export interface BiscuitBinding {
  * `binding` is biscuit-wasm's `biscuit_bg.js`, which the caller imports (see
  * the note above on why this module cannot).
  *
- * @example
+ * `__wbindgen_start()` is NOT called here, and does not need to be: checked by
+ * deliberately omitting it in a browser, because `biscuit.js` does call it and
+ * assuming it were required would have been the easy mistake.
+ *
+ * @example A Vite page, with the alias and `optimizeDeps.exclude` above in place
  * ```ts
- * import * as binding from "@biscuit-auth/biscuit-wasm/module/biscuit_bg.js";
- * const snippets = import.meta.glob("…/snippets/** /*.js", { eager: true });
- * await initBiscuit(new URL("./biscuit_bg.wasm", import.meta.url), binding, snippets);
+ * import * as binding from "@biscuit-auth/biscuit-wasm";
+ * import * as snippet from "…/snippets/biscuit-auth-314ca57174ae0e6d/inline0.js";
+ * await initBiscuit("/biscuit_bg.wasm", binding, {
+ *   "./snippets/biscuit-auth-314ca57174ae0e6d/inline0.js": snippet,
+ * });
  * ```
  */
 export async function initBiscuit(
