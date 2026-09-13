@@ -1,0 +1,14 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    // DELIBERATELY NOT "DOM", exactly as in every package it compiles against.
+    // This file stands in for a real consumer, and a consumer that quietly had
+    // the DOM lib would bless a `document` reference that a worker rejects --
+    // so the check would pass while the thing it is checking does not work.
+    "lib": ["ES2022"],
+    "types": ["node"],
+    "rootDir": ".",
+    "noEmit": true
+  },
+  "include": ["tests/**/*.ts"]
+}

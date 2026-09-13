@@ -31,13 +31,6 @@
   },
   "dependencies": {},
   "devDependencies": {
-    "@statewalker/httpeers-access": "workspace:*",
-    "@statewalker/httpeers-expose": "workspace:*",
-    "@statewalker/httpeers-ghost": "workspace:*",
-    "@statewalker/httpeers-hub": "workspace:*",
-    "@statewalker/httpeers-libp2p": "workspace:*",
-    "@statewalker/httpeers-member": "workspace:*",
-    "@statewalker/httpeers-qr": "workspace:*",
     "@types/node": "catalog:",
     "typescript": "catalog:",
     "vitest": "catalog:"
