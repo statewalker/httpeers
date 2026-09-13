@@ -14,7 +14,7 @@
  */
 
 import { afterEach, describe, expect, it } from "vitest";
-import { createMounts, json } from "@statewalker/httpeers-core";
+import { createMounts, json, PEER_ID_HEADER } from "@statewalker/httpeers-core";
 import { access } from "@statewalker/httpeers-access";
 import { MemberJoinError, type MemberHandle, startMember } from "@statewalker/httpeers-member";
 import {
@@ -149,5 +149,35 @@ describe("two members, through the mesh", () => {
     // have hidden the forwarding defect this suite just caught.
     const res = await alice.fetch(new Request(`http://local/peers/${bob.peerId}/nothing-here`));
     expect(res.status).toBe(404);
+  }, 90_000);
+});
+
+describe("a forged identity, against a real transport", () => {
+  it("is overwritten by the peer the handshake proved", async () => {
+    // THE HEADER SWITCH'S CENTRAL CLAIM, tested where it matters rather than
+    // in a unit. Alice sets the proven-peer header by hand, naming Bob. The
+    // request crosses a real libp2p connection, and Bob's ingress rebinds it
+    // from `context.remotePeer` -- what the Noise handshake established.
+    //
+    // Under the old WeakMap this was unforgeable by construction. Under a
+    // header it is only unforgeable because every ingress strips, so this is
+    // the test that says the rule was actually applied end to end.
+    mesh = await startMesh();
+    const alice = await join(mesh);
+    const bob = await join(mesh);
+
+    const res = await alice.fetch(
+      new Request(`http://local/peers/${bob.peerId}/whoami`, {
+        headers: { [PEER_ID_HEADER]: bob.peerId },
+      }),
+    );
+    expect(res.status).toBe(200);
+    const seen = (await res.json()) as { sub: string | null; peer: string | null };
+
+    // Alice, because the transport said so -- not Bob, as she claimed.
+    expect(seen.peer).toBe(alice.peerId);
+    expect(seen.peer).not.toBe(bob.peerId);
+    // And the Biscuit's subject still agrees with the proven peer.
+    expect(seen.sub).toBe(alice.peerId);
   }, 90_000);
 });

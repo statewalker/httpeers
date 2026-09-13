@@ -88,19 +88,22 @@
  *    `SwHttpDispatcher`'s catch and lose exactly the distinction job 3
  *    exists to preserve.
  *
- * INBOUND REQUESTS ARE NOT TOUCHED AT ALL. The same `dispatch` also serves
- * traffic that arrived from OTHER peers over libp2p, and that traffic must
- * never be handed our token: doing so would let any peer that can reach us
- * borrow our membership for a call to a third party. The discriminant is
- * `lookupPeer(req) === undefined` -- the very same one `createPeer`'s own
- * `allowForward` uses (`peer.ts`) to tell "originated at our own edge" from
- * "arrived from the network", because libp2p's handshake always proves
- * someone for the latter. An inbound request is passed to `dispatch`
- * BYTE-IDENTICAL, with no prefix strip, no header, and no error mapping, so
- * this module cannot change how this peer behaves as a server at all.
+ * THIS IS A LOCAL INGRESS, AND ONLY THAT. Traffic arriving from other peers
+ * over libp2p does NOT come through here -- `serveTransport` dispatches it to
+ * `peer.dispatch` directly, which is what keeps our token off it (handing our
+ * token to inbound traffic would let any peer that can reach us borrow our
+ * membership for a call to a third party).
+ *
+ * So the first thing this does is STRIP the proven-peer header. A page builds
+ * the requests that enter its own edge; a header here is a claim, not a fact,
+ * and nothing downstream can tell the difference. An earlier version branched
+ * on `lookupPeer(req) !== undefined` to mean "arrived from the network" --
+ * correct while that binding was a WeakMap a page could not write, and a
+ * forgery hole the moment it became a header. `tests/ingress-forgery.test.ts`
+ * holds that shut.
  */
 import type { FetchHandler, PeerErrorKind, PeerIdStr } from "@statewalker/httpeers-core";
-import { json, lookupPeer, PeerCallError } from "@statewalker/httpeers-core";
+import { json, PeerCallError, stripPeerBinding } from "@statewalker/httpeers-core";
 
 /**
  * `PeerErrorKind` -> HTTP status, the whole table.
@@ -210,10 +213,19 @@ export function createEdgeDispatch(init: EdgeDispatchInit): FetchHandler {
   const { dispatch, key } = init;
 
   return async function edgeDispatch(req: Request): Promise<Response> {
-    // Arrived from the network (some peer was proven by the transport, or
-    // was deliberately proven to be nobody -- either way, a binding exists).
-    // Not ours to touch. See the module comment.
-    if (lookupPeer(req) !== undefined) return dispatch(req);
+    // THE EDGE IS A LOCAL INGRESS, ALWAYS. Strip any proven-peer header the
+    // caller supplied: a page builds the requests that enter its own edge, so
+    // a header here is a CLAIM, never a fact, and `withAccess` downstream
+    // cannot tell the two apart.
+    //
+    // This used to return early when a binding was present, on the reading
+    // "it arrived from the network, not ours to touch". That was safe while
+    // the binding lived in a WeakMap no page could write; with a header it
+    // let a page name itself any peer AND skip the token attachment. The
+    // branch is removed rather than repaired, because a network request never
+    // reaches here anyway -- `serveTransport` dispatches to `peer.dispatch`
+    // directly. See `tests/ingress-forgery.test.ts`.
+    stripPeerBinding(req);
 
     const url = new URL(req.url);
     url.pathname = stripEdgePrefix(url.pathname, key);

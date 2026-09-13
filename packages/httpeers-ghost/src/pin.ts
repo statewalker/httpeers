@@ -22,6 +22,7 @@
  */
 
 import type { FetchHandler, PeerIdStr } from "@statewalker/httpeers-core";
+import { PEER_ID_HEADER } from "@statewalker/httpeers-core";
 
 /** Where a ghost points: one peer, one path under it. Signed by the hub in a real deployment. */
 export interface Landing {
@@ -79,6 +80,12 @@ export function pinnedPeer(init: PinnedPeerInit): FetchHandler {
     // The host sees its own mount plus the path, and never the viewer's origin.
     const target = new URL(`${init.landing.appPath}${rest}${url.search}`, "http://peer.local");
     const headers = new Headers(request.headers);
+    // IDENTITY-FREE ONWARD. The rendered page is someone else's HTML in the
+    // viewer's browser, so every header it can set is attacker-controlled --
+    // and `new Headers(request.headers)` copies all of them. The host peer
+    // rebinds from its own transport at ingress, so a value arriving here is
+    // at best noise and at worst a claim.
+    headers.delete(PEER_ID_HEADER);
     headers.set("authorization", `Bearer ${init.token()}`);
 
     const forwarded = new Request(target, {

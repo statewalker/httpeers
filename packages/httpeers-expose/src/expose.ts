@@ -24,6 +24,7 @@
  */
 
 import type { FetchHandler } from "@statewalker/httpeers-core";
+import { PEER_ID_HEADER } from "@statewalker/httpeers-core";
 import { matchRoute } from "./routes.js";
 
 /** Marks this layer's OWN responses, so they are never mistaken for an upstream's. Same header the proxy already uses. */
@@ -146,6 +147,11 @@ export function urlUpstream(init: UrlUpstreamInit): Upstream {
     // handed mesh tokens to third parties (an upstream echoed one back) and
     // turned every call into a preflighted one.
     headers.delete("authorization");
+    // AND THE PROVEN-PEER HEADER. Re-issuing to a third party must not tell an
+    // outside origin which mesh peer called -- a privacy leak to somebody with
+    // no business in this mesh, and one that travels by default now that the
+    // binding is a header rather than a WeakMap.
+    headers.delete(PEER_ID_HEADER);
     // Hop-by-hop headers (RFC 9110 §7.6.1) are not the upstream's business.
     for (const hop of HOP_BY_HOP) headers.delete(hop);
     if (init.via != null) headers.set("via", init.via);

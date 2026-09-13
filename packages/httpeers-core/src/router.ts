@@ -15,7 +15,7 @@
  *    to warn you it had happened. Normalising removes the trap instead of
  *    documenting it.
  */
-import { copyPeerBinding } from "./peer-context.js";
+import { copyPeerBinding, stripPeerBinding } from "./peer-context.js";
 import type { FetchHandler, Mounts, PeerIdStr, Remote } from "./types.js";
 import { json } from "./types.js";
 
@@ -94,6 +94,12 @@ export function createPeerRouter(init: PeerRouterInit): FetchHandler {
     // A max-forwards header or a hop count in the envelope is required
     // before any relay ships.
     const forwarded = new Request(new URL(remainder + url.search, url.origin), req);
+    // IDENTITY-FREE, DELIBERATELY. This used to hold for free: the binding
+    // lived in a WeakMap and a re-created Request simply had no entry. A
+    // header copies itself, so relaying without this line would tell the third
+    // party who the original caller was. It strips rather than rewrites
+    // because what we forward is OUR call to them, not theirs.
+    stripPeerBinding(forwarded);
     return remote(first, forwarded);
   };
 }

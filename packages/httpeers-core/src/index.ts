@@ -27,12 +27,15 @@ export {
 export {
   cacheClaims,
   copyPeerBinding,
+  ANONYMOUS_HEADER_VALUE,
   forwardLocalOnly,
   lookupClaims,
   lookupClaimsResult,
   lookupPeer,
+  PEER_ID_HEADER,
   registerAnonymous,
   registerPeer,
+  stripPeerBinding,
 } from "./peer-context.js";
 
 export { createMounts, createPeerRouter, type PeerRouterInit } from "./router.js";

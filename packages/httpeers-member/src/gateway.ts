@@ -27,6 +27,7 @@
 
 import type { FetchHandler } from "@statewalker/httpeers-core";
 import type { MeshView } from "@statewalker/httpeers-core";
+import { stripPeerBinding } from "@statewalker/httpeers-core";
 
 /** What the gateway needs of a member. `MemberHandle` satisfies it; so does a test double. */
 export interface GatewaySource {
@@ -80,6 +81,11 @@ export function createGateway(init: GatewayInit): FetchHandler {
       `/${init.edgeKey}/${first}${tail.length > 0 ? `/${tail.join("/")}` : ""}${url.search}`,
       "http://gateway.local",
     );
+
+    // ORDINARY HTTP IN FRONT OF A MEMBER, so the caller is a browser or a
+    // curl and any proven-peer header it sent is a claim about somebody else.
+    // Strip before the request enters the mesh.
+    stripPeerBinding(request);
 
     const forwarded = new Request(target, {
       method: request.method,
