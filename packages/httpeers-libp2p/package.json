@@ -49,6 +49,7 @@
     "@libp2p/webrtc": "6.0.29",
     "@libp2p/websockets": "10.1.19",
     "@multiformats/multiaddr": "13.0.3",
+    "@statewalker/httpeers-bridge": "workspace:*",
     "@statewalker/httpeers-core": "workspace:*",
     "@statewalker/webrun-http-streams": "^0.2.2",
     "@statewalker/webrun-streams": "^0.2.0",

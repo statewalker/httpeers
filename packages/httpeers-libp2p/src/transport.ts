@@ -31,8 +31,11 @@ import { multiaddr } from "@multiformats/multiaddr";
 // constructed node, or a retained signing key, without itself importing
 // `@libp2p/interface` — this file stays the only one that does.
 export type { Ed25519PrivateKey, Libp2p } from "@libp2p/interface";
-import { fetchOverDuplex, HttpParseError, serveFetchOverDuplex } from "@statewalker/webrun-http-streams";
-import { connect, type ConnectionContext, serveConnections } from "@statewalker/webrun-streams-libp2p";
+// Only the parse error is still read here: `mapPeerCallError` classifies it.
+// The fetch-over-duplex calls themselves moved to `httpeers-bridge`.
+import { HttpParseError } from "@statewalker/webrun-http-streams";
+import { createRemoteOverLink, serveFetchOverLink } from "@statewalker/httpeers-bridge";
+import { libp2pLink } from "./link.js";
 import { createLibp2p } from "libp2p";
 import {
   PeerCallError,
@@ -206,65 +209,6 @@ export const DEFAULT_REQUEST_TIMEOUT_MS = 8_000;
  */
 export const DEFAULT_MAX_CONCURRENT_OUTBOUND = DEFAULT_MAX_STREAMS;
 
-/**
- * A minimal FIFO counting semaphore -- `acquire()` resolves immediately
- * while a permit is free, otherwise queues the caller until `release()` (or
- * an earlier grant to it) frees one. Not exported: this is `createRemote`'s
- * own T-3 admission control, not a general-purpose utility this package
- * offers callers -- see `DEFAULT_MAX_CONCURRENT_OUTBOUND`'s doc comment for
- * the contract it implements.
- *
- * `acquire(signal)` accepts an `AbortSignal` so a queued (not yet granted)
- * wait can be cancelled -- `createRemote` aborts it from the SAME
- * `onTimeout` callback that already cancels a partially-opened stream, so a
- * call that loses the `requestTimeoutMs` race while still queued stops
- * waiting immediately rather than eventually consuming a permit nothing will
- * ever release.
- */
-class Semaphore {
-  #available: number;
-  readonly #waiting: Array<{ grant: () => void }> = [];
-
-  constructor(width: number) {
-    this.#available = width;
-  }
-
-  acquire(signal?: AbortSignal): Promise<() => void> {
-    if (signal?.aborted) return Promise.reject(signal.reason);
-    if (this.#available > 0) {
-      this.#available--;
-      return Promise.resolve(() => this.#release());
-    }
-    return new Promise((resolve, reject) => {
-      const waiter = {
-        grant: () => {
-          signal?.removeEventListener("abort", onAbort);
-          resolve(() => this.#release());
-        },
-      };
-      const onAbort = (): void => {
-        const index = this.#waiting.indexOf(waiter);
-        // Already granted (removed from the queue, permit handed out) --
-        // the abort lost the race; nothing to cancel, the caller must
-        // release the permit it already has instead.
-        if (index === -1) return;
-        this.#waiting.splice(index, 1);
-        reject(signal?.reason);
-      };
-      signal?.addEventListener("abort", onAbort, { once: true });
-      this.#waiting.push(waiter);
-    });
-  }
-
-  #release(): void {
-    const next = this.#waiting.shift();
-    if (next) {
-      next.grant();
-    } else {
-      this.#available++;
-    }
-  }
-}
 
 /**
  * Node.js `net`'s own connection-establishment errno codes -- structured,
@@ -390,44 +334,6 @@ export function mapPeerCallError(err: unknown, peerId: PeerIdStr): PeerCallError
   }
 }
 
-/**
- * Race `attempt()` against `timeoutMs`. On timeout, calls `onTimeout()` for
- * best-effort cleanup (closing whatever streams a partially-established
- * call already opened, and -- T-3/Task 18 -- aborting a still-queued
- * `Semaphore` wait so it does not later consume a permit nobody will
- * release) and rejects with `PeerRequestTimeoutError`.
- *
- * KNOWN LIMITATION, stated rather than silently accepted: `connect()`
- * (`@statewalker/webrun-streams-libp2p`) accepts no `AbortSignal` for the
- * dial itself, so a timeout that fires WHILE `connect()` is still dialing
- * cannot cancel that dial -- `onTimeout` has nothing to close yet in that
- * interleaving, and the underlying `node.dialProtocol` call is abandoned
- * rather than aborted. It still eventually settles (libp2p has its own
- * internal dial/negotiation timeouts) and its result is discarded either
- * way; this bounds what the CALLER waits for, not what the underlying
- * dial does after the caller has stopped waiting. Fixing that would mean
- * changing `connect()`'s signature in `webrun-streams-libp2p`, a different
- * fragment this task does not touch (see the Task 17 report).
- */
-async function withRequestTimeout<T>(
-  attempt: () => Promise<T>,
-  timeoutMs: number,
-  peerId: PeerIdStr,
-  onTimeout: () => void,
-): Promise<T> {
-  let timer: ReturnType<typeof setTimeout> | undefined;
-  const timeout = new Promise<never>((_, reject) => {
-    timer = setTimeout(() => {
-      onTimeout();
-      reject(new PeerRequestTimeoutError(peerId, timeoutMs));
-    }, timeoutMs);
-  });
-  try {
-    return await Promise.race([attempt(), timeout]);
-  } finally {
-    clearTimeout(timer);
-  }
-}
 
 export interface CreateNodeInit {
   /**
@@ -532,24 +438,21 @@ export interface ServeTransportInit {
  * (`node.unhandle` for this protocol).
  */
 export async function serveTransport(init: ServeTransportInit): Promise<() => Promise<void>> {
-  const {
-    node,
-    dispatch,
-    protocol = PROTOCOL,
-    drainTimeoutMs = DEFAULT_DRAIN_TIMEOUT_MS,
-    maxInboundStreams = DEFAULT_MAX_STREAMS,
-    maxOutboundStreams = DEFAULT_MAX_STREAMS,
-  } = init;
-  return serveConnections(
-    { node, protocol, drainTimeoutMs, maxInboundStreams, maxOutboundStreams },
-    (context: ConnectionContext) => {
-      const peerId = context.remotePeer.toString();
-      return serveFetchOverDuplex(async (req) => {
-        registerPeer(req, peerId);
-        return dispatch(req);
-      });
-    },
-  );
+  // DELEGATES. The identity binding and the fetch-over-duplex plumbing moved
+  // to `@statewalker/httpeers-bridge`, which knows nothing about libp2p; what
+  // is left here is `libp2pLink`, the answer to "how do I accept a duplex".
+  // Keeping a second copy of the serving logic beside the generic one is
+  // exactly the duplication this extraction exists to remove.
+  return serveFetchOverLink({
+    link: libp2pLink({
+      node: init.node,
+      protocol: init.protocol,
+      drainTimeoutMs: init.drainTimeoutMs,
+      maxInboundStreams: init.maxInboundStreams,
+      maxOutboundStreams: init.maxOutboundStreams,
+    }),
+    dispatch: init.dispatch,
+  });
 }
 
 export interface CreateRemoteInit {
@@ -603,62 +506,20 @@ export interface CreateRemoteInit {
  * to this `Remote`, not per-target-peer) was chosen.
  */
 export function createRemote(init: CreateRemoteInit): Remote {
-  const {
-    node,
-    protocol = PROTOCOL,
-    drainTimeoutMs = DEFAULT_DRAIN_TIMEOUT_MS,
-    maxOutboundStreams = DEFAULT_MAX_STREAMS,
-    requestTimeoutMs = DEFAULT_REQUEST_TIMEOUT_MS,
-    maxConcurrentOutbound = DEFAULT_MAX_CONCURRENT_OUTBOUND,
-  } = init;
-  const semaphore = new Semaphore(maxConcurrentOutbound);
-  return async (target: PeerIdStr, req: Request): Promise<Response> => {
-    let opened: { close: () => Promise<void> } | undefined;
-    // Ties a still-queued `Semaphore.acquire()` wait to the SAME timeout
-    // that already bounds this whole call -- see `onTimeout` below and
-    // `DEFAULT_MAX_CONCURRENT_OUTBOUND`'s doc comment for why there is no
-    // second, independent queue timer.
-    const abortQueue = new AbortController();
-    try {
-      return await withRequestTimeout(
-        async () => {
-          const release = await semaphore.acquire(abortQueue.signal);
-          try {
-            const conn = await connect({
-              node,
-              peer: multiaddr(`/p2p/${target}`),
-              protocol,
-              drainTimeoutMs,
-              maxOutboundStreams,
-            });
-            opened = conn;
-            return await fetchOverDuplex(conn.call, req);
-          } finally {
-            // Always released -- success, a mapped failure, or the timeout
-            // race itself all reach this `finally`. Never held past this
-            // one call, so a failing call can never permanently strand a
-            // permit for every call after it.
-            release();
-          }
-        },
-        requestTimeoutMs,
-        target,
-        () => {
-          // Best-effort cleanup on timeout -- see `withRequestTimeout`'s doc
-          // comment for the interleaving this cannot cover (a timeout that
-          // fires before `connect()` has resolved at all). Aborting the
-          // queue wait here matters specifically when the call is STILL
-          // QUEUED (never reached `connect()` at all): without this, the
-          // queued `acquire()` would eventually resolve once a permit frees
-          // up, grab a permit for a call nobody is waiting on any more, and
-          // never release it back (nothing downstream would ever call the
-          // `release` this path returns).
-          abortQueue.abort(new PeerRequestTimeoutError(target, requestTimeoutMs));
-          void opened?.close();
-        },
-      );
-    } catch (err) {
-      throw mapPeerCallError(err, target);
-    }
-  };
+  // DELEGATES, for the same reason as `serveTransport`. The permit, the
+  // per-call timeout and the cleanup are the bridge's; `mapPeerCallError` stays
+  // here because the strings it matches ("All multiaddr dials failed" and
+  // friends) are libp2p's own, and a generic bridge that pattern-matched one
+  // transport's wording would mis-classify every other one.
+  return createRemoteOverLink({
+    link: libp2pLink({
+      node: init.node,
+      protocol: init.protocol,
+      drainTimeoutMs: init.drainTimeoutMs,
+      maxOutboundStreams: init.maxOutboundStreams,
+    }),
+    requestTimeoutMs: init.requestTimeoutMs,
+    maxConcurrentOutbound: init.maxConcurrentOutbound,
+    mapError: (error, target) => mapPeerCallError(error, target),
+  });
 }
