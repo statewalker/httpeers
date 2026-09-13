@@ -234,23 +234,3 @@ here** — no Caddyfile edit, no DNS record, no reload.
 | `RELAY_REQUIRE_ANNOUNCE` | `true` | Set `false` for a local run with no proxy in front. |
 | `RELAY_KEY` | *(none)* | Base64 protobuf, to seed an empty volume. Ignored once a key exists. |
 | `RELAY_BOOTSTRAP_PATH` | *(none; `/srv/bootstrap/.well-known/httpeers-relay.json` in the image)* | Where to write the bootstrap document. Unset, none is written. |
-
-## A local override, and why it is here
-
-`pnpm.overrides` in the root `package.json` points three `@statewalker/webrun-*`
-dependencies at a sibling `webrun-wire` checkout.
-
-**The version ranges in each package's own `package.json` are the truth** —
-`^0.2.0` for `webrun-streams`, `^0.1.2` for `webrun-streams-libp2p`, `^0.2.2`
-for `webrun-http-streams` — and they are what a published package carries.
-
-Those versions do **not exist on npm yet**. `webrun-wire` has five pending
-changesets that were never released, plus one more for the nine cancellation
-and teardown fixes `httpeers-libp2p` depends on; running `changeset version`
-there moves fourteen packages at once. The numbers above are what that run
-produces, not guesses.
-
-So publishing `webrun-wire` is a **prerequisite** for publishing
-`httpeers-libp2p`, not a follow-up. Once it is done, delete this override; the
-ranges already say what they need, and `pnpm.overrides` is root-only and never
-reaches a consumer.

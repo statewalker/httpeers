@@ -12,15 +12,38 @@
  */
 
 import { execFileSync } from "node:child_process";
-import { mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { beforeAll, describe, expect, it } from "vitest";
 
 const PKG = join(dirname(fileURLToPath(import.meta.url)), "..");
-const REPO = join(PKG, "../..");
-const TSC = join(REPO, "node_modules/.bin/tsc");
+
+/**
+ * FIND the toolchain, never assume where it lives.
+ *
+ * An earlier version hard-coded `<pkg>/../../node_modules/.bin/tsc`, which is
+ * true when this repository is checked out alone and false the moment it is
+ * assembled beside its sibling repos — pnpm hoists to the ASSEMBLY root, two
+ * levels further up, and the test then failed with a bare ENOENT that said
+ * nothing about why. Walking up is correct in both layouts, and the throw
+ * names what it could not find.
+ */
+function findUp(relative: string): string {
+  let dir = PKG;
+  for (let up = 0; up < 8; up++) {
+    const candidate = join(dir, relative);
+    if (existsSync(candidate)) return candidate;
+    const parent = dirname(dir);
+    if (parent === dir) break;
+    dir = parent;
+  }
+  throw new Error(`consumer test: could not find ${relative} above ${PKG}`);
+}
+
+const TSC = findUp("node_modules/.bin/tsc");
+const TYPES = findUp("node_modules/@types");
 
 /** What a dependent writes. Only the public entry point, never a deep path. */
 const CONSUMER = `
@@ -93,12 +116,12 @@ function compile(compilerOptions: Record<string, unknown>): { ok: boolean; outpu
     symlinkSync(PKG, join(dir, "node_modules/@statewalker/httpeers-access"), "dir");
     // This package's own types reference core's, so a consumer resolves both.
     symlinkSync(
-      join(REPO, "packages/httpeers-core"),
+      join(PKG, "../httpeers-core"),
       join(dir, "node_modules/@statewalker/httpeers-core"),
       "dir",
     );
     // @types/node has to be resolvable from the fixture, so borrow the repo's.
-    symlinkSync(join(REPO, "node_modules/@types"), join(dir, "node_modules/@types"), "dir");
+    symlinkSync(TYPES, join(dir, "node_modules/@types"), "dir");
     writeFileSync(join(dir, "use.ts"), CONSUMER);
     writeFileSync(
       join(dir, "tsconfig.json"),
@@ -128,7 +151,7 @@ describe("a downstream project can use the built package", () => {
     // builds first; this is the guard for anyone running vitest directly.
     // Both artefacts: a consumer of this package resolves core's types too,
     // so a stale core `dist` would fail here for a reason that is not ours.
-    execFileSync(TSC, ["-p", join(REPO, "packages/httpeers-core/tsconfig.build.json")], {
+    execFileSync(TSC, ["-p", join(PKG, "../httpeers-core/tsconfig.build.json")], {
       stdio: "pipe",
     });
     execFileSync(TSC, ["-p", join(PKG, "tsconfig.build.json")], { stdio: "pipe" });
