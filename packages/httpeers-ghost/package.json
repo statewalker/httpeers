@@ -1,0 +1,43 @@
+{
+  "name": "@statewalker/httpeers-ghost",
+  "version": "0.1.0",
+  "type": "module",
+  "description": "A remote peer's app rendered as a page that can reach only that peer.",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+ssh://git@github.com/statewalker/httpeers.git",
+    "directory": "packages/httpeers-ghost"
+  },
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist",
+    "src"
+  ],
+  "sideEffects": false,
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json",
+    "test": "pnpm run build && pnpm run typecheck && vitest run",
+    "typecheck": "tsc --noEmit",
+    "lint": "biome check src tests",
+    "lint:check": "biome check src tests"
+  },
+  "dependencies": {
+    "@statewalker/httpeers-core": "workspace:*"
+  },
+  "devDependencies": {
+    "@types/node": "catalog:",
+    "typescript": "catalog:",
+    "vitest": "catalog:"
+  },
+  "publishConfig": {
+    "access": "public"
+  }
+}
