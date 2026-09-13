@@ -4,12 +4,18 @@
  * `tsc --noEmit` inside a package compiles its own source with its own
  * settings, so it proves nothing about what a downstream project receives: not
  * that `exports` resolves, not that the `.d.ts` files are reachable, not that
- * a type survived the build. This compiles a file that imports the package by
+ * a type survived the build. This compiles files that import the package by
  * its PUBLIC NAME, against the BUILT artefact, the way a dependent would.
  *
- * The sibling `httpeers-core` test carries the reasoning in full; this is the
- * same harness pointed at this package, because an exports map is per-package
- * and a correct one next door proves nothing about this one.
+ * THIS PACKAGE HAS THREE ENTRY POINTS, AND EACH IS TESTED SEPARATELY. The
+ * sibling tests only ever exercised `.`, which is exactly where a broken
+ * subpath hides: `./browser` and `./node` resolve through their own export
+ * conditions, and a typo in either is invisible from the root. That is not
+ * hypothetical here — `./browser` was added in the same iteration as this
+ * test.
+ *
+ * The `httpeers-core` test carries the reasoning for the three-config matrix
+ * in full.
  */
 
 import { execFileSync } from "node:child_process";
@@ -22,14 +28,10 @@ import { beforeAll, describe, expect, it } from "vitest";
 const PKG = join(dirname(fileURLToPath(import.meta.url)), "..");
 
 /**
- * FIND the toolchain, never assume where it lives.
- *
- * An earlier version hard-coded `<pkg>/../../node_modules/.bin/tsc`, which is
- * true when this repository is checked out alone and false the moment it is
- * assembled beside its sibling repos — pnpm hoists to the ASSEMBLY root, two
- * levels further up, and the test then failed with a bare ENOENT that said
- * nothing about why. Walking up is correct in both layouts, and the throw
- * names what it could not find.
+ * FIND the toolchain, never assume where it lives — pnpm hoists to the
+ * ASSEMBLY root when this repository is checked out beside its siblings, and a
+ * hard-coded `../../node_modules/.bin/tsc` then fails with a bare ENOENT that
+ * says nothing about why.
  */
 function findUp(relative: string): string {
   let dir = PKG;
@@ -46,60 +48,56 @@ function findUp(relative: string): string {
 const TSC = findUp("node_modules/.bin/tsc");
 const TYPES = findUp("node_modules/@types");
 
-/**
- * One fixture per entry point. Only public entries, never a deep path.
- *
- * `./browser` IS TESTED SEPARATELY AND THAT IS THE POINT: a subpath resolves
- * through its own export condition, so a typo in it is completely invisible
- * from the root — and unlike the root it has no legacy `types` field to fall
- * back to. Verified by breaking the map deliberately: only the NodeNext row
- * below notices.
- */
+/** One per entry point. Only public entries, never a deep path into `dist/`. */
 const ENTRIES: Array<[name: string, source: string]> = [
   [
     "the root entry",
     `
-import { decodeQr, type Pixels, qrModules, qrSvg } from "@statewalker/httpeers-qr";
-
-const pixels: Pixels = { data: new Uint8ClampedArray(4), width: 1, height: 1 };
+import type { MemberHandle, MemberPlatform, PeerSession, SessionState } from "@statewalker/httpeers-member";
+import { createGateway, createPeerSession, invitationFromQrText, startMember } from "@statewalker/httpeers-member";
 
 export const check = {
-  svg: qrSvg("hello").slice(0, 4),
-  size: qrModules("hello").length,
-  nothing: decodeQr(pixels),
+  startMember,
+  createGateway,
+  createPeerSession,
+  qr: invitationFromQrText("nope"),
 };
+export type Check = { h: MemberHandle; p: MemberPlatform; s: PeerSession; st: SessionState };
+`,
+  ],
+  [
+    "the ./node entry",
+    `
+import { createNodeMemberNode, nodePlatform } from "@statewalker/httpeers-member/node";
+export const check = { createNodeMemberNode, nodePlatform };
 `,
   ],
   [
     "the ./browser entry",
     `
-import { type CameraScan, type QrScan, scanFile, scanFromCamera } from "@statewalker/httpeers-qr/browser";
-
-export const check = { scanFile, scanFromCamera };
-export type Check = { c: CameraScan; s: QrScan<string> };
+import { browserPlatform, createSession, idbBackend, idbBytesBackend, mountEdge } from "@statewalker/httpeers-member/browser";
+export const check = { browserPlatform, createSession, idbBackend, idbBytesBackend, mountEdge };
 `,
   ],
 ];
 
 /**
- * The shapes a real consumer takes. All must compile: a package that works
- * under only one of them is not isomorphic, whatever its imports say.
+ * The shapes a real consumer takes. All must compile.
  *
- * THE `NodeNext` ROW IS THE ONE THAT TESTS THE `exports` MAP, and it was added
- * after the first two were caught passing with a DELIBERATELY BROKEN map
- * (`"types": "./dist/nope.d.ts"`). `moduleResolution: "Bundler"` falls back to
- * the legacy top-level `types` field when an export condition does not
- * resolve, so it cannot see the breakage at all. `NodeNext` honours `exports`
- * strictly and fails with `Cannot find module`. Without this row the whole
- * suite was decorative on the point it exists to make.
+ * THE `NodeNext` ROW IS THE ONE THAT TESTS THE `exports` MAP: `Bundler`
+ * resolution falls back to the legacy top-level `types` field when an export
+ * condition does not resolve, so it cannot see a broken map at all. For a
+ * SUBPATH there is no legacy fallback to fall back to, which makes this row
+ * the only thing standing between a typo in `./browser` and a consumer who
+ * cannot import it.
  */
 const CONFIGS: Array<[name: string, compilerOptions: Record<string, unknown>]> = [
   [
-    "a Node project (@types/node supplies the globals)",
+    "a Node project",
     { types: ["node"], lib: ["ES2022"], module: "ESNext", moduleResolution: "Bundler" },
   ],
   [
-    "a browser project (the DOM lib supplies them)",
+    "a browser project",
     { types: [], lib: ["ES2022", "DOM"], module: "ESNext", moduleResolution: "Bundler" },
   ],
   [
@@ -112,10 +110,10 @@ function compile(
   source: string,
   compilerOptions: Record<string, unknown>,
 ): { ok: boolean; output: string } {
-  const dir = mkdtempSync(join(tmpdir(), "httpeers-consumer-"));
+  const dir = mkdtempSync(join(tmpdir(), "httpeers-member-consumer-"));
   try {
     mkdirSync(join(dir, "node_modules/@statewalker"), { recursive: true });
-    symlinkSync(PKG, join(dir, "node_modules/@statewalker/httpeers-qr"), "dir");
+    symlinkSync(PKG, join(dir, "node_modules/@statewalker/httpeers-member"), "dir");
     // @types/node has to be resolvable from the fixture, so borrow the repo's.
     symlinkSync(TYPES, join(dir, "node_modules/@types"), "dir");
     writeFileSync(join(dir, "use.ts"), source);
@@ -126,9 +124,17 @@ function compile(
           target: "ES2022",
           strict: true,
           noEmit: true,
-          // About OUR exports map, not upstream `.d.ts` hygiene — and what a
-          // real consumer has. A broken map is a module RESOLUTION failure,
-          // which this does not skip, and `use.ts` is still fully checked.
+          // `skipLibCheck`, because this test is about OUR exports map and not
+          // about upstream `.d.ts` hygiene. `@libp2p/interface`'s declarations
+          // name `EventInit` and `JsonWebKey`, which only the DOM lib supplies,
+          // so without this the Node rows fail on somebody else's types and say
+          // nothing about this package. It is also what a real consumer has —
+          // `skipLibCheck` is on in essentially every project template.
+          //
+          // IT DOES NOT WEAKEN WHAT THIS CATCHES. A broken `exports` map is a
+          // module RESOLUTION failure, not a lib check, and `use.ts` itself is
+          // still fully checked — so a missing or renamed export still fails
+          // here. Verified by breaking the map deliberately.
           skipLibCheck: true,
           ...compilerOptions,
         },
@@ -150,7 +156,7 @@ describe("a downstream project can use the built package", () => {
     // The artefact under test is `dist/`, so it has to exist. `pnpm test`
     // builds first; this is the guard for anyone running vitest directly.
     execFileSync(TSC, ["-p", join(PKG, "tsconfig.build.json")], { stdio: "pipe" });
-  }, 120_000);
+  }, 180_000);
 
   for (const [entry, source] of ENTRIES) {
     for (const [config, options] of CONFIGS) {
@@ -158,7 +164,7 @@ describe("a downstream project can use the built package", () => {
         const { ok, output } = compile(source, options);
         expect(output).toBe("");
         expect(ok).toBe(true);
-      }, 120_000);
+      }, 180_000);
     }
   }
 });
