@@ -7,6 +7,27 @@
  * every consumer's bundle.
  */
 
+/**
+ * The SECOND ALTITUDE: duplex streams over the mesh.
+ *
+ * A fetch-only contract cannot express a WebSocket — both sides talking with
+ * neither input closed. These run one `Duplex` per libp2p stream, addressed by
+ * `(peerId, path)`, with identity captured per stream by closure exactly as
+ * the fetch path does it.
+ */
+export {
+  createDuplexMounts,
+  DUPLEX_PROTOCOL,
+  type DuplexContext,
+  type DuplexHandler,
+  type DuplexMounts,
+  NO_MOUNT,
+  openDuplex,
+  type OpenDuplexInit,
+  type PeerDuplex,
+  serveDuplex,
+  type ServeDuplexInit,
+} from "./duplex.js";
 export { hubRelayService, type IsMember, membershipGater } from "./hub-relay.js";
 export {
   hubRoute,

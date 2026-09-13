@@ -41,6 +41,15 @@ export {
 } from "./join-blob.js";
 export type { AsyncBytesBackend, AsyncKeyValueBackend } from "./kv.js";
 export { createMeshMemory, type CreateMeshMemoryInit, MESH_STORAGE_KEY, type MeshMemory } from "./mesh-memory.js";
+/**
+ * The mesh as ordinary HTTP.
+ *
+ * `createGateway` turns a member into a `FetchHandler` dispatching
+ * `/{peerId}/{path}` — so a client with no peer object, no token and no
+ * knowledge of libp2p can `fetch()` a mesh resource. `GatewaySource` is
+ * structurally a subset of `MemberHandle`, so a member IS one.
+ */
+export { createGateway, GATEWAY_MARKER, type GatewayInit, type GatewaySource } from "./gateway.js";
 export { peerRequest, type PeerRequestInit } from "./peer-request.js";
 export {
   type JoinMethod,

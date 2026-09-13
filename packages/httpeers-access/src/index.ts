@@ -57,4 +57,22 @@ export {
   warmUpTokens,
 } from "./tokens.js";
 
+/**
+ * Revocation for a stream that is ALREADY OPEN.
+ *
+ * The fetch path re-verifies every request, so a revoked member is refused
+ * within one heartbeat. A duplex has no second request — so without this a
+ * removed member kept talking for as long as it liked, and an A2UI session
+ * lasts minutes while a tunnel lasts hours.
+ */
+export {
+  type Claims,
+  createRevocations,
+  type GuardInit,
+  guardStream,
+  type Revocations,
+  type StreamHandler,
+  StreamRevoked,
+} from "./stream-guard.js";
+
 export type { MeshId, SubjectId } from "./types.js";
