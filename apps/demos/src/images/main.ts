@@ -13,6 +13,13 @@
  * on the mesh being up, and a provider that cannot show its own pictures while
  * disconnected looks broken when it is merely offline.
  *
+ * THE PICTURES ARE FETCHED, NOT DRAWN. They come from a public image stock on
+ * load -- see `../shared/stock.ts`. A peer serving bytes it went and got, to a
+ * peer that could have gone and got them itself but asks this one instead, is
+ * the claim the mesh makes; a peer serving shapes it drew only proves routing.
+ * Drawn pictures remain the FALLBACK, so the page still demonstrates something
+ * offline, on a blocked domain, or behind a rate limit.
+ *
  * DISCONNECT STOPS SERVING, AND SAYS SO. `stop()` drops presence and keeps
  * membership, so the advertisement leaves everyone's mesh view within one
  * presence interval and reconnecting needs no new invitation.
@@ -27,12 +34,16 @@ import { ensureBiscuit } from "../shared/biscuit.js";
 import { createImagesEndpoint, type ImageInfo, imagePath } from "../shared/images.js";
 import { EDGE_KEY, meshRules } from "../shared/policy.js";
 import { needsPermissiveGater, readRelayAddrs } from "../shared/relay.js";
+import { loadStockImages } from "../shared/stock.js";
 
 const el = <T extends HTMLElement>(id: string): T => {
   const found = document.querySelector<T>(`#${id}`);
   if (found == null) throw new Error(`images page: no #${id} in the markup`);
   return found;
 };
+
+/** Where the gallery's pictures came from, for the heading. Set once the initial load settles. */
+let galleryNote = "loading…";
 
 /** This provider's live catalogue. `createImagesEndpoint` resolves it PER REQUEST, so appending here is immediately servable. */
 const images: ImageInfo[] = [];
@@ -75,10 +86,10 @@ async function renderGallery(): Promise<void> {
 
   el("gallery").replaceChildren(...figures);
   el("gallery-source").textContent =
-    images.length === 0 ? "(empty — add a picture)" : `(${images.length} local)`;
+    images.length === 0 ? "(empty — add a picture)" : `(${images.length} local — ${galleryNote})`;
 }
 
-/** A generated picture, so the demo has something to serve with no upload and no network. */
+/** A drawn picture: the fallback when the stock cannot be reached, so the demo still has something to serve. */
 function drawPicture(index: number): Promise<Blob> {
   const canvas = document.createElement("canvas");
   canvas.width = 320;
@@ -98,14 +109,10 @@ function drawPicture(index: number): Promise<Blob> {
   });
 }
 
-async function addPicture(): Promise<void> {
-  const index = images.length;
-  const id = `pic-${index + 1}`;
-  const blob = await drawPicture(index);
-  const bytes = new Uint8Array(await blob.arrayBuffer());
-
+/** Put one picture into the library. Safe at any time, joined or not. */
+async function addImage(info: ImageInfo, bytes: Uint8Array): Promise<void> {
   await files.write(
-    imagePath(id),
+    imagePath(info.id),
     (async function* () {
       yield bytes;
     })(),
@@ -113,9 +120,48 @@ async function addPicture(): Promise<void> {
   // Appended AFTER the bytes are written: the endpoint resolves the catalogue
   // per request, so an entry that appeared first would be listable and 404 on
   // fetch for as long as the write took.
-  images.push({ id, title: `Picture ${index + 1}`, contentType: blob.type, size: bytes.length });
+  images.push(info);
+}
 
-  el("add-status").textContent = `added ${id} (${bytes.length} bytes)`;
+/** One drawn picture, added. The fallback path, used when the stock is unreachable. */
+async function addDrawnPicture(): Promise<ImageInfo> {
+  const index = images.length;
+  const id = `pic-${index + 1}`;
+  const blob = await drawPicture(index);
+  const bytes = new Uint8Array(await blob.arrayBuffer());
+  const info: ImageInfo = {
+    id,
+    title: `Drawn here (no stock)`,
+    contentType: blob.type,
+    size: bytes.length,
+  };
+  await addImage(info, bytes);
+  return info;
+}
+
+/**
+ * The button: one more photograph from the stock, or a drawn one if it cannot
+ * be reached.
+ *
+ * Falling back rather than reporting the failure and stopping keeps the button
+ * meaning one thing -- "there is now one more picture to serve" -- whatever the
+ * network is doing. The caption says which kind arrived.
+ */
+async function addPicture(): Promise<void> {
+  el("add-status").textContent = "fetching…";
+  const [fetched] = await loadStockImages({ count: 1 });
+
+  let info: ImageInfo;
+  let note = "";
+  if (fetched == null) {
+    info = await addDrawnPicture();
+    note = ", drawn — the stock did not answer";
+  } else {
+    info = fetched.info;
+    await addImage(info, fetched.bytes);
+  }
+
+  el("add-status").textContent = `added ${info.id} (${info.size} bytes${note})`;
   await renderGallery();
 }
 
@@ -147,10 +193,24 @@ async function main(): Promise<void> {
   // Before anything touches a token, and before `meshRules()` parses anything.
   await ensureBiscuit();
 
-  // Two pictures up front, so the page has something to serve and to show the
-  // moment it loads -- including before it has joined anything.
-  await addPicture();
-  await addPicture();
+  // Pictures up front, so the page has something to serve and to show the
+  // moment it loads -- including before it has joined anything. Fetched in
+  // PARALLEL by `loadStockImages`, then written here in order, so the gallery
+  // is not four sequential round trips.
+  const stock = await loadStockImages();
+  for (const { info, bytes } of stock) await addImage(info, bytes);
+  if (stock.length === 0) {
+    // Offline, a blocked domain, a VPN, a rate limit. A provider advertising an
+    // image service with an empty catalogue is a worse demonstration than one
+    // serving two drawn squares, and the difference is invisible to every other
+    // peer in the mesh.
+    await addDrawnPicture();
+    await addDrawnPicture();
+  }
+  galleryNote =
+    stock.length > 0
+      ? `${stock.length} fetched from an image stock on load — reload for a different set`
+      : "the image stock could not be reached, so these were drawn here";
 
   const relayAddrs = await readRelayAddrs();
 

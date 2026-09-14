@@ -152,6 +152,24 @@ try {
     `app calls: ${(await appTab.textContent("#images-status"))?.trim()} (${rendered} <img> rendered)`,
   );
 
+  // COUNTING <img> ELEMENTS IS NOT PROOF. A broken src still renders an element,
+  // so a provider serving HTML error pages as image/jpeg would read as success.
+  // `naturalWidth` is non-zero only once the browser has actually DECODED the
+  // bytes -- and these bytes came over the mesh, so it is the whole path.
+  await appTab
+    .waitForFunction(
+      () => [...document.querySelectorAll("#gallery img")].some((i) => i.naturalWidth > 0),
+      { timeout: 30_000 },
+    )
+    .catch(() => {});
+  const decoded = await appTab.evaluate(() =>
+    [...document.querySelectorAll("#gallery img")].map(
+      (i) => `${i.naturalWidth}x${i.naturalHeight}`,
+    ),
+  );
+  const good = decoded.filter((d) => !d.startsWith("0x")).length;
+  console.log(`decoded  : ${good}/${decoded.length} — ${decoded.join(" ") || "none"}`);
+
   await appTab.fill("#query", "relay");
   await appTab.click("#do-search");
   await appTab
