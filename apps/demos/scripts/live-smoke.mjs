@@ -156,10 +156,17 @@ try {
   // so a provider serving HTML error pages as image/jpeg would read as success.
   // `naturalWidth` is non-zero only once the browser has actually DECODED the
   // bytes -- and these bytes came over the mesh, so it is the whole path.
+  // Waits for EVERY picture, not the first: over a real WebRTC circuit they
+  // arrive one after another, and sampling on the first decode reported 2/4
+  // for images that were merely still in flight. A timeout here means a
+  // picture genuinely did not arrive, which is what the count then says.
   await appTab
     .waitForFunction(
-      () => [...document.querySelectorAll("#gallery img")].some((i) => i.naturalWidth > 0),
-      { timeout: 30_000 },
+      () => {
+        const imgs = [...document.querySelectorAll("#gallery img")];
+        return imgs.length > 0 && imgs.every((i) => i.naturalWidth > 0);
+      },
+      { timeout: 60_000 },
     )
     .catch(() => {});
   const decoded = await appTab.evaluate(() =>
@@ -189,28 +196,37 @@ try {
 
   // The relay's own well-known document: a real, CORS-open origin that is
   // certainly up, since every page above just read it to get here.
-  await proxyTab.fill("#route-prefix", "/relay");
-  await proxyTab.fill("#route-upstream", "https://relay.httpeers.net/.well-known");
-  await proxyTab.click("#add-route");
-  await proxyTab
-    .waitForFunction(
-      () => (document.querySelector("#route-status")?.textContent ?? "").startsWith("added"),
-      {
-        timeout: 20_000,
-      },
-    )
-    .catch(() => {});
-  await proxyTab.fill("#console-path", "/relay/httpeers-relay.json");
-  await proxyTab.click("#console-send");
-  await proxyTab
-    .waitForFunction(() => (document.querySelector("#console-output")?.textContent ?? "") !== "", {
-      timeout: 60_000,
-    })
-    .catch(() => {});
-  const out = ((await proxyTab.textContent("#console-output")) ?? "").trim();
-  console.log(
-    `proxied  : ${out.split("\n")[0]} — ${out.includes("relayAddrs") ? "got the upstream body" : "NO BODY"}`,
-  );
+  if (proxyState !== "live") {
+    // The route form is hidden until the page joins, so filling it would throw
+    // and lose every result above. Say what happened instead.
+    console.log("proxied  : SKIPPED — the proxy page never joined");
+  } else {
+    await proxyTab.fill("#route-prefix", "/relay");
+    await proxyTab.fill("#route-upstream", "https://relay.httpeers.net/.well-known");
+    await proxyTab.click("#add-route");
+    await proxyTab
+      .waitForFunction(
+        () => (document.querySelector("#route-status")?.textContent ?? "").startsWith("added"),
+        {
+          timeout: 20_000,
+        },
+      )
+      .catch(() => {});
+    await proxyTab.fill("#console-path", "/relay/httpeers-relay.json");
+    await proxyTab.click("#console-send");
+    await proxyTab
+      .waitForFunction(
+        () => (document.querySelector("#console-output")?.textContent ?? "") !== "",
+        {
+          timeout: 60_000,
+        },
+      )
+      .catch(() => {});
+    const out = ((await proxyTab.textContent("#console-output")) ?? "").trim();
+    console.log(
+      `proxied  : ${out.split("\n")[0]} — ${out.includes("relayAddrs") ? "got the upstream body" : "NO BODY"}`,
+    );
+  }
 
   if (problems.length > 0)
     console.log(`problems : ${problems.slice(0, 6).join(" | ").slice(0, 900)}`);

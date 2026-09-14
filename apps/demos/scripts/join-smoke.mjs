@@ -193,10 +193,17 @@ try {
   // so a provider serving HTML error pages as image/jpeg would read as success.
   // `naturalWidth` is non-zero only once the browser has actually DECODED the
   // bytes -- and these bytes came over the mesh, so it is the whole path.
+  // Waits for EVERY picture, not the first: over a real WebRTC circuit they
+  // arrive one after another, and sampling on the first decode reported 2/4
+  // for images that were merely still in flight. A timeout here means a
+  // picture genuinely did not arrive, which is what the count then says.
   await appTab
     .waitForFunction(
-      () => [...document.querySelectorAll("#gallery img")].some((i) => i.naturalWidth > 0),
-      { timeout: 30_000 },
+      () => {
+        const imgs = [...document.querySelectorAll("#gallery img")];
+        return imgs.length > 0 && imgs.every((i) => i.naturalWidth > 0);
+      },
+      { timeout: 60_000 },
     )
     .catch(() => {});
   const decoded = await appTab.evaluate(() =>
