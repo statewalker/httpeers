@@ -18,6 +18,9 @@
   #gallery figure { margin: 0; }
   #gallery img { width: 100%; border-radius: 6px; display: block; }
   #gallery figcaption { font-size: .8em; color: #52525b; }
+  .pickers { display: flex; flex-wrap: wrap; gap: .8rem; }
+  .picker { border: 1px solid #d4d4d8; border-radius: 6px; padding: .5rem .7rem; display: block; }
+  .picker input { display: block; margin-top: .35rem; font: inherit; max-width: 100%; }
 </style>
 
 <h1>httpeers · images</h1>
@@ -50,6 +53,28 @@
 <h2>Gallery <span class="muted" id="gallery-source"></span></h2>
 <p><button type="button" id="add">Fetch another picture</button> <span class="muted" id="add-status"></span></p>
 <div id="gallery"></div>
+
+<h2>Add your own</h2>
+<p class="muted">
+  Anything added here is served to the mesh exactly like the rest — other peers see it in this
+  provider's catalogue and fetch the bytes from this tab. It lives for as long as the page does;
+  a reload starts over with a fresh set from the stock.
+</p>
+<p class="pickers">
+  <!--
+    TWO CONTROLS, NOT ONE. `accept="image/*"` alone lets a phone offer the camera
+    OR the photo library. Adding `capture="environment"` goes straight to the rear
+    camera -- and REMOVES the ability to choose an existing picture, which is half
+    the feature. So each control does one thing.
+  -->
+  <label class="picker">Choose image
+    <input id="pick-file" type="file" accept="image/*" multiple />
+  </label>
+  <label class="picker">Take a photo
+    <input id="take-photo" type="file" accept="image/*" capture="environment" />
+  </label>
+</p>
+<p class="muted" id="pick-status"></p>
 
 <h2>Reset</h2>
 <p class="muted">Forget this browser's identity and everything stored here.</p>

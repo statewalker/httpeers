@@ -6,7 +6,7 @@ libraries.
 | Page | Domain | What it is |
 |---|---|---|
 | `hub` | hub.httpeers.net | Creates the mesh and mints invitations |
-| `images` | images.httpeers.net | A provider: serves a gallery to the mesh |
+| `images` | images.httpeers.net | A provider: serves a gallery to the mesh — photographs fetched from a public stock, plus any picture you choose or take |
 | `app` | app.httpeers.net | A consumer: finds providers and calls them with a bare `fetch()` |
 | `proxy` | proxy.httpeers.net | Exposes an outside origin to the mesh |
 
@@ -27,6 +27,27 @@ npm run join-smoke       # all four, served on four local ports, LIVE relay
 `join-smoke` is the one that matters: it serves the BUILT pages from four ports
 so each gets its own origin, then drives a real join over a real WebRTC
 circuit. It depends on `relay.httpeers.net` being up.
+
+## Adding your own picture
+
+The images page has two file inputs, and the split is deliberate.
+`accept="image/*"` alone lets a phone offer the camera *or* the photo library;
+adding `capture="environment"` goes straight to the rear camera and **removes**
+the ability to pick an existing file. Either one alone is half the feature, so
+there are two.
+
+Neither asks for `getUserMedia`: a file input with `capture` gets the same
+photograph with no permission prompt to manage, no video element to tear down,
+and no camera left running when the tab is backgrounded.
+
+Nothing is re-encoded. The bytes are served exactly as given, and a chosen
+picture reaches the mesh through the same `{ info, bytes }` path a fetched one
+does — no other peer can tell them apart.
+
+`join-smoke` and `live-smoke` prove this end to end by handing the picker a
+generated 123x45 PNG and then asserting an image of exactly those dimensions
+decodes in the *consumer's* gallery. The `capture` control is the same code
+path, but the camera itself cannot be exercised headlessly.
 
 ## Deploy
 

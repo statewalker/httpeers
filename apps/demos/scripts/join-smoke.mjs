@@ -19,6 +19,7 @@ import { createServer } from "node:http";
 import { dirname, extname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { chromium } from "playwright";
+import { solidPng } from "./lib/png.mjs";
 
 const here = dirname(fileURLToPath(import.meta.url));
 const TYPES = {
@@ -227,6 +228,39 @@ try {
     .catch(() => {});
   console.log(`app search: ${(await appTab.textContent("#search-status"))?.trim()}`);
 
+  // --- a picture the person CHOSE, served to another peer ------------------
+  // The strongest claim this demo makes: bytes that were never on the web,
+  // handed to one browser through a file picker, fetched by another browser
+  // over the mesh. Asserted by DIMENSION -- nothing else in the gallery is
+  // 123x45 -- so a stale picture or a placeholder cannot pass for it.
+  const CUSTOM = { w: 123, h: 45 };
+  await imagesTab.setInputFiles("#pick-file", {
+    name: "chosen-by-hand.png",
+    mimeType: "image/png",
+    buffer: solidPng(CUSTOM.w, CUSTOM.h),
+  });
+  await imagesTab
+    .waitForFunction(
+      () => (document.querySelector("#pick-status")?.textContent ?? "").startsWith("Added"),
+      { timeout: 30_000 },
+    )
+    .catch(() => {});
+  console.log(`picked   : ${(await imagesTab.textContent("#pick-status"))?.trim() || "NOTHING"}`);
+
+  // Re-ask the provider. Its catalogue is resolved per REQUEST, so a picture
+  // added mid-session is listable the moment its bytes are written -- no
+  // rejoin, no reload, nothing restarted.
+  await appTab.click("#load-images");
+  const arrived = (want) =>
+    [...document.querySelectorAll("#gallery img")].some(
+      (i) => i.naturalWidth === want.w && i.naturalHeight === want.h,
+    );
+  await appTab.waitForFunction(arrived, CUSTOM, { timeout: 60_000 }).catch(() => {});
+  const gotCustom = await appTab.evaluate(arrived, CUSTOM);
+  console.log(
+    `custom   : ${gotCustom ? `the chosen picture arrived (${CUSTOM.w}x${CUSTOM.h})` : "DID NOT ARRIVE"}`,
+  );
+
   // --- the proxy joins, takes a route, and forwards to a real origin -------
   const proxyTab = await browser.newPage();
   watch(proxyTab, "proxy");
@@ -275,7 +309,8 @@ try {
 
   if (problems.length > 0)
     console.log(`problems : ${problems.slice(0, 6).join(" | ").slice(0, 900)}`);
-  process.exitCode = state === "live" && appState === "live" && proxyState === "live" ? 0 : 1;
+  process.exitCode =
+    state === "live" && appState === "live" && proxyState === "live" && gotCustom ? 0 : 1;
 } finally {
   await browser.close();
   hub.server.close();

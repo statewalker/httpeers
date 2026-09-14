@@ -20,6 +20,12 @@
  * Drawn pictures remain the FALLBACK, so the page still demonstrates something
  * offline, on a blocked domain, or behind a rate limit.
  *
+ * A PICTURE THE PERSON CHOSE IS NOT A SECOND CLASS OF PICTURE. A file from the
+ * picker, a photo just taken, and a photograph fetched from the stock all reach
+ * `addImage` as `{ info, bytes }` and are served identically -- no other peer
+ * can tell which is which, which is the point: a participant is whatever holds
+ * the bytes.
+ *
  * DISCONNECT STOPS SERVING, AND SAYS SO. `stop()` drops presence and keeps
  * membership, so the advertisement leaves everyone's mesh view within one
  * presence interval and reconnecting needs no new invitation.
@@ -32,6 +38,7 @@ import type { FilesApi } from "@statewalker/webrun-files";
 import { MemFilesApi } from "@statewalker/webrun-files-mem";
 import { ensureBiscuit } from "../shared/biscuit.js";
 import { createImagesEndpoint, type ImageInfo, imagePath } from "../shared/images.js";
+import { fileToImage } from "../shared/local-image.js";
 import { EDGE_KEY, meshRules } from "../shared/policy.js";
 import { needsPermissiveGater, readRelayAddrs } from "../shared/relay.js";
 import { loadStockImages } from "../shared/stock.js";
@@ -165,6 +172,49 @@ async function addPicture(): Promise<void> {
   await renderGallery();
 }
 
+/**
+ * The two file inputs.
+ *
+ * `accept="image/*"` alone lets a phone offer the camera OR the photo library.
+ * The second control adds `capture="environment"`, which goes straight to the
+ * rear camera -- and REMOVES the ability to choose an existing picture. Both
+ * exist because either one alone is half the feature.
+ *
+ * Nothing here asks for `getUserMedia`. A file input with `capture` gets the
+ * same photograph with no permission prompt to manage, no video element to
+ * tear down, and no camera left running when the tab is backgrounded.
+ */
+function wirePicker(id: string): void {
+  const input = el<HTMLInputElement>(id);
+  input.addEventListener("change", () => {
+    void (async () => {
+      const chosen = Array.from(input.files ?? []);
+      if (chosen.length === 0) return;
+
+      let added = 0;
+      for (const file of chosen) {
+        try {
+          const { info, bytes } = await fileToImage(file);
+          await addImage(info, bytes);
+          added += 1;
+        } catch (err) {
+          // One bad file must not silently swallow the rest of a multi-select.
+          el("pick-status").textContent =
+            `${file.name}: ${err instanceof Error ? err.message : String(err)}`;
+          console.warn("images page: could not add a picture:", err);
+        }
+      }
+
+      if (added > 0) {
+        el("pick-status").textContent = `Added ${added} picture(s). Being served to the mesh now.`;
+        await renderGallery();
+      }
+      // Reset, so choosing the SAME file again fires `change` a second time.
+      input.value = "";
+    })();
+  });
+}
+
 /** Everything the page shows about where the session is. */
 function render(state: SessionState): void {
   el("state").textContent = state.phase.kind;
@@ -238,6 +288,8 @@ async function main(): Promise<void> {
   });
   el<HTMLButtonElement>("disconnect").addEventListener("click", () => void session?.disconnect());
   el<HTMLButtonElement>("reconnect").addEventListener("click", () => void session?.reconnect());
+  wirePicker("pick-file");
+  wirePicker("take-photo");
   el<HTMLButtonElement>("add").addEventListener("click", () => {
     void addPicture().catch((err: unknown) => {
       el("add-status").textContent = `could not add: ${String(err)}`;
