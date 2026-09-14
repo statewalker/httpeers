@@ -14,8 +14,8 @@
  *   node scripts/smoke.mjs hub
  */
 
-import { createServer } from "node:http";
 import { readFile } from "node:fs/promises";
+import { createServer } from "node:http";
 import { dirname, extname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { chromium } from "playwright";
@@ -73,9 +73,11 @@ console.log(`page     : ${page}`);
 console.log(`state    : ${state}`);
 for (const id of ["#mesh-id", "#peer-id", "#circuit", "#base-url", "#error"]) {
   const value = await read(id);
-  if (value !== "" && value !== "…") console.log(`${id.slice(1).padEnd(9)}: ${value.slice(0, 160)}`);
+  if (value !== "" && value !== "…")
+    console.log(`${id.slice(1).padEnd(9)}: ${value.slice(0, 160)}`);
 }
-if (problems.length > 0) console.log(`problems : ${problems.slice(0, 5).join(" | ").slice(0, 800)}`);
+if (problems.length > 0)
+  console.log(`problems : ${problems.slice(0, 5).join(" | ").slice(0, 800)}`);
 
 await browser.close();
 server.close();

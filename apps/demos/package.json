@@ -19,7 +19,10 @@
     "build:app": "node scripts/copy-assets.mjs && vite build --config vite.app.config.ts",
     "dev:app": "node scripts/copy-assets.mjs && vite --config vite.app.config.ts",
     "build:proxy": "node scripts/copy-assets.mjs && vite build --config vite.proxy.config.ts",
-    "dev:proxy": "node scripts/copy-assets.mjs && vite --config vite.proxy.config.ts"
+    "dev:proxy": "node scripts/copy-assets.mjs && vite --config vite.proxy.config.ts",
+    "deploy": "node scripts/deploy.mjs",
+    "live-smoke": "node scripts/live-smoke.mjs",
+    "join-smoke": "node scripts/join-smoke.mjs"
   },
   "dependencies": {
     "@biscuit-auth/biscuit-wasm": "0.6.0",

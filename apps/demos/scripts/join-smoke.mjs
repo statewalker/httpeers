@@ -14,8 +14,8 @@
  *   node scripts/join-smoke.mjs
  */
 
-import { createServer } from "node:http";
 import { readFile } from "node:fs/promises";
+import { createServer } from "node:http";
 import { dirname, extname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { chromium } from "playwright";
@@ -88,10 +88,9 @@ try {
   const hubTab = await browser.newPage();
   watch(hubTab, "hub");
   await hubTab.goto(hub.url);
-  await hubTab.waitForFunction(
-    () => document.querySelector("#state")?.textContent === "ready",
-    { timeout: 90_000 },
-  );
+  await hubTab.waitForFunction(() => document.querySelector("#state")?.textContent === "ready", {
+    timeout: 90_000,
+  });
   const meshId = (await hubTab.textContent("#mesh-id"))?.trim();
   console.log(`hub      : ready — ${meshId}`);
 
@@ -154,13 +153,15 @@ try {
   const blob2 = await mint(hubTab, blob);
   await appTab.fill("#invite", blob2);
   await appTab.click("#join");
-  await appTab.waitForFunction(
-    () => {
-      const s = document.querySelector("#state")?.textContent ?? "";
-      return s === "live" || s === "failed" || s === "blocked";
-    },
-    { timeout: 120_000 },
-  ).catch(() => {});
+  await appTab
+    .waitForFunction(
+      () => {
+        const s = document.querySelector("#state")?.textContent ?? "";
+        return s === "live" || s === "failed" || s === "blocked";
+      },
+      { timeout: 120_000 },
+    )
+    .catch(() => {});
   const appState = (await appTab.textContent("#state"))?.trim();
   console.log(`app      : ${appState} — ${(await appTab.textContent("#peer-id"))?.trim()}`);
 
@@ -238,15 +239,17 @@ try {
   await proxyTab.fill("#console-path", "/relay/httpeers-relay.json");
   await proxyTab.click("#console-send");
   await proxyTab
-    .waitForFunction(
-      () => (document.querySelector("#console-output")?.textContent ?? "") !== "",
-      { timeout: 60_000 },
-    )
+    .waitForFunction(() => (document.querySelector("#console-output")?.textContent ?? "") !== "", {
+      timeout: 60_000,
+    })
     .catch(() => {});
   const out = ((await proxyTab.textContent("#console-output")) ?? "").trim();
-  console.log(`proxied  : ${out.split("\n")[0]} — ${out.includes("relayAddrs") ? "got the upstream body" : "NO BODY"}`);
+  console.log(
+    `proxied  : ${out.split("\n")[0]} — ${out.includes("relayAddrs") ? "got the upstream body" : "NO BODY"}`,
+  );
 
-  if (problems.length > 0) console.log(`problems : ${problems.slice(0, 6).join(" | ").slice(0, 900)}`);
+  if (problems.length > 0)
+    console.log(`problems : ${problems.slice(0, 6).join(" | ").slice(0, 900)}`);
   process.exitCode = state === "live" && appState === "live" && proxyState === "live" ? 0 : 1;
 } finally {
   await browser.close();
