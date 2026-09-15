@@ -143,6 +143,7 @@ export function ChatApp({ configStore, sessionStore, title = "Chat" }: ChatAppPr
           current={config.defaultModel}
           dismissible={step === "chat"}
           onClose={() => setModelsOpen(false)}
+          onChangeConnection={() => setSettingsOpen(true)}
           onPick={(models, picked) => {
             void saveConfig(applyModels(config, models, picked));
             void controller.setModel(picked);

@@ -188,7 +188,17 @@ try {
   await page.getByLabel("Base URL").fill(llm.baseUrl.replace("127.0.0.1", "localhost"));
   await page.getByLabel("API key").fill("test-key");
   await page.getByRole("button", { name: "Save" }).click();
-  await page.getByRole("dialog", { name: "Choose a model" }).waitFor();
+  const stuckModels = page.getByRole("dialog", { name: "Choose a model" });
+  await stuckModels.waitFor();
+
+  step = "a wrong base URL leaves a way back to settings";
+  await stuckModels.getByRole("button", { name: "Change connection" }).click();
+  await page.getByRole("dialog", { name: "Connection settings" }).waitFor();
+  await page.getByLabel("Base URL").fill("http://127.0.0.1:9/v1");
+  await page.getByRole("button", { name: "Save" }).click();
+  await stuckModels.getByRole("alert").filter({ hasText: "Could not list models" }).waitFor();
+  await stuckModels.getByRole("button", { name: "Change connection" }).click();
+  await page.getByRole("dialog", { name: "Connection settings" }).waitFor();
 
   check(problems.length === 0, problems.join("\n"));
   console.log("smoke: all steps passed");

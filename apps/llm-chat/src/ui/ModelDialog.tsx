@@ -9,9 +9,18 @@ export interface ModelDialogProps {
   dismissible: boolean;
   onPick(models: string[], model: string): void;
   onClose(): void;
+  /** Opens the settings dialog, so a wrong base URL is never a dead end. */
+  onChangeConnection(): void;
 }
 
-export function ModelDialog({ endpoint, current, dismissible, onPick, onClose }: ModelDialogProps) {
+export function ModelDialog({
+  endpoint,
+  current,
+  dismissible,
+  onPick,
+  onClose,
+  onChangeConnection,
+}: ModelDialogProps) {
   const { baseUrl, apiKey } = endpoint;
   const [models, setModels] = useState<string[] | null>(null);
   const [failure, setFailure] = useState<string | null>(null);
@@ -77,6 +86,9 @@ export function ModelDialog({ endpoint, current, dismissible, onPick, onClose }:
           </label>
         )}
         <div className="flex justify-end gap-2">
+          <button type="button" className={buttonClass} onClick={onChangeConnection}>
+            Change connection
+          </button>
           {dismissible && (
             <button type="button" className={buttonClass} onClick={onClose}>
               Cancel
