@@ -70,6 +70,10 @@ try {
     (await settings.getByRole("button", { name: "Cancel" }).count()) === 0,
     "settings has Cancel on first run",
   );
+  check(
+    (await page.getByRole("button", { name: "New chat" }).count()) === 0,
+    "the chat behind the first-run dialog is reachable",
+  );
 
   step = "Test reports the models";
   await page.getByLabel("Base URL").fill(llm.baseUrl);
@@ -152,6 +156,10 @@ try {
   await page.getByLabel("Message").fill("anyone?");
   await page.getByRole("button", { name: "Send" }).click();
   await page.getByRole("alert").filter({ hasText: "Check the API key." }).waitFor();
+
+  step = "a failed model refresh shows an inline error";
+  await page.getByRole("button", { name: "Refresh models" }).click();
+  await page.getByRole("alert").filter({ hasText: "Could not refresh models" }).waitFor();
 
   step = "changing the base URL asks for a model again";
   await page.getByRole("button", { name: "Settings" }).click();

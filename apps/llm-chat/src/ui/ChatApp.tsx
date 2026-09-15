@@ -72,55 +72,61 @@ export function ChatApp({ configStore, sessionStore, title = "Chat" }: ChatAppPr
 
   const step = startupStep(config);
   const model = resolveModel(config, chat.session?.model);
+  const showSettings = step === "settings" || settingsOpen;
+  const showModels =
+    config != null && step !== "settings" && !settingsOpen && (step === "models" || modelsOpen);
+  const blocked = showSettings || showModels;
 
   return (
     <div className="flex h-screen flex-col text-gray-900">
-      <header className="flex items-center gap-3 border-b border-gray-200 px-4 py-2">
-        <h1 className="flex-1 font-semibold">{title}</h1>
-        {config != null && step === "chat" && (
-          <ModelPicker
-            models={config.models}
-            value={model}
+      <div className="flex min-h-0 flex-1 flex-col" inert={blocked} aria-hidden={blocked}>
+        <header className="flex items-center gap-3 border-b border-gray-200 px-4 py-2">
+          <h1 className="flex-1 font-semibold">{title}</h1>
+          {config != null && step === "chat" && (
+            <ModelPicker
+              models={config.models}
+              value={model}
+              disabled={chat.isRunning}
+              onChange={(next) => {
+                void saveConfig({ ...config, defaultModel: next });
+                void controller.setModel(next);
+              }}
+              onRefresh={async () => {
+                await saveConfig(refreshModels(config, await listModels(config)));
+              }}
+            />
+          )}
+          <button
+            type="button"
+            aria-label="Settings"
+            title="Settings"
+            className="rounded px-2 py-1 hover:bg-gray-100"
+            onClick={() => setSettingsOpen(true)}
+          >
+            ⚙
+          </button>
+        </header>
+
+        <div className="flex min-h-0 flex-1">
+          <ThreadList
+            sessions={sessions}
+            activeId={chat.session?.id ?? null}
             disabled={chat.isRunning}
-            onChange={(next) => {
-              void saveConfig({ ...config, defaultModel: next });
-              void controller.setModel(next);
-            }}
-            onRefresh={async () => {
-              await saveConfig(refreshModels(config, await listModels(config)));
+            onNew={() => void controller.open(null)}
+            onSelect={(id) => void controller.open(id)}
+            onDelete={async (id) => {
+              await sessionStore.delete(id);
+              if (chat.session?.id === id) await controller.open(null);
+              await refreshSessions();
             }}
           />
-        )}
-        <button
-          type="button"
-          aria-label="Settings"
-          title="Settings"
-          className="rounded px-2 py-1 hover:bg-gray-100"
-          onClick={() => setSettingsOpen(true)}
-        >
-          ⚙
-        </button>
-      </header>
-
-      <div className="flex min-h-0 flex-1">
-        <ThreadList
-          sessions={sessions}
-          activeId={chat.session?.id ?? null}
-          disabled={chat.isRunning}
-          onNew={() => void controller.open(null)}
-          onSelect={(id) => void controller.open(id)}
-          onDelete={async (id) => {
-            await sessionStore.delete(id);
-            if (chat.session?.id === id) await controller.open(null);
-            await refreshSessions();
-          }}
-        />
-        <main className="min-w-0 flex-1">
-          <Thread controller={controller} />
-        </main>
+          <main className="min-w-0 flex-1">
+            <Thread controller={controller} />
+          </main>
+        </div>
       </div>
 
-      {(step === "settings" || settingsOpen) && (
+      {showSettings && (
         <SettingsDialog
           initial={config}
           dismissible={step !== "settings"}
@@ -131,22 +137,19 @@ export function ChatApp({ configStore, sessionStore, title = "Chat" }: ChatAppPr
           }}
         />
       )}
-      {config != null &&
-        step !== "settings" &&
-        !settingsOpen &&
-        (step === "models" || modelsOpen) && (
-          <ModelDialog
-            endpoint={config}
-            current={config.defaultModel}
-            dismissible={step === "chat"}
-            onClose={() => setModelsOpen(false)}
-            onPick={(models, picked) => {
-              void saveConfig(applyModels(config, models, picked));
-              void controller.setModel(picked);
-              setModelsOpen(false);
-            }}
-          />
-        )}
+      {showModels && config != null && (
+        <ModelDialog
+          endpoint={config}
+          current={config.defaultModel}
+          dismissible={step === "chat"}
+          onClose={() => setModelsOpen(false)}
+          onPick={(models, picked) => {
+            void saveConfig(applyModels(config, models, picked));
+            void controller.setModel(picked);
+            setModelsOpen(false);
+          }}
+        />
+      )}
     </div>
   );
 }

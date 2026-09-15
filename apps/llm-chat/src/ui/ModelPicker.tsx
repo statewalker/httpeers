@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { describeError } from "../core/openai-client.js";
 
 export interface ModelPickerProps {
   models: string[];
@@ -10,6 +11,7 @@ export interface ModelPickerProps {
 
 export function ModelPicker({ models, value, disabled, onChange, onRefresh }: ModelPickerProps) {
   const [refreshing, setRefreshing] = useState(false);
+  const [failure, setFailure] = useState<string | null>(null);
   return (
     <div className="flex items-center gap-1">
       <label className="sr-only" htmlFor="model-picker">
@@ -36,8 +38,12 @@ export function ModelPicker({ models, value, disabled, onChange, onRefresh }: Mo
         disabled={disabled || refreshing}
         onClick={async () => {
           setRefreshing(true);
+          setFailure(null);
           try {
             await onRefresh();
+          } catch (error) {
+            const { message, hint } = describeError(error);
+            setFailure(`Could not refresh models: ${message}${hint == null ? "" : ` ${hint}`}`);
           } finally {
             setRefreshing(false);
           }
@@ -45,6 +51,11 @@ export function ModelPicker({ models, value, disabled, onChange, onRefresh }: Mo
       >
         ↻
       </button>
+      {failure != null && (
+        <p role="alert" className="text-xs text-red-700">
+          {failure}
+        </p>
+      )}
     </div>
   );
 }
