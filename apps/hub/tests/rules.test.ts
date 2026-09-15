@@ -10,7 +10,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { capabilityNames, roleNames, ruleSet } from "@statewalker/httpeers-access";
 import { afterEach, describe, expect, it } from "vitest";
-import { DEFAULT_RULES, loadOrCreateRules } from "../src/rules.js";
+import { CORE_POLICIES, DEFAULT_RULES, loadOrCreateRules } from "../src/rules.js";
 import type { ServiceModule } from "../src/service-module.js";
 
 const dirs: string[] = [];
@@ -62,11 +62,35 @@ describe("loadOrCreateRules", () => {
     // Compared through `ruleSet`, which stores each statement in canonical form.
     const expected = ruleSet({
       rules: [...DEFAULT_RULES.rules, ...echo.rules],
-      policies: [...DEFAULT_RULES.policies, ...echo.policies],
+      policies: [...DEFAULT_RULES.policies, ...CORE_POLICIES, ...echo.policies],
     });
     expect(rules.rules).toEqual(expected.rules);
     expect(rules.policies).toEqual(expected.policies);
     expect(await readFile(join(dir, "rules.dl"), "utf8")).not.toContain("app:echo.use");
+  });
+
+  it("grants the admin API to std:mesh.admin without writing the core policy either", async () => {
+    const dir = await tempDir();
+    const rules = loadOrCreateRules(dir, []);
+    expect(rules.policies.some((p) => p.includes("/hub/api"))).toBe(true);
+    expect(await readFile(join(dir, "rules.dl"), "utf8")).not.toContain("/hub/api");
+  });
+
+  it("grants the admin API even to a rules.dl written before it existed", async () => {
+    const dir = await tempDir();
+    // The exact shape `loadOrCreateRules` wrote under Task 3, with no mention
+    // of `/hub/api` anywhere -- an operator's data directory from before this
+    // task landed.
+    await writeFile(
+      join(dir, "rules.dl"),
+      JSON.stringify({
+        version: 1,
+        rules: [...DEFAULT_RULES.rules],
+        policies: [...DEFAULT_RULES.policies],
+      }),
+    );
+    const rules = loadOrCreateRules(dir, []);
+    expect(rules.policies.some((p) => p.includes("/hub/api"))).toBe(true);
   });
 
   it("respects a file the operator edited", async () => {

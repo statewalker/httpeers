@@ -28,7 +28,7 @@ import type { Ed25519PrivateKey } from "@libp2p/interface";
 import { webRTC } from "@libp2p/webrtc";
 import { webSockets } from "@libp2p/websockets";
 import { createMounts } from "@statewalker/httpeers-core";
-import { type MemberHandle, startMember } from "@statewalker/httpeers-member";
+import { decodeJoinBlob, type MemberHandle, startMember } from "@statewalker/httpeers-member";
 import { type Relay, startRelay } from "@statewalker/httpeers-relay";
 import { createLibp2p } from "libp2p";
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest";
@@ -138,6 +138,26 @@ async function relayOnlyNode({ privateKey }: { privateKey?: Ed25519PrivateKey })
     streamMuxers: [yamux()],
     services: { identify: identify() },
   });
+}
+
+async function joinWithInvitation(
+  daemon: Daemon,
+  invitationId: string,
+  relayAddrs: string[] = daemon.relayAddrs,
+  createNode: (init: {
+    privateKey?: Ed25519PrivateKey;
+  }) => ReturnType<typeof webRTCNode> = webRTCNode,
+): Promise<MemberHandle> {
+  const member = await startMember({
+    key: "peers",
+    mounts: createMounts(),
+    rules: daemon.hub.rules,
+    config: { relayAddrs, hubPeerId: daemon.hubPeerId },
+    platform: { createNode: ({ privateKey }) => createNode({ privateKey }) },
+    invitationId,
+  });
+  members.push(member);
+  return member;
 }
 
 async function joinMember(
@@ -279,5 +299,55 @@ describe("startDaemon", () => {
     expect(member.token()).toBe(token);
     expect(after?.status).toBe(403);
     expect(await after?.text()).toContain("revoked");
+  }, 90_000);
+
+  it("mints an invitation through the local door's admin API; a member redeems the blob, and revoking through the door refuses its token", async () => {
+    const daemon = await start(await configFor());
+    const door = `http://127.0.0.1:${daemon.localDoorPort}`;
+
+    const minted = await fetch(`${door}/hub/api/invitations`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ roles: ["member"] }),
+    });
+    expect(minted.status).toBe(200);
+    const { blob, link } = (await minted.json()) as { blob: string; link: string };
+    expect(link).toBe(`https://example.test/mesh.html?join=${blob}`);
+    const joinBlob = decodeJoinBlob(blob);
+    expect(joinBlob.hubPeerId).toBe(daemon.hubPeerId);
+
+    const member = await joinWithInvitation(daemon, joinBlob.invitationId, joinBlob.relayAddrs);
+    expect(member.joinedBy).toBe("redeemed");
+
+    const echoUrl = `http://local/peers/${daemon.hubPeerId}/echo/x`;
+    expect((await member.fetch(new Request(echoUrl))).status).toBe(200);
+
+    const membersAfterJoin = (await (await fetch(`${door}/hub/api/members`)).json()) as Array<{
+      peerId: string;
+    }>;
+    expect(membersAfterJoin.map((m) => m.peerId)).toContain(member.peerId);
+
+    const revoked = await fetch(`${door}/hub/api/members/${member.peerId}`, { method: "DELETE" });
+    expect(revoked.status).toBe(200);
+    expect(await revoked.json()).toEqual({ ok: true, removed: member.peerId });
+
+    const refused = await member.fetch(new Request(echoUrl));
+    expect(refused.status).toBe(403);
+    expect(await refused.text()).toContain("revoked");
+  }, 90_000);
+
+  it("serves the admin API on the mesh mount, gated by std:mesh.admin: a member is refused, an admin is allowed", async () => {
+    const daemon = await start(await configFor());
+    const member = await joinMember(daemon, webRTCNode);
+    const meshApiUrl = `http://local/peers/${daemon.hubPeerId}/hub/api/mesh`;
+
+    const asMember = await member.fetch(new Request(meshApiUrl));
+    expect(asMember.status).toBe(403);
+
+    const { id: adminInvitationId } = await daemon.hub.invitations.create(["admin"], 60_000);
+    const admin = await joinWithInvitation(daemon, adminInvitationId);
+    const asAdmin = await admin.fetch(new Request(meshApiUrl));
+    expect(asAdmin.status).toBe(200);
+    expect(await asAdmin.json()).toMatchObject({ hubPeerId: daemon.hubPeerId, services: ["echo"] });
   }, 90_000);
 });

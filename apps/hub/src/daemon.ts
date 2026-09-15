@@ -38,6 +38,7 @@ import {
 import { createHub, type Hub, usesTransportIdentity } from "@statewalker/httpeers-hub";
 import { fileStorage } from "@statewalker/httpeers-hub/node";
 import { servePeer, signerOf } from "@statewalker/httpeers-libp2p";
+import { createAdminApi } from "./admin-api.js";
 import type { HubConfig } from "./config.js";
 import { loadOrCreateIdentity } from "./identity.js";
 import { startLocalDoor } from "./local-door.js";
@@ -133,6 +134,13 @@ export async function startDaemon(config: HubConfig, modules: ServiceModule[]): 
       extraMounts[`/${m.id}`] = (request) =>
         m.handler(request, { hubPeerId, edgeKey: "peers", caller: "mesh" });
     }
+    // Late-bound, like `isMember` below: the admin API needs `hub` (and the
+    // durable `revoke`, which needs `revocations`), neither of which exists
+    // until after `createHub` -- which itself needs `extraMounts` already
+    // built. `/hub` is in `RESERVED_IDS`, so no module can collide with it.
+    let adminApi: FetchHandler = async () =>
+      Response.json({ error: "hub: admin API not ready yet" }, { status: 503 });
+    extraMounts["/hub"] = (request) => adminApi(request);
 
     // THE SAME KEY SIGNS AND SPEAKS: tokens name the peer members talk to.
     const signer = signerOf(privateKey);
@@ -170,6 +178,23 @@ export async function startDaemon(config: HubConfig, modules: ServiceModule[]): 
     unwind.push(() => revocations.flushed());
     isMember = (peerId) => hub.isMember(peerId);
 
+    adminApi = createAdminApi({
+      hub,
+      hubPeerId,
+      relayAddrs,
+      joinPageUrl: config.joinPageUrl,
+      rules,
+      services: modules.map((m) => m.id),
+      // The whole job, durably: `DELETE /hub/api/members/:peerId` awaits this
+      // before answering, so it never reports a revocation a crash could
+      // still lose (see `Daemon.revocationsFlushed`'s own comment).
+      revoke: async (subject) => {
+        hub.members.remove(subject);
+        hub.revocations.revoke(subject);
+        await revocations.flushed();
+      },
+    });
+
     const peer = await servePeer({
       node,
       mounts: hub.mounts,
@@ -192,6 +217,7 @@ export async function startDaemon(config: HubConfig, modules: ServiceModule[]): 
       hostname: config.localDoorHost,
       hubPeerId,
       modules,
+      adminApi,
     });
     unwind.push(() => door.stop());
     console.log(`hub: local door on ${door.address}:${door.port}`);

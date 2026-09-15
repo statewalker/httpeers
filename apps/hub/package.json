@@ -31,12 +31,12 @@
     "@statewalker/httpeers-core": "workspace:*",
     "@statewalker/httpeers-hub": "workspace:*",
     "@statewalker/httpeers-libp2p": "workspace:*",
+    "@statewalker/httpeers-member": "workspace:*",
     "libp2p": "3.3.8"
   },
   "devDependencies": {
     "@biomejs/biome": "catalog:",
     "@libp2p/crypto": "5.1.22",
-    "@statewalker/httpeers-member": "workspace:*",
     "@statewalker/httpeers-relay": "workspace:*",
     "@types/node": "catalog:",
     "typescript": "catalog:",

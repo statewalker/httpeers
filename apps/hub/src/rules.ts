@@ -11,6 +11,26 @@
  * freeze one version of them there, and a later module release would be
  * silently governed by its predecessor's policy.
  *
+ * CORE POLICIES -- today, only the admin REST API's -- ARE APPENDED THE SAME
+ * WAY, FOR THE SAME REASON, AND FOR ONE MORE: an existing `/data/hub/rules.dl`
+ * predates the admin API and was written to disk before it existed. If the
+ * `/hub/api` policy lived only in `DEFAULT_RULES` -- written once, on first
+ * start -- every hub upgraded in place would keep an old file that never
+ * grants `std:mesh.admin` access to it, and the admin API would 403 on an
+ * operator's own hub until they hand-edited `rules.dl`. Appending it at load,
+ * like a module's policies, means every hub gets it on the next start, old
+ * data directory or new, with nothing to migrate.
+ *
+ * SKIPPED WHEN NOTHING DERIVES `std:mesh.admin`. An operator's file may have
+ * replaced the defaults with a rule set that has no admin concept at all
+ * (`rules.test.ts`'s "respects a file the operator edited"); `ruleSet()`
+ * refuses to build a policy naming a capability no rule can derive (A-10 /
+ * X-02), so appending the core policy unconditionally would turn a merely
+ * unusual file into a hub that fails to start. This checks first and leaves
+ * the file's own policies untouched when the capability is absent -- exactly
+ * as if the core policy did not exist, which for that hub it might as well
+ * not.
+ *
  * AN UNREADABLE FILE STOPS THE START. It is never replaced by the defaults: an
  * operator who narrowed the policy and made a typo must not get the wide
  * default back without being told.
@@ -18,7 +38,8 @@
 
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
-import { type RuleSet, ruleSet } from "@statewalker/httpeers-access";
+import { capabilityNames, type RuleSet, ruleSet } from "@statewalker/httpeers-access";
+import { ADMIN_CAPABILITY } from "@statewalker/httpeers-hub";
 import { writeFileAtomicSync } from "./fs-atomic.js";
 import type { ServiceModule } from "./service-module.js";
 
@@ -55,6 +76,17 @@ export const DEFAULT_RULES: RulesDocument = {
   ],
 };
 
+/**
+ * Appended at load time, never written -- see the module comment. Grants the
+ * admin REST API (spec §5.4) to whoever already holds `std:mesh.admin`,
+ * exactly the mesh mount's own policy (`daemon.ts`'s `withAccess`) so the
+ * mesh and the local door apply the same rule to the same handler.
+ */
+export const CORE_POLICIES: string[] = [
+  'allow if capability("std:mesh.admin"), resource("/hub/api")' +
+    ' or capability("std:mesh.admin"), resource($r), $r.starts_with("/hub/api/");',
+];
+
 function isStringArray(value: unknown): value is string[] {
   return Array.isArray(value) && value.every((item) => typeof item === "string");
 }
@@ -90,11 +122,23 @@ export function loadOrCreateRules(dir: string, modules: ServiceModule[]): RuleSe
     writeFileAtomicSync(file, `${JSON.stringify(DEFAULT_RULES, null, 2)}\n`);
   }
   const doc = readRulesDocument(file);
+  const rules = [...doc.rules, ...modules.flatMap((m) => m.rules)];
   try {
+    // Checked against the rules ALONE (no policies yet): does anything here
+    // derive the capability the core policy gates? See the module comment on
+    // why an operator's rules that dropped `std:mesh.admin` entirely must
+    // skip it rather than fail to start.
+    const canAdmin = capabilityNames(
+      ruleSet({ version: doc.version, rules, policies: [] }),
+    ).includes(ADMIN_CAPABILITY);
     return ruleSet({
       version: doc.version,
-      rules: [...doc.rules, ...modules.flatMap((m) => m.rules)],
-      policies: [...doc.policies, ...modules.flatMap((m) => m.policies)],
+      rules,
+      policies: [
+        ...doc.policies,
+        ...(canAdmin ? CORE_POLICIES : []),
+        ...modules.flatMap((m) => m.policies),
+      ],
     });
   } catch (error) {
     throw new Error(

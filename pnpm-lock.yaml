@@ -159,6 +159,9 @@ importers:
       '@statewalker/httpeers-libp2p':
         specifier: workspace:*
         version: link:../../packages/httpeers-libp2p
+      '@statewalker/httpeers-member':
+        specifier: workspace:*
+        version: link:../../packages/httpeers-member
       libp2p:
         specifier: 3.3.8
         version: 3.3.8
@@ -169,9 +172,6 @@ importers:
       '@libp2p/crypto':
         specifier: 5.1.22
         version: 5.1.22
-      '@statewalker/httpeers-member':
-        specifier: workspace:*
-        version: link:../../packages/httpeers-member
       '@statewalker/httpeers-relay':
         specifier: workspace:*
         version: link:../relay
