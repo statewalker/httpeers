@@ -1,0 +1,36 @@
+{
+  "name": "@statewalker/httpeers-llm-chat",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "A standalone chat for any OpenAI-compatible API; later, the mesh's LLM client.",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "test": "vitest run",
+    "typecheck": "tsc --noEmit",
+    "lint": "biome check --write src tests scripts",
+    "lint:check": "biome check src tests scripts",
+    "smoke": "node scripts/smoke.mjs"
+  },
+  "dependencies": {
+    "@assistant-ui/react": "0.15.19",
+    "@assistant-ui/react-markdown": "0.14.15",
+    "react": "19.3.0",
+    "react-dom": "19.3.0"
+  },
+  "devDependencies": {
+    "@biomejs/biome": "catalog:",
+    "@tailwindcss/vite": "4.3.3",
+    "@types/node": "catalog:",
+    "@types/react": "19.3.0",
+    "@types/react-dom": "19.3.0",
+    "@vitejs/plugin-react": "6.1.1",
+    "fake-indexeddb": "6.2.5",
+    "playwright": "^1.63.0",
+    "tailwindcss": "4.3.3",
+    "typescript": "catalog:",
+    "vite": "^8.3.0",
+    "vitest": "catalog:"
+  }
+}
