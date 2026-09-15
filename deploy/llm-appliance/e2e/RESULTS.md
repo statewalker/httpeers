@@ -1,6 +1,10 @@
 # End-to-end results — 2026-09-15
 
-**Outcome: all six steps PASS** (recorded run, 2026-09-15 18:23:38–18:24:21 UTC, exit 0).
+**Outcome: all six steps PASS** (recorded run, 2026-09-15 18:34:13–18:34:56 UTC, exit 0).
+
+This file records the run after review fix round 1 (step 5 now accepts only a 403 that names the
+revocation; docker calls have timeouts). It replaces the previous recorded run (18:23 UTC) in the
+sections below; both earlier runs are summarised under "Earlier runs the same day".
 
 ## Environment
 
@@ -27,12 +31,12 @@ its invitation `link` was used as the join URL.
 
 | # | Step | Result | Time |
 |---|---|---|---|
-| 1 | Hub is up (`GET /hub/api/mesh` → `hubPeerId`, `services: ["llm"]`) | PASS | 27 ms |
-| 2 | Admin A (isolated) joins, requests a key, picker lists `fake`, streamed reply completes | PASS | 17 015 ms |
-| 3 | Dashboard over the mesh: log in, renders, non-2xx listed | PASS | 12 664 ms |
-| 4 | Member B (isolated): `POST …/llm/keys` 403, `GET …/llm/ui/login/` 403, chats with A's key | PASS | 8 124 ms |
-| 5 | Revocation of B | PASS | 3 300 ms |
-| 6 | Host browser C joins as a member | PASS | 1 367 ms |
+| 1 | Hub is up (`GET /hub/api/mesh` → `hubPeerId`, `services: ["llm"]`) | PASS | 24 ms |
+| 2 | Admin A (isolated) joins, requests a key, picker lists `fake`, streamed reply completes | PASS | 17 064 ms |
+| 3 | Dashboard over the mesh: log in, renders, non-2xx listed | PASS | 12 845 ms |
+| 4 | Member B (isolated): `POST …/llm/keys` 403, `GET …/llm/ui/login/` 403, chats with A's key | PASS | 8 062 ms |
+| 5 | Revocation of B: 403 naming the revocation | PASS | 3 291 ms |
+| 6 | Host browser C joins as a member | PASS | 1 218 ms |
 
 Step 2's time includes starting the run-server container. Step 5's includes a 3 s pause to
 screenshot B's page after the failing call.
@@ -42,12 +46,12 @@ screenshot B's page after the failing call.
 - Control, from inside the isolated container: `curl http://172.27.0.2:8787/hub/api/mesh` (the hub
   container's only IP) **failed**, curl exit 28 (timeout after 5 s). `curl
   https://llm-chat.httpeers.net/mesh.html` from the same container: HTTP 200.
-- A joined in **7 167 ms: `Connected (relay)`**. The ~7 s is the single WebRTC attempt timing out,
+- A joined in **7 171 ms: `Connected (relay)`**. The ~7 s is the single WebRTC attempt timing out,
   then the kept relay circuit.
 - `?join=` was gone from the address bar after the join.
-- Request a key: `POST …/llm/keys` → 200, alias `mesh-chat-2026-09-15T18:23:54.928Z`.
+- Request a key: `POST …/llm/keys` → 200, alias `mesh-chat-2026-09-15T18:34:29.571Z`.
 - The model picker listed `["fake"]`.
-- Reply to "hello": `"reply to: hello (model fake-model)"` in 350 ms from Send, with 6 partial
+- Reply to "hello": `"reply to: hello (model fake-model)"` in 340 ms from Send, with 6 partial
   states of the assistant bubble observed before the complete text. (The chat UI reveals text
   gradually on its own, so partial states show the reply growing on screen, not by themselves that
   the transport streamed. Streaming over the mesh itself was established by Task 7's curl and the
@@ -81,16 +85,19 @@ ship. A host-browser probe over a direct link, before this run, showed the same 
 
 ### Step 4 — member refused admin paths
 
-B, a fresh context in the isolated browser, joined in **7 093 ms: `Connected (relay)`** as peer
-`12D3KooWQpaU92mCiAFrqi8ZwVtoHg7LNmRqodmPbvVMaFg8iquf`. From B's page: `POST …/llm/keys` → **403**,
+B, a fresh context in the isolated browser, joined in **7 043 ms: `Connected (relay)`** as peer
+`12D3KooWPDgJWsntaJsTVSeAcfVWEgJXkBjw2PiKp1ND7NJgZ4B9`. From B's page: `POST …/llm/keys` → **403**,
 `GET …/llm/ui/login/` → **403**. B pasted A's key into the Key step, picked `fake`, and got
-`"reply to: hello from B (model fake-model)"` in 368 ms.
+`"reply to: hello from B (model fake-model)"` in 365 ms.
 
 ### Step 5 — revocation
 
 A streamed chat call from B's page returned 200 and reached `[DONE]`. Then
-`DELETE /hub/api/members/<B>` through the door. B's **first** call after the DELETE answered —
-**59 ms later** — failed with **403 `{"error":"membership revoked"}`**. There was no cache window
+`DELETE /hub/api/members/<B>` through the door. The step then polls B's calls and accepts only a
+**403 whose JSON `error`/`reason` contains `revoked`**; a timeout, network error, 5xx or 200 keeps
+polling, and 90 s without such a 403 fails the step. B's **first** call after the DELETE answered —
+**57 ms later** — was that refusal: **403 `{"error":"membership revoked"}`** (attempt 1, no other
+outcomes before it). There was no cache window
 to wait out: the hub checks revocation itself on every request (only other peers pull a cached
 deny list), so a member's still-valid token is refused at once.
 
@@ -100,15 +107,15 @@ check what the chat UI shows when a message is sent after it.
 
 ### Step 6 — host browser
 
-C, launched on the host, joined in **1 207 ms: `Connected (direct)`**.
+C, launched on the host, joined in **1 080 ms: `Connected (direct)`**.
 
 ## Link modes observed
 
 | Browser | Where | Mode | Join time |
 |---|---|---|---|
-| A (admin) | isolated Docker network | **relay** | 7 167 ms |
-| B (member) | isolated Docker network | **relay** | 7 093 ms |
-| C (member) | host | **direct** | 1 207 ms |
+| A (admin) | isolated Docker network | **relay** | 7 171 ms |
+| B (member) | isolated Docker network | **relay** | 7 043 ms |
+| C (member) | host | **direct** | 1 080 ms |
 
 The isolated browsers could not reach the appliance's bridge network and took the relay, as
 expected; no WebRTC path (for example via the host's public address) was found from there. The
@@ -117,19 +124,26 @@ host browser shares the host with the hub's bridge network and got WebRTC direct
 The hub's member list is not evidence of link mode: it shows each member's advertised addresses
 (A and B: none; C: one, a circuit address), not the connection the hub holds.
 
-## Earlier run the same day
+## Earlier runs the same day
 
-A first run (18:22 UTC) passed steps 1–4 and 6 with the same link modes (A relay 7 212 ms, B relay
+**Run 1 (18:22 UTC).** It passed steps 1–4 and 6 with the same link modes (A relay 7 212 ms, B relay
 7 200 ms, C direct 1 096 ms) and failed step 5 at its **baseline** call, before revoking anything:
 the test sent a non-streaming chat completion, the test upstream (`test/fake-llm.mjs`) answers only
 with SSE, and LiteLLM returned 500 "Empty or invalid response from LLM endpoint". That was a defect
 in the test, not the product: the revocation probe now streams, as the chat does. That run left its
 member B unrevoked.
 
+**Run 2 (18:23:38–18:24:21 UTC), all six PASS**, previously the recorded run: A relay 7 167 ms,
+B relay 7 093 ms, C direct 1 207 ms; step 5's first call after the DELETE (59 ms) answered 403
+`{"error":"membership revoked"}`. Its step 5 accepted *any* failure as revocation (the review's
+finding); the response it happened to get was the revocation refusal, which is why it is kept as
+supporting evidence rather than discarded.
+
 ## Keys minted in LiteLLM (not cleaned up)
 
-- `mesh-chat-2026-09-15T18:22:37.317Z` — first run, admin A
-- `mesh-chat-2026-09-15T18:23:54.928Z` — recorded run, admin A
+- `mesh-chat-2026-09-15T18:22:37.317Z` — run 1, admin A
+- `mesh-chat-2026-09-15T18:23:54.928Z` — run 2, admin A
+- `mesh-chat-2026-09-15T18:34:29.571Z` — recorded run (run 3), admin A
 - `phone-test` — minted through the door for the human's phone hand-off (not by `e2e.mjs`)
 
 B's `POST …/llm/keys` (alias `e2e-member-must-be-refused`) was refused by the hub with 403 and
@@ -137,4 +151,4 @@ minted nothing.
 
 ## Page errors
 
-None in either run.
+None in any run.

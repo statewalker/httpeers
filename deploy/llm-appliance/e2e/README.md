@@ -66,12 +66,17 @@ isolated container and network up) and `LLM_MODEL`.
    from a `member` invitation. `POST …/llm/keys` and `GET …/llm/ui/login/` must answer 403. B
    pastes A's key and chats.
 5. **Revocation.** A streamed chat call from B's page must succeed, then
-   `DELETE /hub/api/members/<B>`, then B's calls are repeated every second until one fails (up to
-   90 s). The latency and the failing response are recorded.
+   `DELETE /hub/api/members/<B>`, then B's calls are repeated every second until one is refused
+   with **403 and a JSON `error`/`reason` naming the revocation** (`revoked`, case-insensitive).
+   That sample is the recorded latency. Any other outcome — a timeout, a network error, a 5xx, a
+   200 — keeps polling; with no such 403 within 90 s the step fails and prints the last outcome.
 6. **Host browser.** Browser C, launched on the host, joins from a `member` invitation; its link
    mode is recorded. This step runs even if steps 2–5 failed.
 
 Steps 2–5 are chained: a failure skips the ones after it.
+
+Every `docker` call has a timeout (120 s for `docker run`, which may pull; 30 s otherwise), so a
+hung daemon fails the run instead of hanging it.
 
 Afterwards the isolated container and network are removed.
 

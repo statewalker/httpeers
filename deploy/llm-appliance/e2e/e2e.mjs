@@ -19,8 +19,9 @@
  *      non-2xx response under the llm mount is listed.
  *   4. Member is refused admin paths: browser B (fresh context, isolated network) joins as a
  *      member; `POST …/llm/keys` and `GET …/llm/ui/login/` answer 403; B chats with A's key.
- *   5. Revocation: `DELETE /hub/api/members/<B>`; B's chat calls are polled until they fail
- *      (up to 90 s) and the latency is recorded.
+ *   5. Revocation: `DELETE /hub/api/members/<B>`; B's chat calls are polled until one is refused
+ *      with a 403 naming the revocation (up to 90 s; any other outcome keeps polling); that
+ *      sample is the recorded latency.
  *   6. Host browser: browser C launched on the host joins as a member; its link mode is recorded.
  *
  * Environment (all optional):
@@ -166,8 +167,17 @@ const members = async () => door("GET", "/hub/api/members");
 // ---------------------------------------------------------------------------------------------
 // The isolated browser
 
+const DOCKER_TIMEOUT = 30_000;
+/** `docker run` may pull the image first, so it gets longer. */
+const DOCKER_RUN_TIMEOUT = 120_000;
+
+/** A docker CLI call that cannot hang the run: past its timeout the child is killed and it rejects. */
 async function docker(...args) {
-  return run("docker", args, { maxBuffer: 16 * 1024 * 1024 });
+  const timeout = args[0] === "run" ? DOCKER_RUN_TIMEOUT : DOCKER_TIMEOUT;
+  return run("docker", args, { maxBuffer: 16 * 1024 * 1024, timeout }).catch((error) => {
+    if (error.killed) error.message = `docker ${args[0]} timed out after ${timeout} ms`;
+    throw error;
+  });
 }
 
 async function startIsolatedBrowserServer() {
@@ -346,6 +356,24 @@ async function chat(page, message) {
 }
 
 /**
+ * Whether an outcome is the hub refusing a revoked member: a 403 whose JSON `error` or `reason`
+ * names the revocation. Anything else — a timeout, a 5xx, a 200 — proves nothing about it.
+ */
+function isRevocationRefusal(outcome) {
+  if (outcome.status !== 403) return false;
+  let json;
+  try {
+    json = JSON.parse(outcome.body);
+  } catch {
+    return false;
+  }
+  const texts = [json?.error, json?.error?.message, json?.reason].filter(
+    (t) => typeof t === "string",
+  );
+  return texts.some((t) => /revoked/i.test(t));
+}
+
+/**
  * One streamed chat completion from inside the page, through the ServiceWorker and the mesh. It
  * streams because the test upstream (`test/fake-llm.mjs`) only answers with SSE, which LiteLLM
  * refuses for a non-streaming request. Success is a 200 whose body reaches `[DONE]`.
@@ -365,7 +393,11 @@ async function inPageChatCall(page, hubPeerId, key) {
           signal: AbortSignal.timeout(10_000),
         });
         const body = await res.text();
-        return { status: res.status, done: body.includes("[DONE]"), body: body.slice(0, 120) };
+        return {
+          status: res.status,
+          done: body.includes("[DONE]"),
+          body: body.slice(0, res.status === 200 ? 120 : 2_000),
+        };
       } catch (error) {
         return { error: `${error.name}: ${error.message}` };
       }
@@ -540,39 +572,46 @@ try {
     return `B: ${mode}; 403 on keys and ui; reply in ${replyMs} ms: ${JSON.stringify(reply)}`;
   });
 
-  await step(5, "Revocation: B's chat calls fail after DELETE /hub/api/members/<B>", async () => {
-    const baseline = await inPageChatCall(memberPage, hubPeerId, adminKey);
-    check(
-      baseline.status === 200 && baseline.done,
-      `baseline call before revocation: ${JSON.stringify(baseline)}`,
-    );
-    await door("DELETE", `/hub/api/members/${encodeURIComponent(memberPeerId)}`);
-    const revokedAt = Date.now();
-    note(`revoked ${memberPeerId}`);
-    const attempts = [];
-    for (;;) {
-      const outcome = await inPageChatCall(memberPage, hubPeerId, adminKey);
-      const at = Date.now() - revokedAt;
-      attempts.push({ at, ...outcome });
-      if (outcome.error || outcome.status !== 200 || !outcome.done) {
-        facts.revocation = { latencyMs: at, attempts: attempts.length, outcome };
-        await memberPage.waitForTimeout(3_000);
-        const statusText = await memberPage
-          .getByRole("status")
-          .or(memberPage.getByRole("alert"))
-          .allInnerTexts()
-          .catch(() => []);
-        facts.revocation.pageShows = statusText;
-        await memberPage.screenshot({ path: join(ARTIFACTS, "step5-B-after-revocation.png") });
-        return `first failing call ${at} ms after the DELETE answered (attempt ${attempts.length}): ${JSON.stringify(outcome)}; page shows ${JSON.stringify(statusText)}`;
-      }
+  await step(
+    5,
+    "Revocation: B's chat calls are refused as revoked after DELETE /hub/api/members/<B>",
+    async () => {
+      const baseline = await inPageChatCall(memberPage, hubPeerId, adminKey);
       check(
-        at < REVOCATION_WINDOW,
-        `B's calls still succeed ${at} ms after revocation (${attempts.length} attempts)`,
+        baseline.status === 200 && baseline.done,
+        `baseline call before revocation: ${JSON.stringify(baseline)}`,
       );
-      await new Promise((resolve) => setTimeout(resolve, 1_000));
-    }
-  });
+      await door("DELETE", `/hub/api/members/${encodeURIComponent(memberPeerId)}`);
+      const revokedAt = Date.now();
+      note(`revoked ${memberPeerId}`);
+      const attempts = [];
+      for (;;) {
+        const outcome = await inPageChatCall(memberPage, hubPeerId, adminKey);
+        const at = Date.now() - revokedAt;
+        attempts.push({ at, ...outcome });
+        if (isRevocationRefusal(outcome)) {
+          const others = attempts.slice(0, -1);
+          facts.revocation = { latencyMs: at, attempts: attempts.length, outcome, before: others };
+          await memberPage.waitForTimeout(3_000);
+          const statusText = await memberPage
+            .getByRole("status")
+            .or(memberPage.getByRole("alert"))
+            .allInnerTexts()
+            .catch(() => []);
+          facts.revocation.pageShows = statusText;
+          await memberPage.screenshot({ path: join(ARTIFACTS, "step5-B-after-revocation.png") });
+          const earlier =
+            others.length === 0 ? "" : `; earlier outcomes: ${JSON.stringify(others)}`;
+          return `403-revoked ${at} ms after the DELETE answered (attempt ${attempts.length}): ${JSON.stringify(outcome)}${earlier}; page shows ${JSON.stringify(statusText)}`;
+        }
+        check(
+          at < REVOCATION_WINDOW,
+          `no 403 naming the revocation within ${REVOCATION_WINDOW} ms (${attempts.length} attempts); last outcome at ${at} ms: ${JSON.stringify(outcome)}`,
+        );
+        await new Promise((resolve) => setTimeout(resolve, 1_000));
+      }
+    },
+  );
 
   await step(
     6,
