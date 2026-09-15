@@ -39,7 +39,7 @@ import {
   withAccess,
 } from "@statewalker/httpeers-access";
 import { mintToken } from "@statewalker/httpeers-access/issuer";
-import { ANONYMOUS, lookupPeer, type Mounts } from "@statewalker/httpeers-core";
+import { ANONYMOUS, type FetchHandler, lookupPeer, type Mounts } from "@statewalker/httpeers-core";
 import {
   createHub,
   type Hub,
@@ -135,7 +135,18 @@ async function quietly(step: () => void | Promise<void>): Promise<void> {
   }
 }
 
-export async function startMesh(): Promise<Mesh> {
+export interface StartMeshInit {
+  /**
+   * Serve the hub's protocol on LIMITED connections too -- what a hub that
+   * members may reach only over a relay circuit needs. Off by default, so
+   * every other suite keeps libp2p's refusal.
+   */
+  runOnLimitedConnection?: boolean;
+  /** Extra hub mounts, behind the same access checks as the hub's own. */
+  extraMounts?: Record<string, FetchHandler>;
+}
+
+export async function startMesh(init: StartMeshInit = {}): Promise<Mesh> {
   const relayKey = await generateKeyPair("Ed25519");
   const relay = await startRelay({ privateKey: relayKey, port: 0 });
 
@@ -174,6 +185,7 @@ export async function startMesh(): Promise<Mesh> {
     storage: memoryStorage(),
     presenceTtlMs: PRESENCE_TTL_MS,
     mintToken: async (sub, roles) => mintToken({ signer, sub, roles, ttlMs: 60_000 }),
+    extraMounts: init.extraMounts,
   });
   memberCheck = (id) => hub.isMember(id);
 
@@ -191,6 +203,7 @@ export async function startMesh(): Promise<Mesh> {
       // request with no proven peer is refused 401 regardless.
       bootstrap: usesTransportIdentity(),
     }),
+    runOnLimitedConnection: init.runOnLimitedConnection,
   });
 
   return {

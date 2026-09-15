@@ -6,7 +6,7 @@
  * so the same code runs in a page and under the Node tests.
  */
 
-import type { Libp2p } from "@libp2p/interface";
+import type { Connection, Libp2p } from "@libp2p/interface";
 import { peerIdFromString } from "@libp2p/peer-id";
 import { multiaddr } from "@multiformats/multiaddr";
 import { lastPeerIdOf } from "./multiaddr-parts.js";
@@ -44,6 +44,29 @@ export async function reachHub(node: Libp2p, relayAddr: string, hubPeerId: strin
   await node.dial(multiaddr(`${relayAddr}/p2p-circuit/webrtc/p2p/${hubPeerId}`));
   const limited = node.getConnections(peerIdFromString(hubPeerId)).filter((c) => c.limits != null);
   await Promise.all(limited.map((c) => c.close()));
+}
+
+/**
+ * Reach the hub through the public relay WITHOUT the WebRTC upgrade, and KEEP
+ * the circuit: the fallback for when `reachHub` cannot work (a hub in Docker on
+ * a bridge network has nothing a WebRTC dial can reach).
+ *
+ * The result is a LIMITED connection, and nothing crosses it unless both ends
+ * opt in: the hub serves with `runOnLimitedConnection: true`, and the member
+ * calls with the same flag (`createRemote`, `libp2pLink`), which then opens its
+ * streams on this connection rather than dialling again.
+ *
+ * NOT CLOSED, unlike `reachHub`'s circuit, because it is the data path. Two
+ * consequences for the caller: `reserveOnHub` has nothing to reserve over, so
+ * other members cannot reach this one; and `leaveRelay` would hang up the
+ * circuit itself.
+ */
+export async function reachHubRelayed(
+  node: Libp2p,
+  relayAddr: string,
+  hubPeerId: string,
+): Promise<Connection> {
+  return node.dial(multiaddr(`${relayAddr}/p2p-circuit/p2p/${hubPeerId}`));
 }
 
 /**

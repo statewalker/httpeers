@@ -32,6 +32,7 @@ export {
   hubRoute,
   leaveRelay,
   reachHub,
+  reachHubRelayed,
   reserveOnHub,
   type SuperviseHubReservationInit,
   superviseHubReservation,
