@@ -39,7 +39,7 @@
   },
   "dependencies": {
     "@statewalker/httpeers-core": "workspace:*",
-    "@statewalker/webrun-biscuit": "^0.1.0",
+    "@statewalker/webrun-biscuit": "^0.2.0",
     "multiformats": "14.0.5"
   },
   "devDependencies": {
