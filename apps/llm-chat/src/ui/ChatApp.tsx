@@ -5,7 +5,7 @@
  * different, pre-filled `ConfigStore` and reuse it unchanged.
  */
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { type ReactNode, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createChatController, endpointClient } from "../core/chat-controller.js";
 import {
   applyEndpoint,
@@ -29,9 +29,11 @@ export interface ChatAppProps {
   configStore: ConfigStore;
   sessionStore: SessionStore;
   title?: string;
+  /** Rendered in the header before the settings button: the mesh page's link status and links. */
+  headerExtra?: ReactNode;
 }
 
-export function ChatApp({ configStore, sessionStore, title = "Chat" }: ChatAppProps) {
+export function ChatApp({ configStore, sessionStore, title = "Chat", headerExtra }: ChatAppProps) {
   /** `undefined` while the stored config is still loading. */
   const [config, setConfig] = useState<ChatConfig | null | undefined>(undefined);
   const [settingsOpen, setSettingsOpen] = useState(false);
@@ -96,6 +98,7 @@ export function ChatApp({ configStore, sessionStore, title = "Chat" }: ChatAppPr
               }}
             />
           )}
+          {headerExtra}
           <button
             type="button"
             aria-label="Settings"

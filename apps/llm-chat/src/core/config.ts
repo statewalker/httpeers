@@ -8,8 +8,13 @@
 export interface ChatConfig {
   /** No trailing slash, e.g. "https://api.openai.com/v1". */
   baseUrl: string;
-  /** Empty or absent: no Authorization header is sent. */
+  /** Empty or absent: no key header is sent. */
   apiKey?: string;
+  /**
+   * The header that carries the key, as `Bearer <key>`. Absent: `authorization`. The mesh page
+   * sets `x-litellm-api-key`, because there `Authorization` belongs to the mesh token.
+   */
+  apiKeyHeader?: string;
   /** The last list fetched from `GET {baseUrl}/models`. */
   models: string[];
   defaultModel?: string;
@@ -37,15 +42,21 @@ export function startupStep(config: ChatConfig | null): StartupStep {
 /**
  * Apply what the settings dialog saved. A different base URL clears the model list and the
  * default, because both belonged to the old endpoint.
+ *
+ * The key header is KEPT unless the endpoint names one: the settings dialog edits only the URL and
+ * the key, and silently falling back to `authorization` on a mesh page would put the LLM key where
+ * the mesh token goes.
  */
 export function applyEndpoint(
   previous: ChatConfig | null,
-  endpoint: { baseUrl: string; apiKey?: string },
+  endpoint: { baseUrl: string; apiKey?: string; apiKeyHeader?: string },
 ): ChatConfig {
   const baseUrl = normalizeBaseUrl(endpoint.baseUrl);
   const apiKey = endpoint.apiKey?.trim() ?? "";
-  if (previous != null && previous.baseUrl === baseUrl) return { ...previous, apiKey };
-  return { baseUrl, apiKey, models: [] };
+  const apiKeyHeader = endpoint.apiKeyHeader ?? previous?.apiKeyHeader;
+  const header = apiKeyHeader == null ? {} : { apiKeyHeader };
+  if (previous != null && previous.baseUrl === baseUrl) return { ...previous, apiKey, ...header };
+  return { baseUrl, apiKey, ...header, models: [] };
 }
 
 /** Apply what the model dialog picked. A typed-in id joins the list. */

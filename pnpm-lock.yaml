@@ -202,6 +202,18 @@ importers:
       '@assistant-ui/react-markdown':
         specifier: 0.14.15
         version: 0.14.15(@assistant-ui/react@0.15.19(@types/react-dom@19.3.0(@types/react@19.3.0))(@types/react@19.3.0)(react-dom@19.3.0(react@19.3.0))(react@19.3.0))(@types/react-dom@19.3.0(@types/react@19.3.0))(@types/react@19.3.0)(react-dom@19.3.0(react@19.3.0))(react@19.3.0)
+      '@statewalker/httpeers-access':
+        specifier: workspace:*
+        version: link:../../packages/httpeers-access
+      '@statewalker/httpeers-core':
+        specifier: workspace:*
+        version: link:../../packages/httpeers-core
+      '@statewalker/httpeers-member':
+        specifier: workspace:*
+        version: link:../../packages/httpeers-member
+      '@statewalker/webrun-http-browser':
+        specifier: ^0.4.2
+        version: 0.4.2
       react:
         specifier: 19.3.0
         version: 19.3.0

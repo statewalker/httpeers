@@ -3,19 +3,25 @@
   "version": "0.1.0",
   "private": true,
   "type": "module",
-  "description": "A standalone chat for any OpenAI-compatible API; later, the mesh's LLM client.",
+  "description": "A chat for any OpenAI-compatible API, standalone (index.html) or over an httpeers mesh (mesh.html).",
   "scripts": {
-    "dev": "vite",
+    "dev": "node scripts/copy-assets.mjs && vite",
+    "prebuild": "node scripts/copy-assets.mjs",
     "build": "vite build",
     "test": "vitest run",
     "typecheck": "tsc --noEmit",
     "lint": "biome check --write src tests scripts",
     "lint:check": "biome check src tests scripts",
-    "smoke": "node scripts/smoke.mjs"
+    "smoke": "node scripts/smoke.mjs",
+    "mesh-smoke": "node scripts/mesh-smoke.mjs"
   },
   "dependencies": {
     "@assistant-ui/react": "0.15.19",
     "@assistant-ui/react-markdown": "0.14.15",
+    "@statewalker/httpeers-access": "workspace:*",
+    "@statewalker/httpeers-core": "workspace:*",
+    "@statewalker/httpeers-member": "workspace:*",
+    "@statewalker/webrun-http-browser": "^0.4.2",
     "react": "19.3.0",
     "react-dom": "19.3.0"
   },

@@ -47,6 +47,38 @@ describe("applyEndpoint", () => {
   });
 });
 
+describe("applyEndpoint and the key header", () => {
+  const mesh: ChatConfig = { ...ready, apiKeyHeader: "x-litellm-api-key" };
+
+  it("keeps the stored header when the settings dialog saves only a URL and a key", () => {
+    expect(applyEndpoint(mesh, { baseUrl: mesh.baseUrl, apiKey: "k2" })).toEqual({
+      ...mesh,
+      apiKey: "k2",
+    });
+    expect(applyEndpoint(mesh, { baseUrl: "http://other/v1", apiKey: "k" })).toEqual({
+      baseUrl: "http://other/v1",
+      apiKey: "k",
+      apiKeyHeader: "x-litellm-api-key",
+      models: [],
+    });
+  });
+
+  it("takes a header the endpoint names, and keeps the models when only the header changes", () => {
+    expect(
+      applyEndpoint(ready, { baseUrl: ready.baseUrl, apiKey: "k", apiKeyHeader: "x-api-key" }),
+    ).toEqual({ ...ready, apiKeyHeader: "x-api-key" });
+    expect(
+      applyEndpoint(null, { baseUrl: "http://x/v1", apiKey: "k", apiKeyHeader: "x-api-key" }),
+    ).toEqual({ baseUrl: "http://x/v1", apiKey: "k", apiKeyHeader: "x-api-key", models: [] });
+  });
+
+  it("adds no header field to a config that never had one", () => {
+    expect(Object.keys(applyEndpoint(null, { baseUrl: "http://x/v1" }))).not.toContain(
+      "apiKeyHeader",
+    );
+  });
+});
+
 describe("models", () => {
   it("applyModels sets the default and adds a typed-in id to the list", () => {
     expect(applyModels(ready, ["a"], "custom")).toMatchObject({

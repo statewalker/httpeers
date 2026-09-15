@@ -5,6 +5,7 @@ import {
   ChatStreamError,
   describeError,
   listModels,
+  requestHeaders,
   streamChat,
 } from "../src/core/openai-client.js";
 import { chunked, collect, deltaEvent, hangingSseResponse, sseResponse } from "./helpers.js";
@@ -120,6 +121,46 @@ describe("streamChat", () => {
     })();
     await expect(run).rejects.toMatchObject({ name: "AbortError" });
     expect(seen).toEqual(["a"]);
+  });
+});
+
+describe("the key header", () => {
+  const LITELLM = "x-litellm-api-key";
+
+  it("defaults to Authorization with a bearer key", () => {
+    expect(requestHeaders(config, false)).toEqual({ authorization: "Bearer sk-test" });
+    expect(requestHeaders({ ...config, apiKeyHeader: undefined }, true)).toEqual({
+      "content-type": "application/json",
+      authorization: "Bearer sk-test",
+    });
+  });
+
+  it("sends a bearer key in a configured header and leaves Authorization unset", () => {
+    const headers = requestHeaders({ ...config, apiKeyHeader: LITELLM }, true);
+    expect(headers).toEqual({ "content-type": "application/json", [LITELLM]: "Bearer sk-test" });
+    expect(Object.keys(headers)).not.toContain("authorization");
+  });
+
+  it("sends no key header at all when the key is empty, whatever the header", () => {
+    expect(
+      requestHeaders({ baseUrl: config.baseUrl, apiKey: "", apiKeyHeader: LITELLM }, false),
+    ).toEqual({});
+  });
+
+  it("listModels uses the configured header", async () => {
+    const body = JSON.stringify({ data: [{ id: "a" }] });
+    const { calls, fetchImpl } = recordingFetch(() => new Response(body, { status: 200 }));
+    await listModels({ ...config, apiKeyHeader: LITELLM }, { fetchImpl });
+    expect(calls[0]?.init?.headers).toEqual({ [LITELLM]: "Bearer sk-test" });
+  });
+
+  it("streamChat uses the configured header", async () => {
+    const { calls, fetchImpl } = recordingFetch(() => sseResponse(["data: [DONE]\n\n"]));
+    await collect(stream(fetchImpl, { config: { ...config, apiKeyHeader: LITELLM } }));
+    expect(calls[0]?.init?.headers).toEqual({
+      "content-type": "application/json",
+      [LITELLM]: "Bearer sk-test",
+    });
   });
 });
 

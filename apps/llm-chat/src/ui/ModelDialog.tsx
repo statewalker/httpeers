@@ -21,14 +21,14 @@ export function ModelDialog({
   onClose,
   onChangeConnection,
 }: ModelDialogProps) {
-  const { baseUrl, apiKey } = endpoint;
+  const { baseUrl, apiKey, apiKeyHeader } = endpoint;
   const [models, setModels] = useState<string[] | null>(null);
   const [failure, setFailure] = useState<string | null>(null);
   const [choice, setChoice] = useState(current ?? "");
 
   useEffect(() => {
     const controller = new AbortController();
-    listModels({ baseUrl, apiKey }, { signal: controller.signal }).then(
+    listModels({ baseUrl, apiKey, apiKeyHeader }, { signal: controller.signal }).then(
       (list) => {
         setModels(list);
         setChoice((previous) => (list.includes(previous) ? previous : (list[0] ?? "")));
@@ -41,7 +41,7 @@ export function ModelDialog({
       },
     );
     return () => controller.abort();
-  }, [baseUrl, apiKey]);
+  }, [baseUrl, apiKey, apiKeyHeader]);
 
   return (
     <Modal title="Choose a model">

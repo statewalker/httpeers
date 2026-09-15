@@ -1,9 +1,10 @@
 /**
  * The OpenAI-compatible HTTP client: `GET /models` and streamed `POST /chat/completions`.
  *
- * `Authorization` is sent ONLY when an API key is set. In mesh mode the key is empty on purpose:
- * the ServiceWorker edge adds the mesh token only to a request that has no `Authorization`, so a
- * header set here would replace the token and the hub would refuse the call.
+ * The key is sent ONLY when it is set, as `Bearer <key>`, in `apiKeyHeader` (default
+ * `authorization`). In mesh mode the header is `x-litellm-api-key`, never `Authorization`: the
+ * ServiceWorker edge adds the mesh token only to a request that has no `Authorization`, so a key
+ * there would replace the token and the hub would refuse the call.
  */
 
 import type { ChatMessage } from "./sessions.js";
@@ -11,7 +12,11 @@ import type { ChatMessage } from "./sessions.js";
 export interface EndpointConfig {
   baseUrl: string;
   apiKey?: string;
+  /** Lower-case header name for the key; absent means `authorization`. */
+  apiKeyHeader?: string;
 }
+
+export const DEFAULT_API_KEY_HEADER = "authorization";
 
 export interface ClientOptions {
   signal?: AbortSignal;
@@ -79,7 +84,8 @@ export function requestHeaders(config: EndpointConfig, json: boolean): Record<st
   const headers: Record<string, string> = {};
   if (json) headers["content-type"] = "application/json";
   if (config.apiKey != null && config.apiKey !== "") {
-    headers.authorization = `Bearer ${config.apiKey}`;
+    const name = config.apiKeyHeader?.trim().toLowerCase() || DEFAULT_API_KEY_HEADER;
+    headers[name] = `Bearer ${config.apiKey}`;
   }
   return headers;
 }

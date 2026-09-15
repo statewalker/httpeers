@@ -4,7 +4,8 @@ import { describeError, listModels } from "../core/openai-client.js";
 import { buttonClass, inputClass, Modal, primaryButtonClass } from "./Modal.js";
 
 export interface SettingsDialogProps {
-  initial: { baseUrl: string; apiKey?: string } | null;
+  /** `apiKeyHeader` is not edited here, only used by Test: it is kept by `applyEndpoint` on save. */
+  initial: { baseUrl: string; apiKey?: string; apiKeyHeader?: string } | null;
   /** False on first run: there is nothing to go back to. */
   dismissible: boolean;
   onSave(endpoint: { baseUrl: string; apiKey: string }): void;
@@ -19,7 +20,11 @@ export function SettingsDialog({ initial, dismissible, onSave, onClose }: Settin
   const test = async (): Promise<void> => {
     setStatus("Testing…");
     try {
-      const models = await listModels({ baseUrl: normalizeBaseUrl(baseUrl), apiKey });
+      const models = await listModels({
+        baseUrl: normalizeBaseUrl(baseUrl),
+        apiKey,
+        apiKeyHeader: initial?.apiKeyHeader,
+      });
       setStatus(`Connected: ${models.length} model(s) available.`);
     } catch (error) {
       const { message, hint } = describeError(error);
