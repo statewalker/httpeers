@@ -37,7 +37,7 @@
     "@statewalker/httpeers-member": "workspace:*",
     "@statewalker/httpeers-qr": "workspace:*",
     "@statewalker/httpeers-relay": "workspace:*",
-    "@statewalker/webrun-http-proxy": "workspace:*",
+    "@statewalker/webrun-http-proxy": "^0.1.0",
     "@types/node": "catalog:",
     "libp2p": "3.3.8",
     "typescript": "catalog:",
