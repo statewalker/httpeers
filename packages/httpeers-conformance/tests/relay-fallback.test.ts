@@ -12,14 +12,19 @@
  * WHY EVERY TEST ASSERTS `limits != null`. The relay applies default limits
  * (`apps/relay/src/limits.ts`: generous, but present), which is what makes
  * libp2p refuse the protocol unless both sides opt in. A circuit without
- * limits would let the negative control pass for the wrong reason and the
- * positive ones prove nothing.
+ * limits would let the negative controls pass for the wrong reason and the
+ * positive cases prove nothing.
  *
  * WHY THE STREAM IS CHECKED AGAINST THE KEPT CONNECTION. libp2p 3.3.8 does not
  * reuse a limited connection for a bare `/p2p/<id>` dial
  * (`findExistingConnection` keeps only `limits == null`), so "the request
  * worked" alone could mean a second circuit was dialled. The tests count
  * connections to the hub and look for the protocol stream on the one kept.
+ *
+ * SERVING AND CALLING ARE SEPARATE OPT-INS. The hub serves on limited
+ * connections; the member only CALLS over them, and only to the hub. The last
+ * two cases pin the member's half: its serving side stays closed to circuits,
+ * and it is the serving flag -- nothing else -- that decides that.
  */
 
 import { noise } from "@chainsafe/libp2p-noise";
@@ -28,8 +33,15 @@ import { circuitRelayTransport } from "@libp2p/circuit-relay-v2";
 import { identify } from "@libp2p/identify";
 import type { Connection, Libp2p } from "@libp2p/interface";
 import { webSockets } from "@libp2p/websockets";
-import { PeerCallError } from "@statewalker/httpeers-core";
-import { createRemote, PROTOCOL, reachHubRelayed } from "@statewalker/httpeers-libp2p";
+import { createMounts, PeerCallError } from "@statewalker/httpeers-core";
+import {
+  createRemote,
+  type Peer,
+  PROTOCOL,
+  reachHubRelayed,
+  type ServePeerInit,
+  servePeer,
+} from "@statewalker/httpeers-libp2p";
 import { createLibp2p } from "libp2p";
 import { afterEach, describe, expect, it } from "vitest";
 import { type Mesh, startMesh } from "./mesh-harness.js";
@@ -38,8 +50,11 @@ const CHUNKS = 20;
 
 let mesh: Mesh | null = null;
 let member: Libp2p | null = null;
+let memberPeer: Peer | null = null;
 
 afterEach(async () => {
+  await memberPeer?.stop();
+  memberPeer = null;
   await member?.stop();
   member = null;
   await mesh?.stop();
@@ -71,17 +86,35 @@ async function sse(): Promise<Response> {
   return new Response(body, { headers: { "content-type": "text/event-stream" } });
 }
 
-/** A hub serving on limited connections, a relay-only member, and that member's kept circuit. */
-async function relayedMember(): Promise<{
+type Call = (peerId: string, request: Request) => Promise<Response>;
+
+interface Relayed {
   live: Mesh;
   node: Libp2p;
+  /** The member's own served peer, built from `peerInit`. Its `call` is what a member uses. */
+  peer: Peer;
   kept: Connection;
   dialled: () => number;
-}> {
-  mesh = await startMesh({ runOnLimitedConnection: true, extraMounts: { "/stream": sse } });
+}
+
+/**
+ * A hub serving on limited connections, a relay-only member serving `/hello`,
+ * and that member's kept circuit. `peerInit` picks the member's opt-ins; the
+ * hub id is passed in, because a member's predicate names its own hub.
+ */
+async function relayedMember(
+  peerInit: (hubPeerId: string) => Partial<ServePeerInit> = (hub) => ({
+    callOnLimitedConnection: (peerId) => peerId === hub,
+  }),
+): Promise<Relayed> {
+  mesh = await startMesh({ serveOnLimitedConnection: true, extraMounts: { "/stream": sse } });
   member = await relayOnlyMember();
   const live = mesh;
   const node = member;
+
+  const mounts = createMounts();
+  mounts.provide("/hello", async () => new Response("hello from the member"));
+  memberPeer = await servePeer({ node, mounts, ...peerInit(live.hubPeerId) });
 
   const kept = await reachHubRelayed(node, live.relayAddr, live.hubPeerId);
   expect(kept.limits != null).toBe(true);
@@ -90,34 +123,62 @@ async function relayedMember(): Promise<{
   node.addEventListener("connection:open", (event) => {
     if (event.detail.remotePeer.toString() === live.hubPeerId) opened++;
   });
-  return { live, node, kept, dialled: () => opened };
+  return { live, node, peer: memberPeer, kept, dialled: () => opened };
 }
 
-/** Redeem a fresh invitation over `remote` -- a bootstrap route, so no token is needed yet. */
-async function redeem(remote: ReturnType<typeof createRemote>, live: Mesh): Promise<string> {
-  const response = await remote(
-    live.hubPeerId,
-    new Request("http://hub.invalid/.well-known/invite", {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({ id: await live.invite() }),
-    }),
-  );
+function inviteRequest(id: string): Request {
+  return new Request("http://hub.invalid/.well-known/invite", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ id }),
+  });
+}
+
+/** Redeem a fresh invitation -- a bootstrap route, so no token is needed yet. */
+async function redeem(call: Call, live: Mesh): Promise<string> {
+  const response = await call(live.hubPeerId, inviteRequest(await live.invite()));
   expect(response.status).toBe(200);
   return ((await response.json()) as { token: string }).token;
+}
+
+/** What `call` rejected with, or `null` if it answered. */
+async function refusal(call: Promise<Response>): Promise<unknown> {
+  return call.then(
+    () => null,
+    (err: unknown) => err,
+  );
 }
 
 function connectionsTo(node: Libp2p, peerId: string): Connection[] {
   return node.getConnections().filter((c) => c.remotePeer.toString() === peerId);
 }
 
+/**
+ * Wait until the HUB holds its end of the member's circuit.
+ *
+ * `reachHubRelayed` resolves when the member's end is up; the hub registers the
+ * inbound end a moment later. Calling the member from the hub before then
+ * fails with `NoValidAddressesError` (measured: every time, without this) --
+ * which would make "the member refused" pass for the wrong reason.
+ */
+async function hubHoldsCircuitTo(live: Mesh, node: Libp2p): Promise<Connection> {
+  const memberId = node.peerId.toString();
+  for (let attempt = 0; attempt < 100; attempt++) {
+    const held = connectionsTo(live.hubNode, memberId).find(
+      (c) => c.status === "open" && c.limits != null,
+    );
+    if (held != null) return held;
+    await new Promise((resolve) => setTimeout(resolve, 50));
+  }
+  throw new Error("the hub never registered its end of the member's circuit");
+}
+
 describe("a member reaches its hub over a kept relay circuit", () => {
   it("answers a request over the limited connection, and leaves it open and limited", async () => {
-    const { live, node, kept, dialled } = await relayedMember();
-    const remote = createRemote({ node, runOnLimitedConnection: true });
+    const { live, node, peer, kept, dialled } = await relayedMember();
 
-    const token = await redeem(remote, live);
-    const response = await remote(
+    const token = await redeem(peer.call, live);
+    const response = await peer.call(
       live.hubPeerId,
       new Request("http://hub.invalid/.well-known/mesh", {
         headers: { authorization: `Bearer ${token}` },
@@ -134,11 +195,10 @@ describe("a member reaches its hub over a kept relay circuit", () => {
   }, 60_000);
 
   it("streams a response of many chunks, in order, on the kept connection", async () => {
-    const { live, node, kept, dialled } = await relayedMember();
-    const remote = createRemote({ node, runOnLimitedConnection: true });
-    const token = await redeem(remote, live);
+    const { live, peer, kept, dialled } = await relayedMember();
+    const token = await redeem(peer.call, live);
 
-    const response = await remote(
+    const response = await peer.call(
       live.hubPeerId,
       new Request("http://hub.invalid/stream", { headers: { authorization: `Bearer ${token}` } }),
     );
@@ -155,24 +215,52 @@ describe("a member reaches its hub over a kept relay circuit", () => {
     expect(dialled()).toBe(0);
   }, 60_000);
 
-  it("refuses the same call when the flag is unset (negative control)", async () => {
-    const { live, node, kept } = await relayedMember();
-    const remote = createRemote({ node });
+  it("refuses the same call when the member did not opt in to calling (negative control)", async () => {
+    const { live, node, kept } = await relayedMember(() => ({}));
 
-    const call = remote(
-      live.hubPeerId,
-      new Request("http://hub.invalid/.well-known/invite", {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({ id: await live.invite() }),
-      }),
-    );
-    const error = await call.then(
-      () => null,
-      (err: unknown) => err,
-    );
+    const error = await refusal(createRemote({ node })(live.hubPeerId, inviteRequest("unused")));
     expect(error).toBeInstanceOf(PeerCallError);
     expect((error as PeerCallError).kind).toBe("limited-connection");
+
+    // A predicate is per target: one that allows some OTHER peer does not allow the hub.
+    const narrow = createRemote({ node, callOnLimitedConnection: (peerId) => peerId === "other" });
+    const narrowed = await refusal(narrow(live.hubPeerId, inviteRequest("unused")));
+    expect((narrowed as PeerCallError).kind).toBe("limited-connection");
+
     expect(kept.limits != null).toBe(true);
+  }, 60_000);
+
+  it("keeps the member's serving side closed to the circuit it calls over", async () => {
+    const { live, node } = await relayedMember();
+    const hubEnd = await hubHoldsCircuitTo(live, node);
+
+    // The hub turns the same limited connection around and calls the member,
+    // with the calling side opted in -- so only the MEMBER's serving flag stands
+    // in the way.
+    const fromHub = createRemote({ node: live.hubNode, callOnLimitedConnection: true });
+    const error = await refusal(
+      fromHub(node.peerId.toString(), new Request("http://member.invalid/hello")),
+    );
+    // The member's libp2p throws `LimitedConnectionError` on ITS side and aborts
+    // the stream; all the hub sees is a stream that ended before a byte arrived,
+    // which `mapPeerCallError` reads as a reset. That the refusal is the serving
+    // flag and not something else is the next case's job.
+    expect(error).toBeInstanceOf(PeerCallError);
+    expect((error as PeerCallError).kind).toBe("stream-reset");
+    expect(hubEnd.limits != null).toBe(true);
+  }, 60_000);
+
+  it("serves over the circuit only when the member opts in to serving (control for the case above)", async () => {
+    const { live, node } = await relayedMember(() => ({ serveOnLimitedConnection: true }));
+    const hubEnd = await hubHoldsCircuitTo(live, node);
+
+    const fromHub = createRemote({ node: live.hubNode, callOnLimitedConnection: true });
+    const response = await fromHub(
+      node.peerId.toString(),
+      new Request("http://member.invalid/hello"),
+    );
+    expect(response.status).toBe(200);
+    expect(await response.text()).toBe("hello from the member");
+    expect(hubEnd.limits != null).toBe(true);
   }, 60_000);
 });

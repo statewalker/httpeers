@@ -79,6 +79,8 @@ export const HEARTBEAT_INTERVAL_MS = 800;
 export interface Mesh {
   relayAddr: string;
   hubPeerId: string;
+  /** The hub's libp2p node, for a test that must act as the hub below `hubPeer`. */
+  hubNode: Libp2p;
   hub: Hub;
   hubPeer: Peer;
   /** Mint an invitation for `roles` and return its id. */
@@ -141,7 +143,7 @@ export interface StartMeshInit {
    * members may reach only over a relay circuit needs. Off by default, so
    * every other suite keeps libp2p's refusal.
    */
-  runOnLimitedConnection?: boolean;
+  serveOnLimitedConnection?: boolean;
   /** Extra hub mounts, behind the same access checks as the hub's own. */
   extraMounts?: Record<string, FetchHandler>;
 }
@@ -203,12 +205,13 @@ export async function startMesh(init: StartMeshInit = {}): Promise<Mesh> {
       // request with no proven peer is refused 401 regardless.
       bootstrap: usesTransportIdentity(),
     }),
-    runOnLimitedConnection: init.runOnLimitedConnection,
+    serveOnLimitedConnection: init.serveOnLimitedConnection,
   });
 
   return {
     relayAddr,
     hubPeerId,
+    hubNode: node,
     hub,
     hubPeer,
     async invite(roles = ["member"]) {

@@ -52,9 +52,15 @@ export async function reachHub(node: Libp2p, relayAddr: string, hubPeerId: strin
  * a bridge network has nothing a WebRTC dial can reach).
  *
  * The result is a LIMITED connection, and nothing crosses it unless both ends
- * opt in: the hub serves with `runOnLimitedConnection: true`, and the member
- * calls with the same flag (`createRemote`, `libp2pLink`), which then opens its
- * streams on this connection rather than dialling again.
+ * opt in: the hub serves with `serveOnLimitedConnection: true`, and the member
+ * calls with `callOnLimitedConnection` allowing the hub (`servePeer`,
+ * `createRemote`), which then opens its streams on this connection rather than
+ * dialling again.
+ *
+ * RETURNED AS LIBP2P RETURNS IT, and not always limited: if an unlimited
+ * connection to the hub already exists (a WebRTC upgrade that did come up),
+ * `dial` hands that back instead of opening a circuit. Check `limits` if it
+ * matters; the intended caller only gets here after `reachHub` failed.
  *
  * NOT CLOSED, unlike `reachHub`'s circuit, because it is the data path. Two
  * consequences for the caller: `reserveOnHub` has nothing to reserve over, so

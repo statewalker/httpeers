@@ -48,7 +48,7 @@ import {
 // The fetch-over-duplex calls themselves moved to `httpeers-bridge`.
 import { HttpParseError } from "@statewalker/webrun-http-streams";
 import { createLibp2p } from "libp2p";
-import { libp2pLink } from "./link.js";
+import { type CallOnLimitedConnection, libp2pLink } from "./link.js";
 
 /**
  * A namespaced protocol id, passed explicitly rather than left at
@@ -325,8 +325,8 @@ export function mapPeerCallError(err: unknown, peerId: PeerIdStr): PeerCallError
     case "TransferLimitError":
       return new PeerRelayLimitExceededError(peerId, cause);
     // The only connection to the peer is a relay circuit and this call did not
-    // pass `runOnLimitedConnection` -- `Connection#newStream`, `connection.js:81`
-    // in `libp2p@3.3.8`. Exported by `@libp2p/interface`, but matched by name
+    // pass `runOnLimitedConnection` -- `Connection#newStream` (and the inbound
+    // handler check beside it) in `libp2p@3.3.8`. Exported by `@libp2p/interface`, but matched by name
     // like its neighbours: this package does not import that module at runtime.
     case "LimitedConnectionError":
       return new PeerLimitedConnectionError(peerId, cause);
@@ -432,7 +432,7 @@ export interface ServeTransportInit {
   maxInboundStreams?: number;
   /** Defaults to `DEFAULT_MAX_STREAMS`. See that constant's doc comment. */
   maxOutboundStreams?: number;
-  /** Accept streams on limited connections too. See `Libp2pLinkInit`. A hub reached over a relay circuit needs it. */
+  /** Accept streams on limited connections too -- serving only. See `Libp2pLinkInit.serveOnLimitedConnection`. */
   runOnLimitedConnection?: boolean;
 }
 
@@ -459,7 +459,7 @@ export async function serveTransport(init: ServeTransportInit): Promise<() => Pr
       drainTimeoutMs: init.drainTimeoutMs,
       maxInboundStreams: init.maxInboundStreams,
       maxOutboundStreams: init.maxOutboundStreams,
-      runOnLimitedConnection: init.runOnLimitedConnection,
+      serveOnLimitedConnection: init.runOnLimitedConnection,
     }),
     dispatch: init.dispatch,
   });
@@ -492,8 +492,8 @@ export interface CreateRemoteInit {
    * rather than getting its own timer.
    */
   maxConcurrentOutbound?: number;
-  /** Open streams on limited connections too. See `Libp2pLinkInit`. A member reaching its hub over a relay circuit needs it. */
-  runOnLimitedConnection?: boolean;
+  /** Open streams on limited connections to the peers this allows. See `CallOnLimitedConnection`. */
+  callOnLimitedConnection?: CallOnLimitedConnection;
 }
 
 /**
@@ -529,7 +529,7 @@ export function createRemote(init: CreateRemoteInit): Remote {
       protocol: init.protocol,
       drainTimeoutMs: init.drainTimeoutMs,
       maxOutboundStreams: init.maxOutboundStreams,
-      runOnLimitedConnection: init.runOnLimitedConnection,
+      callOnLimitedConnection: init.callOnLimitedConnection,
     }),
     requestTimeoutMs: init.requestTimeoutMs,
     maxConcurrentOutbound: init.maxConcurrentOutbound,

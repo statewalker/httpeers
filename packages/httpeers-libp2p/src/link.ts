@@ -35,12 +35,27 @@ export interface Libp2pLinkInit {
   maxInboundStreams?: number;
   maxOutboundStreams?: number;
   /**
-   * Run the protocol over LIMITED connections (a relay circuit) too, in both
-   * directions. Off by default: libp2p refuses, and that refusal is what keeps
-   * application traffic off a relay's small budget. See `reachHubRelayed`.
+   * ACCEPT streams on LIMITED connections (a relay circuit). Off by default:
+   * libp2p refuses, and that refusal is what keeps application traffic off a
+   * relay's small budget. A hub reached over the public relay sets it; a member
+   * never does, so its hub's relay limits still bound member-to-member traffic.
    */
-  runOnLimitedConnection?: boolean;
+  serveOnLimitedConnection?: boolean;
+  /** OPEN streams on limited connections, to the peers this allows. See `CallOnLimitedConnection`. */
+  callOnLimitedConnection?: CallOnLimitedConnection;
 }
+
+/**
+ * Which peers a call may reach over a LIMITED connection: `true` for all of
+ * them, or a predicate evaluated per target when the call opens its stream.
+ *
+ * A PREDICATE, NOT A BOOLEAN, because the one caller that needs it -- a member
+ * whose hub is reachable only through the relay -- must say "the hub" and
+ * nothing wider: `(peerId) => peerId === hubPeerId`. Separate from
+ * `serveOnLimitedConnection` for the same reason: a member calls its hub over
+ * the circuit without opening its own serving side to circuits.
+ */
+export type CallOnLimitedConnection = boolean | ((peerId: PeerIdStr) => boolean);
 
 /** Wrap a running libp2p node as the one seam the bridge needs. */
 export function libp2pLink(init: Libp2pLinkInit): PeerLink {
@@ -50,7 +65,8 @@ export function libp2pLink(init: Libp2pLinkInit): PeerLink {
     drainTimeoutMs = DEFAULT_DRAIN_TIMEOUT_MS,
     maxInboundStreams = DEFAULT_MAX_STREAMS,
     maxOutboundStreams = DEFAULT_MAX_STREAMS,
-    runOnLimitedConnection,
+    serveOnLimitedConnection,
+    callOnLimitedConnection = false,
   } = init;
 
   return {
@@ -58,13 +74,17 @@ export function libp2pLink(init: Libp2pLinkInit): PeerLink {
       // A BARE `/p2p/<id>` dial, deliberately: a peer dialled once by full
       // multiaddr is dialable again by id alone, and composing an address here
       // would duplicate the routing decisions `reservation.ts` already made.
+      const limited =
+        typeof callOnLimitedConnection === "function"
+          ? callOnLimitedConnection(peerId)
+          : callOnLimitedConnection;
       const conn = await connect({
-        node: runOnLimitedConnection === true ? keptCircuitFirst(node, peerId) : node,
+        node: limited ? keptCircuitFirst(node, peerId) : node,
         peer: multiaddr(`/p2p/${peerId}`),
         protocol,
         drainTimeoutMs,
         maxOutboundStreams,
-        runOnLimitedConnection,
+        ...(limited ? { runOnLimitedConnection: true } : {}),
       });
       return { call: conn.call as Duplex, close: async () => await conn.close() };
     },
@@ -77,7 +97,7 @@ export function libp2pLink(init: Libp2pLinkInit): PeerLink {
           drainTimeoutMs,
           maxInboundStreams,
           maxOutboundStreams,
-          runOnLimitedConnection,
+          runOnLimitedConnection: serveOnLimitedConnection,
         },
         (context: ConnectionContext) => handlerFor(context.remotePeer.toString()) as never,
       );
@@ -87,7 +107,8 @@ export function libp2pLink(init: Libp2pLinkInit): PeerLink {
 
 /**
  * `node`, except that a stream to `peerId` opens on the LIMITED connection
- * already held to it when that is the only kind there is.
+ * already held to it when that is the only kind there is. Used only for a
+ * target `callOnLimitedConnection` allows.
  *
  * WHY THE FLAG ALONE IS NOT ENOUGH. libp2p 3.3.8 does not reuse a limited
  * connection for a dial: `findExistingConnection`

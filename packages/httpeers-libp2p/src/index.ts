@@ -51,6 +51,7 @@ export {
   type SignerLike,
   signerOf,
 } from "./identity.js";
+export type { CallOnLimitedConnection } from "./link.js";
 export { lastPeerIdOf } from "./multiaddr-parts.js";
 export {
   type CircuitAddrs,

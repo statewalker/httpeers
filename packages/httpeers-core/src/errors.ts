@@ -264,10 +264,10 @@ export class PeerRelayLimitExceededError extends PeerCallError {
 /**
  * The only connection to the peer is a LIMITED one (a relay circuit with a
  * data or duration cap), and the call did not opt in to running over it.
- * Grounded in `libp2p`'s `Connection#newStream` (`connection.js:81` in
- * `libp2p@3.3.8`), which throws `LimitedConnectionError` unless the stream is
- * opened with `runOnLimitedConnection: true`; the serving side refuses the
- * same way, so both ends must opt in. Distinct from `PeerUnreachableError`:
+ * Grounded in `libp2p@3.3.8`'s `Connection#newStream`, which throws
+ * `LimitedConnectionError` unless the stream is opened with
+ * `runOnLimitedConnection: true`; the serving side refuses the same way, so
+ * both ends must opt in. Distinct from `PeerUnreachableError`:
  * the peer WAS reached, over a path this call was not configured to use.
  *
  * RETRY: never sound with the same options -- the refusal is local and
