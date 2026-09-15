@@ -42,6 +42,7 @@ import { createAdminApi } from "./admin-api.js";
 import type { HubConfig } from "./config.js";
 import { loadOrCreateIdentity } from "./identity.js";
 import { startLocalDoor } from "./local-door.js";
+import { linkOf } from "./member-link.js";
 import { connectRelay, createHubNode, readRelayDoc } from "./node.js";
 import { loadOrCreateRules } from "./rules.js";
 import type { ServiceModule } from "./service-module.js";
@@ -100,6 +101,14 @@ function assertModules(modules: ServiceModule[]): void {
 }
 
 export async function startDaemon(config: HubConfig, modules: ServiceModule[]): Promise<Daemon> {
+  // NO SILENT OPEN DOOR. Refused before anything is created or dialled.
+  if (config.doorSecret == null || config.doorSecret === "") {
+    throw new Error(
+      "hub: HUB_DOOR_SECRET is not set; the local door will not start without it " +
+        "(the reverse proxy sends it as x-hub-door-secret)",
+    );
+  }
+  const doorSecret = config.doorSecret;
   assertModules(modules);
   const hubDir = join(config.dataDir, "hub");
 
@@ -185,6 +194,7 @@ export async function startDaemon(config: HubConfig, modules: ServiceModule[]): 
       joinPageUrl: config.joinPageUrl,
       rules,
       services: modules.map((m) => m.id),
+      linkOf: (peerId) => linkOf(node, peerId),
       // The whole job, durably: `DELETE /hub/api/members/:peerId` awaits this
       // before answering, so it never reports a revocation a crash could
       // still lose (see `Daemon.revocationsFlushed`'s own comment).
@@ -215,6 +225,8 @@ export async function startDaemon(config: HubConfig, modules: ServiceModule[]): 
     const door = await startLocalDoor({
       port: config.localDoorPort,
       hostname: config.localDoorHost,
+      secret: doorSecret,
+      allowedHosts: config.doorAllowedHosts,
       hubPeerId,
       modules,
       adminApi,

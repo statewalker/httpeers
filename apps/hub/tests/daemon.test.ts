@@ -35,6 +35,7 @@ import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest
 import type { HubConfig } from "../src/config.js";
 import { type Daemon, startDaemon } from "../src/daemon.js";
 import type { ServiceModule } from "../src/service-module.js";
+import { doorFetch, doorSettings, freePort } from "./door.js";
 
 /** A module that says what it was asked and who asked. */
 const echo: ServiceModule = {
@@ -105,9 +106,9 @@ async function configFor(dataDir?: string): Promise<HubConfig> {
     relayDoc: relayDocUrl,
     services: ["echo"],
     joinPageUrl: "https://example.test/mesh.html",
-    // Port 0: the suite must not depend on 8787 being free.
-    localDoorPort: 0,
-    localDoorHost: "127.0.0.1",
+    // A free port, not 8787: the suite must not depend on it being free. Not
+    // 0 either: the door's allowed Host has to name the port before it binds.
+    ...doorSettings(await freePort()),
   };
 }
 
@@ -196,20 +197,51 @@ describe("startDaemon", () => {
     expect(second.hubPeerId).toBe(first.hubPeerId);
   }, 90_000);
 
+  it("refuses to start without a door secret, before creating anything", async () => {
+    const config = await configFor();
+    const { doorSecret: _omitted, ...withoutSecret } = config;
+    await expect(startDaemon(withoutSecret, [echo])).rejects.toThrow(/HUB_DOOR_SECRET/);
+    await expect(startDaemon({ ...config, doorSecret: "" }, [echo])).rejects.toThrow(
+      /HUB_DOOR_SECRET/,
+    );
+    // Refused before the identity step: nothing was written to the data dir.
+    const { readdir } = await import("node:fs/promises");
+    expect(await readdir(config.dataDir)).toEqual([]);
+  });
+
+  it("refuses a door request without the secret, and with a Host it does not allow", async () => {
+    const daemon = await start(await configFor());
+    const door = `http://127.0.0.1:${daemon.localDoorPort}`;
+    for (const path of ["/", "/hub/api/mesh", `/peers/${daemon.hubPeerId}/echo/x`]) {
+      expect((await fetch(`${door}${path}`)).status).toBe(401);
+      expect(
+        (await fetch(`${door}${path}`, { headers: { "x-hub-door-secret": "wrong" } })).status,
+      ).toBe(401);
+      expect((await doorFetch(`${door}${path}`)).status).not.toBe(401);
+    }
+    // `localhost:<port>` reaches the same socket but is not an allowed Host.
+    const other = await doorFetch(`http://localhost:${daemon.localDoorPort}/hub/api/mesh`).catch(
+      () => undefined,
+    );
+    if (other != null) expect(other.status).toBe(421);
+  }, 90_000);
+
   it("serves a module on the local door with caller local, and 404s everything else", async () => {
     const daemon = await start(await configFor());
     expect(daemon.localDoorAddress).toBe("127.0.0.1");
     const door = `http://127.0.0.1:${daemon.localDoorPort}`;
 
-    const res = await fetch(`${door}/peers/${daemon.hubPeerId}/echo/x`);
+    const res = await doorFetch(`${door}/peers/${daemon.hubPeerId}/echo/x`);
     expect(res.status).toBe(200);
     expect(await res.json()).toEqual({ path: "/echo/x", caller: "local" });
 
-    expect((await fetch(`${door}/peers/${daemon.hubPeerId}/nope/x`)).status).toBe(404);
-    expect((await fetch(`${door}/peers/12D3KooWSomeoneElse/echo/x`)).status).toBe(404);
-    expect((await fetch(`${door}/elsewhere`)).status).toBe(404);
+    expect((await doorFetch(`${door}/peers/${daemon.hubPeerId}/nope/x`)).status).toBe(404);
+    expect((await doorFetch(`${door}/peers/12D3KooWSomeoneElse/echo/x`)).status).toBe(404);
+    expect((await doorFetch(`${door}/elsewhere`)).status).toBe(404);
     // Not the mesh mounts: the hub's own endpoints are not reachable through the door.
-    expect((await fetch(`${door}/peers/${daemon.hubPeerId}/.well-known/mesh`)).status).toBe(404);
+    expect((await doorFetch(`${door}/peers/${daemon.hubPeerId}/.well-known/mesh`)).status).toBe(
+      404,
+    );
   }, 90_000);
 
   it("serves a module to a member that joined with an invitation, with caller mesh", async () => {
@@ -229,10 +261,15 @@ describe("startDaemon", () => {
     ).toBe(true);
   }, 90_000);
 
-  it("serves a member that can reach it only over the relay", async () => {
+  it("serves a member that can reach it only over the relay, and the members API says relay", async () => {
     const daemon = await start(await configFor());
     const member = await joinMember(daemon, relayOnlyNode);
     expect(member.hubLink()).toBe("relay");
+
+    const listed = (await (
+      await doorFetch(`http://127.0.0.1:${daemon.localDoorPort}/hub/api/members`)
+    ).json()) as Array<{ peerId: string; link: string | null; addrs: string[] }>;
+    expect(listed.find((m) => m.peerId === member.peerId)?.link).toBe("relay");
 
     const res = await member.fetch(new Request(`http://local/peers/${daemon.hubPeerId}/echo/x`));
     expect(res.status).toBe(200);
@@ -305,7 +342,7 @@ describe("startDaemon", () => {
     const daemon = await start(await configFor());
     const door = `http://127.0.0.1:${daemon.localDoorPort}`;
 
-    const minted = await fetch(`${door}/hub/api/invitations`, {
+    const minted = await doorFetch(`${door}/hub/api/invitations`, {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({ roles: ["member"] }),
@@ -322,12 +359,17 @@ describe("startDaemon", () => {
     const echoUrl = `http://local/peers/${daemon.hubPeerId}/echo/x`;
     expect((await member.fetch(new Request(echoUrl))).status).toBe(200);
 
-    const membersAfterJoin = (await (await fetch(`${door}/hub/api/members`)).json()) as Array<{
+    const membersAfterJoin = (await (await doorFetch(`${door}/hub/api/members`)).json()) as Array<{
       peerId: string;
+      link: string | null;
     }>;
     expect(membersAfterJoin.map((m) => m.peerId)).toContain(member.peerId);
+    // A WebRTC-capable member on loopback: the hub holds an unlimited connection to it.
+    expect(membersAfterJoin.find((m) => m.peerId === member.peerId)?.link).toBe(member.hubLink());
 
-    const revoked = await fetch(`${door}/hub/api/members/${member.peerId}`, { method: "DELETE" });
+    const revoked = await doorFetch(`${door}/hub/api/members/${member.peerId}`, {
+      method: "DELETE",
+    });
     expect(revoked.status).toBe(200);
     expect(await revoked.json()).toEqual({ ok: true, removed: member.peerId });
 

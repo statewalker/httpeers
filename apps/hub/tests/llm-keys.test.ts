@@ -186,6 +186,19 @@ describe("createKeys", () => {
     expect(body.kind).toBe("upstream-error");
   });
 
+  it("an unreachable upstream is 502 upstream-error, without a detail naming the internal address", async () => {
+    // Port 1 on loopback: refused at once.
+    const keys = createKeys({ upstream: "http://127.0.0.1:1", masterKey: MASTER_KEY });
+    const response = await keys(req({ key_alias: "a" }), HUB_PEER_ID);
+    expect(response.status).toBe(502);
+    const text = await response.text();
+    expect(JSON.parse(text)).toEqual({
+      error: "llm: key/generate upstream unreachable",
+      kind: "upstream-error",
+    });
+    expect(text).not.toContain("127.0.0.1");
+  });
+
   it("400s an invalid body (not JSON, or not an object)", async () => {
     const keys = createKeys({ upstream, masterKey: MASTER_KEY });
     const notJson = await keys(

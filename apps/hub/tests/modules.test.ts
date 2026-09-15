@@ -21,6 +21,7 @@ function configWith(overrides: Partial<HubConfig>): HubConfig {
     joinPageUrl: "https://example.test/mesh.html",
     localDoorPort: 0,
     localDoorHost: "127.0.0.1",
+    doorAllowedHosts: ["127.0.0.1:8080"],
     ...overrides,
   };
 }

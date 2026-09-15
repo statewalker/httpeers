@@ -10,6 +10,7 @@ describe("loadConfig", () => {
       joinPageUrl: "https://llm-chat.httpeers.net/mesh.html",
       localDoorPort: 8787,
       localDoorHost: "0.0.0.0",
+      doorAllowedHosts: ["127.0.0.1:8080", "localhost:8080"],
     });
   });
 
@@ -22,6 +23,8 @@ describe("loadConfig", () => {
         HUB_JOIN_PAGE_URL: "https://example.test/join.html",
         HUB_LOCAL_DOOR_PORT: "9999",
         HUB_LOCAL_DOOR_HOST: "127.0.0.1",
+        HUB_DOOR_SECRET: "door-secret",
+        HUB_DOOR_ALLOWED_HOSTS: " 127.0.0.1:8080, hub.local:9000 ,",
         HUB_LLM_UPSTREAM: "http://litellm:4000",
         LITELLM_MASTER_KEY: "sk-master",
       }),
@@ -32,16 +35,26 @@ describe("loadConfig", () => {
       joinPageUrl: "https://example.test/join.html",
       localDoorPort: 9999,
       localDoorHost: "127.0.0.1",
+      doorSecret: "door-secret",
+      doorAllowedHosts: ["127.0.0.1:8080", "hub.local:9000"],
       llmUpstream: "http://litellm:4000",
       litellmMasterKey: "sk-master",
     });
   });
 
   it("treats empty values as unset", () => {
-    const config = loadConfig({ HUB_DATA_DIR: "", HUB_SERVICES: "", LITELLM_MASTER_KEY: "" });
+    const config = loadConfig({
+      HUB_DATA_DIR: "",
+      HUB_SERVICES: "",
+      LITELLM_MASTER_KEY: "",
+      HUB_DOOR_SECRET: "  ",
+      HUB_DOOR_ALLOWED_HOSTS: " , ",
+    });
     expect(config.dataDir).toBe("/data");
     expect(config.services).toEqual([]);
     expect("litellmMasterKey" in config).toBe(false);
+    expect("doorSecret" in config).toBe(false);
+    expect(config.doorAllowedHosts).toEqual(["127.0.0.1:8080", "localhost:8080"]);
   });
 
   it("refuses a port that is not a port", () => {

@@ -19,6 +19,7 @@ import { createHub, type Hub, memoryStorage } from "@statewalker/httpeers-hub";
 import { peerIdOf, signerOf } from "@statewalker/httpeers-libp2p";
 import { describe, expect, it } from "vitest";
 import { createAdminApi } from "../src/admin-api.js";
+import { linkOf, type MemberLink } from "../src/member-link.js";
 import { CORE_POLICIES } from "../src/rules.js";
 
 const HUB_PEER_ID = "12D3KooWHubAdminApiTestAAAAAAAAAAAAAAAAAAAAAAAAAAAAA";
@@ -42,7 +43,10 @@ interface Setup {
   api: (request: Request) => Promise<Response>;
 }
 
-async function setup(now: () => number = () => 1_700_000_000_000): Promise<Setup> {
+async function setup(
+  now: () => number = () => 1_700_000_000_000,
+  links: Record<string, MemberLink> = {},
+): Promise<Setup> {
   const hub = await createHub({
     selfPeerId: HUB_PEER_ID,
     mintToken: stubMintToken,
@@ -57,6 +61,7 @@ async function setup(now: () => number = () => 1_700_000_000_000): Promise<Setup
     joinPageUrl: JOIN_PAGE_URL,
     rules: RULES,
     services: ["echo"],
+    linkOf: (peerId) => links[peerId] ?? null,
     revoke: async (subject) => {
       hub.members.remove(subject);
       hub.revocations.revoke(subject);
@@ -166,13 +171,33 @@ describe("createAdminApi", () => {
   });
 
   describe("members", () => {
-    it("GET /hub/api/members: roles and online state", async () => {
-      const { api, hub } = await setup();
+    it("GET /hub/api/members: roles, online state, and the link the hub sees", async () => {
+      const { api, hub } = await setup(undefined, {
+        "12D3KooWMemberDirect": "direct",
+        "12D3KooWMemberRelay": "relay",
+      });
       hub.members.add("12D3KooWMemberOne", ["member"]);
+      hub.members.add("12D3KooWMemberDirect", ["member"]);
+      hub.members.add("12D3KooWMemberRelay", ["admin"]);
       const res = await api(req("GET", "/hub/api/members"));
       expect(res.status).toBe(200);
-      expect(await res.json()).toEqual([
-        { peerId: "12D3KooWMemberOne", roles: ["member"], online: false, addrs: [] },
+      const body = (await res.json()) as Array<{ peerId: string }>;
+      expect(body.sort((a, b) => a.peerId.localeCompare(b.peerId))).toEqual([
+        {
+          peerId: "12D3KooWMemberDirect",
+          roles: ["member"],
+          online: false,
+          addrs: [],
+          link: "direct",
+        },
+        { peerId: "12D3KooWMemberOne", roles: ["member"], online: false, addrs: [], link: null },
+        {
+          peerId: "12D3KooWMemberRelay",
+          roles: ["admin"],
+          online: false,
+          addrs: [],
+          link: "relay",
+        },
       ]);
     });
 
@@ -229,6 +254,31 @@ describe("createAdminApi", () => {
   it("404s a path this API does not serve", async () => {
     const { api } = await setup();
     expect((await api(req("GET", "/hub/api/nope"))).status).toBe(404);
+  });
+});
+
+describe("linkOf (the daemon's connection lookup)", () => {
+  const conn = (peer: string, status: string, limits?: object) => ({
+    remotePeer: { toString: () => peer },
+    status,
+    limits,
+  });
+  const nodeWith = (connections: ReturnType<typeof conn>[]) =>
+    ({ getConnections: () => connections }) as unknown as Parameters<typeof linkOf>[0];
+
+  it("is direct when any open connection to the peer is unlimited", () => {
+    const node = nodeWith([conn("P", "open", { bytes: 1n }), conn("P", "open")]);
+    expect(linkOf(node, "P")).toBe("direct");
+  });
+
+  it("is relay when only limited connections are open", () => {
+    const node = nodeWith([conn("P", "open", { bytes: 1n }), conn("P", "closed")]);
+    expect(linkOf(node, "P")).toBe("relay");
+  });
+
+  it("is null with no open connection to that peer", () => {
+    const node = nodeWith([conn("Q", "open"), conn("P", "closing"), conn("P", "closed")]);
+    expect(linkOf(node, "P")).toBeNull();
   });
 });
 

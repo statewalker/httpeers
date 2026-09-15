@@ -3,9 +3,24 @@
  *
  * NEVER THROUGH `withAccess`. A request here has no transport-proven peer, so
  * the access layer would refuse it 401 before any policy ran. The door calls
- * the service modules (and, later, the admin API) directly; its gate is the
- * reverse proxy in front of it -- basic auth on `127.0.0.1:8080` -- and it is
- * never published to the host.
+ * the service modules and the admin API directly; its gate is the reverse
+ * proxy in front of it -- basic auth on `127.0.0.1:8080` -- and the three
+ * checks below, which make that proxy the ONLY client the door answers.
+ *
+ * NOT PUBLISHING THE PORT IS NOT ENOUGH (measured): a Linux host routes to a
+ * container's bridge IP, so any local process reached the door directly, and
+ * a browser page could through DNS rebinding. So, on EVERY route (the static
+ * UI and `/peers/*` included), in this order:
+ *
+ *   1. `x-hub-door-secret` must equal the configured secret (constant-time),
+ *      or 401. The proxy sets it, overwriting whatever a client sent; nothing
+ *      else knows it. It is stripped before a module sees the request.
+ *   2. `Host` must be one of `allowedHosts` (what a browser uses to reach the
+ *      proxy, which passes Host through), or 421. A DNS-rebound page carries
+ *      its own domain as Host.
+ *   3. A request that is not GET/HEAD and carries `Origin` must come from
+ *      `http://<allowed host>`, or 403 -- a cross-site form post cannot ride
+ *      the browser's cached basic-auth credentials.
  *
  * ROUTES
  *   - `/peers/<hubPeerId>/<moduleId>/...` -> that module, with `caller: "local"`
@@ -20,6 +35,7 @@
  * they read the caller from its token, and there is none.
  */
 
+import { createHash, timingSafeEqual } from "node:crypto";
 import { readFile } from "node:fs/promises";
 import { dirname, extname, join, normalize, sep } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -88,8 +104,15 @@ function builtInUiHandler(): Handler {
   return defaultUiHandler;
 }
 
+/** The header the reverse proxy sets on every request it forwards to the door. */
+export const DOOR_SECRET_HEADER = "x-hub-door-secret";
+
 export interface LocalDoorInit {
   hubPeerId: string;
+  /** `HUB_DOOR_SECRET`. Required: an empty secret is refused at construction. */
+  secret: string;
+  /** `HUB_DOOR_ALLOWED_HOSTS`, `host:port` each. Required and non-empty. */
+  allowedHosts: string[];
   modules: ServiceModule[];
   /** `/hub/api/*`. */
   adminApi?: Handler;
@@ -116,12 +139,81 @@ export interface LocalDoor {
 
 const notFound = (path: string) => Response.json({ error: "not found", path }, { status: 404 });
 
+/** `host[:port]` as a URL would print it (lowercase, default port dropped); `undefined` if it is not one. */
+function normalizeHost(value: string): string | undefined {
+  try {
+    const url = new URL(`http://${value}`);
+    return url.host !== "" && url.pathname === "/" && url.username === "" ? url.host : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+const digest = (value: string) => createHash("sha256").update(value, "utf8").digest();
+
+/**
+ * The three checks from the module comment; `undefined` when the request may
+ * pass. Exported for the unit tests.
+ */
+export function createDoorGate(
+  init: Pick<LocalDoorInit, "secret" | "allowedHosts">,
+): (request: Request) => Response | undefined {
+  if (typeof init.secret !== "string" || init.secret === "") {
+    throw new Error("local door: a door secret is required (HUB_DOOR_SECRET)");
+  }
+  const hosts = new Set<string>();
+  for (const entry of init.allowedHosts) {
+    const host = normalizeHost(entry.trim());
+    if (host == null) throw new Error(`local door: "${entry}" is not a host:port`);
+    hosts.add(host);
+  }
+  if (hosts.size === 0) {
+    throw new Error("local door: at least one allowed host is required (HUB_DOOR_ALLOWED_HOSTS)");
+  }
+  const origins = new Set([...hosts].map((host) => `http://${host}`));
+  // Comparing fixed-length digests keeps the comparison constant-time without
+  // leaking the secret's length through an early length mismatch.
+  const expected = digest(init.secret);
+
+  return (request) => {
+    const presented = request.headers.get(DOOR_SECRET_HEADER);
+    if (presented == null || !timingSafeEqual(digest(presented), expected)) {
+      return Response.json({ error: "local door: unauthorized" }, { status: 401 });
+    }
+
+    // Both the Host header and the URL's authority: an absolute-form request
+    // line (`GET http://allowed/ HTTP/1.1`) builds the URL from itself, not
+    // from Host, so checking only one would let the other through.
+    const header = request.headers.get("host");
+    const urlHost = new URL(request.url).host;
+    const candidates = header != null ? [header, urlHost] : [urlHost];
+    if (!candidates.every((value) => hosts.has(normalizeHost(value) ?? ""))) {
+      return Response.json({ error: "local door: host not allowed" }, { status: 421 });
+    }
+
+    if (request.method !== "GET" && request.method !== "HEAD") {
+      const origin = request.headers.get("origin");
+      if (origin != null && !origins.has(origin.toLowerCase())) {
+        return Response.json(
+          { error: "local door: cross-origin request refused" },
+          { status: 403 },
+        );
+      }
+    }
+    return undefined;
+  };
+}
+
 /** The door's routing, as a plain handler: what `startLocalDoor` serves. */
 export function createLocalDoorHandler(init: LocalDoorInit): Handler {
+  const gate = createDoorGate(init);
   const modules = new Map(init.modules.map((m) => [m.id, m]));
   const peerPrefix = `/peers/${init.hubPeerId}/`;
 
   return async (request) => {
+    const refused = gate(request);
+    if (refused != null) return refused;
+
     const url = new URL(request.url);
     const path = url.pathname;
 
@@ -133,8 +225,10 @@ export function createLocalDoorHandler(init: LocalDoorInit): Handler {
       const target = new URL(`${rest}${url.search}`, url.origin);
       const hasBody = request.body != null && request.method !== "GET" && request.method !== "HEAD";
       // A local caller names no proven peer; a header claiming one is a forgery.
+      // The door secret is the door's alone: never handed on to a module or its upstream.
       const headers = new Headers(request.headers);
       headers.delete(PEER_ID_HEADER);
+      headers.delete(DOOR_SECRET_HEADER);
       const forwarded = new Request(target, {
         method: request.method,
         headers,
@@ -160,6 +254,7 @@ export function createLocalDoorHandler(init: LocalDoorInit): Handler {
 }
 
 export async function startLocalDoor(init: StartLocalDoorInit): Promise<LocalDoor> {
+  // Throws before binding anything when the secret or the host list is missing.
   const handler = createLocalDoorHandler(init);
   const fetch = async (request: Request): Promise<Response> => {
     try {

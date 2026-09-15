@@ -10,6 +10,11 @@
  * because a real browser needs a real static build (`dist-ui/`) to open —
  * there is no point running this against transpiled-on-the-fly source.
  *
+ * THE DOOR ONLY ANSWERS ITS PROXY. The browser plays Traefik's part: every
+ * request carries `x-hub-door-secret` (Playwright `extraHTTPHeaders`), and the
+ * door allows exactly the Host the browser uses, `127.0.0.1:<port>` -- which is
+ * why the port is picked before the daemon starts instead of being 0.
+ *
  * The `llm` upstream is never actually called here: only its PRESENCE among
  * the daemon's modules matters, for the dashboard link. A bogus URL is fine.
  */
@@ -17,6 +22,7 @@
 import { once } from "node:events";
 import { mkdtemp, rm } from "node:fs/promises";
 import { createServer } from "node:http";
+import { createServer as createNetServer } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { generateKeyPair } from "@libp2p/crypto/keys";
@@ -57,6 +63,17 @@ async function startRelayDoc() {
   };
 }
 
+async function freePort() {
+  const server = createNetServer();
+  server.listen(0, "127.0.0.1");
+  await once(server, "listening");
+  const { port } = server.address();
+  await new Promise((resolve) => server.close(resolve));
+  return port;
+}
+
+const DOOR_SECRET = "ui-e2e-door-secret-0123456789";
+const doorPort = await freePort();
 const relayDoc = await startRelayDoc();
 const dataDir = await mkdtemp(join(tmpdir(), "hub-ui-e2e-"));
 
@@ -66,20 +83,26 @@ const daemon = await startDaemon(
     relayDoc: relayDoc.relayDocUrl,
     services: ["llm"],
     joinPageUrl: "https://example.test/mesh.html",
-    localDoorPort: 0,
+    localDoorPort: doorPort,
     localDoorHost: "127.0.0.1",
+    doorSecret: DOOR_SECRET,
+    doorAllowedHosts: [`127.0.0.1:${doorPort}`],
   },
   // A fake upstream: never dialled by this test, only advertised.
   [llmModule({ upstream: "http://127.0.0.1:1", masterKey: "sk-test" })],
 );
 
-const doorUrl = `http://${daemon.localDoorAddress}:${daemon.localDoorPort}/`;
+const doorUrl = `http://127.0.0.1:${daemon.localDoorPort}/`;
 const browser = await chromium.launch();
-const page = await browser.newPage();
+const page = await browser.newPage({ extraHTTPHeaders: { "x-hub-door-secret": DOOR_SECRET } });
 const problems = [];
 page.on("pageerror", (error) => problems.push(`pageerror: ${error.message}`));
 
 try {
+  step = "the door refuses the page without the secret";
+  const bare = await fetch(doorUrl);
+  check(bare.status === 401, `GET / without the secret answered ${bare.status}, expected 401`);
+
   step = "the page loads and shows the Hub heading";
   await page.goto(doorUrl);
   await page.getByRole("heading", { name: "Hub" }).waitFor();

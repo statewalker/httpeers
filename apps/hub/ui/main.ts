@@ -29,6 +29,8 @@ interface MemberView {
   roles: string[];
   online: boolean;
   addrs: string[];
+  /** The hub's own view of its live connections to this member (`GET /hub/api/members`). */
+  link: "direct" | "relay" | null;
 }
 
 interface InvitationResult {
@@ -77,17 +79,16 @@ async function getJson<T>(path: string, init?: RequestInit): Promise<T> {
 }
 
 /**
- * Whether a member reaches the hub over a direct WebRTC connection or the
- * relay circuit, derived from the multiaddrs the mesh view already reports
- * for it (`GET /hub/api/members`'s `addrs`) — no new API surface, per the
- * task's ruling against changing the admin API's contract. This is
- * necessarily PER MEMBER, not one hub-wide answer: two members can be on
- * different paths at once, which a single indicator could not show honestly.
+ * How a member reaches the hub right now, as the HUB computed it from its open
+ * connections to that member (`link`). Guessing from advertised addresses was
+ * wrong both ways: a relay-fallback member advertises none, and a direct one
+ * can advertise a circuit address. Per member, because two members can be on
+ * different paths at once.
  */
-function connectionOf(addrs: string[]): string {
-  if (addrs.some((addr) => addr.includes("/webrtc"))) return "direct (webrtc)";
-  if (addrs.some((addr) => addr.includes("/p2p-circuit"))) return "relay";
-  return addrs.length > 0 ? "unknown" : "offline";
+function connectionOf(link: MemberView["link"]): string {
+  if (link === "direct") return "direct";
+  if (link === "relay") return "relay";
+  return "not connected";
 }
 
 function renderMembers(members: MemberView[], onRevoke: (peerId: string) => void): void {
@@ -112,7 +113,7 @@ function renderMembers(members: MemberView[], onRevoke: (peerId: string) => void
     const presence = document.createElement("td");
     presence.textContent = member.online ? "online" : "offline";
     const connection = document.createElement("td");
-    connection.textContent = connectionOf(member.addrs);
+    connection.textContent = connectionOf(member.link);
     const action = document.createElement("td");
     const revoke = document.createElement("button");
     revoke.type = "button";

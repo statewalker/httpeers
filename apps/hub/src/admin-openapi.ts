@@ -42,6 +42,21 @@ const memberSchema = {
   },
 };
 
+/** `GET /hub/api/members`' item: the mesh view's member plus the hub's own view of the link. */
+const memberWithLinkSchema = {
+  type: "object",
+  required: [...memberSchema.required, "link"],
+  properties: {
+    ...memberSchema.properties,
+    link: {
+      enum: ["direct", "relay", null],
+      description:
+        "How the member reaches the hub now, from the hub's open connections to it: " +
+        '"direct" if any is unlimited (WebRTC), "relay" if only relay circuits are open, null if none.',
+    },
+  },
+};
+
 const invitationSchema = {
   type: "object",
   required: ["id", "roles", "expiresAt"],
@@ -155,9 +170,9 @@ export function buildAdminOpenApi(): OpenApiDocument {
       "/hub/api/members": {
         get: {
           operationId: "listMembers",
-          summary: "Every member, with roles and online state.",
+          summary: "Every member, with roles, online state and its current link to the hub.",
           responses: {
-            "200": jsonResponse("Members", { type: "array", items: memberSchema }),
+            "200": jsonResponse("Members", { type: "array", items: memberWithLinkSchema }),
           },
         },
       },

@@ -87,10 +87,10 @@ export function createKeys(init: KeysInit): KeysHandler {
         signal: request.signal,
         redirect: "manual",
       });
-    } catch (error) {
+    } catch {
+      // No `detail`: the error text names the internal upstream address.
       return errorResponse(502, "llm: key/generate upstream unreachable", {
         kind: "upstream-error",
-        detail: (error as Error).message,
       });
     }
 

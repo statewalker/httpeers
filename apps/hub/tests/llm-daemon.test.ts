@@ -18,6 +18,7 @@ import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
 import type { HubConfig } from "../src/config.js";
 import { type Daemon, startDaemon } from "../src/daemon.js";
 import { llmModule } from "../src/services/llm/index.js";
+import { doorFetch, doorSettings, freePort } from "./door.js";
 
 let relay: Relay;
 let relayDoc: Server;
@@ -50,7 +51,13 @@ beforeAll(async () => {
   // The fake LiteLLM: answers /peers/<hubPeerId>/llm/v1/models.
   litellm = createServer((req, res) => {
     res.writeHead(200, { "content-type": "application/json" });
-    res.end(JSON.stringify({ path: req.url, data: [{ id: "gpt-fake" }] }));
+    res.end(
+      JSON.stringify({
+        path: req.url,
+        doorSecret: req.headers["x-hub-door-secret"] ?? null,
+        data: [{ id: "gpt-fake" }],
+      }),
+    );
   });
   litellm.listen(0, "127.0.0.1");
   await once(litellm, "listening");
@@ -81,8 +88,7 @@ async function configFor(): Promise<HubConfig> {
     relayDoc: relayDocUrl,
     services: ["llm"],
     joinPageUrl: "https://example.test/mesh.html",
-    localDoorPort: 0,
-    localDoorHost: "127.0.0.1",
+    ...doorSettings(await freePort()),
     llmUpstream: litellmUpstream,
     litellmMasterKey: "sk-master-test",
   };
@@ -99,14 +105,16 @@ describe("startDaemon with the llm module", () => {
     daemons.push(daemon);
 
     const door = `http://127.0.0.1:${daemon.localDoorPort}`;
-    const response = await fetch(`${door}/peers/${daemon.hubPeerId}/llm/v1/models`);
+    const response = await doorFetch(`${door}/peers/${daemon.hubPeerId}/llm/v1/models`);
     expect(response.status).toBe(200);
-    const body = (await response.json()) as { path: string; data: unknown };
+    const body = (await response.json()) as { path: string; doorSecret: unknown; data: unknown };
     expect(body.path).toBe(`/peers/${daemon.hubPeerId}/llm/v1/models`);
+    // The door's secret stops at the door: LiteLLM never sees it.
+    expect(body.doorSecret).toBeNull();
     expect(body.data).toEqual([{ id: "gpt-fake" }]);
 
     // The curated OpenAPI document is served locally, never proxied.
-    const openapi = await fetch(`${door}/peers/${daemon.hubPeerId}/llm/openapi.json`);
+    const openapi = await doorFetch(`${door}/peers/${daemon.hubPeerId}/llm/openapi.json`);
     expect(openapi.status).toBe(200);
     expect(((await openapi.json()) as { servers: Array<{ url: string }> }).servers).toEqual([
       { url: "." },

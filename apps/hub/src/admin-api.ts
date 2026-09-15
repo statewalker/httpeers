@@ -26,6 +26,7 @@ import { roleNames, validateRoles } from "@statewalker/httpeers-access";
 import type { Hub } from "@statewalker/httpeers-hub";
 import { encodeJoinBlob, type JoinBlob, joinUrl } from "@statewalker/httpeers-member";
 import { buildAdminOpenApi } from "./admin-openapi.js";
+import type { MemberLink } from "./member-link.js";
 
 export const DEFAULT_INVITATION_TTL_MS = 24 * 60 * 60 * 1000;
 
@@ -38,6 +39,8 @@ export interface AdminApiInit {
   rules: RuleSet;
   /** Enabled module ids — `GET /hub/api/mesh`'s `services`. */
   services: string[];
+  /** `GET /hub/api/members`'s per-member `link`, from the hub's live connections (`member-link.ts`). */
+  linkOf(peerId: string): MemberLink;
   /**
    * Remove and revoke a member, durably. What this calls does the whole job
    * — `memberStore.remove` + `revocations.revoke` + awaiting the revocation
@@ -139,7 +142,12 @@ export function createAdminApi(init: AdminApiInit): Handler {
     }
 
     if (pathname === "/hub/api/members" && method === "GET") {
-      return Response.json(init.hub.meshView().members);
+      return Response.json(
+        init.hub.meshView().members.map((member) => ({
+          ...member,
+          link: init.linkOf(member.peerId),
+        })),
+      );
     }
 
     if (pathname.startsWith("/hub/api/members/") && method === "DELETE") {
