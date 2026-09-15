@@ -14,9 +14,9 @@
  *
  * RULES AND POLICIES ARE SPEC §5.3, VERBATIM. The array-literal `.contains($r)`
  * form and the `resource("/llm") or ... starts_with("/llm/")` form both parse
- * under this repo's biscuit-wasm engine (checked directly against
- * `Policy.fromString` before writing this file) — no `or`-chain substitution
- * was needed.
+ * under `httpeers-access`'s Biscuit engine (`@statewalker/webrun-biscuit`;
+ * `tests/llm-rules.test.ts` builds them through `ruleSet`) — no `or`-chain
+ * substitution was needed.
  */
 
 import type { ServiceModule } from "../../service-module.js";

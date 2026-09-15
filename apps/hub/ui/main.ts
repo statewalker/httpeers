@@ -3,8 +3,8 @@
  * revoke someone, and find the LLM dashboard. A port of the demos hub page's
  * markup and behaviour (`apps/demos/src/hub/main.ts`) onto the REST API
  * (`/hub/api/*`, same origin) instead of an in-tab `Hub` object — this page
- * needs no biscuit-wasm and no ServiceWorker, because it never touches a
- * token itself.
+ * imports no `httpeers-access` and needs no ServiceWorker, because it never
+ * touches a token itself.
  *
  * THE QR CARRIES THE LINK, NOT THE BLOB. The demos page's tab-hosted hub
  * encodes the blob because a bare invitation id has no `httpeers.json` to
