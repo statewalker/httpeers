@@ -38,12 +38,13 @@
     "lint:check": "biome check src tests"
   },
   "dependencies": {
-    "@biscuit-auth/biscuit-wasm": "0.6.0",
     "@statewalker/httpeers-core": "workspace:*",
+    "@statewalker/webrun-biscuit": "^0.2.1",
     "multiformats": "14.0.5"
   },
   "devDependencies": {
     "@biomejs/biome": "catalog:",
+    "@biscuit-auth/biscuit-wasm": "0.6.0",
     "@libp2p/crypto": "5.1.22",
     "@libp2p/interface": "3.2.5",
     "@libp2p/peer-id": "6.0.14",

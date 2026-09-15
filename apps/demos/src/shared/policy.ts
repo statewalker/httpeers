@@ -10,21 +10,15 @@
  * POLICY NAMES CAPABILITIES, NEVER ROLES. `std:` is the mesh protocol's own
  * prefix; anything this application invents takes `app:`.
  *
- * BUILT LAZILY, AND THAT IS NOT A STYLE CHOICE. `ruleSet()` PARSES the Datalog,
- * which runs biscuit-wasm — and in a browser the wasm has to be armed first
- * (`./biscuit.ts`). A `export const MESH_RULES = ruleSet(...)` therefore
- * evaluates at module load, before any code has had a chance to arm anything,
- * and every rule fails to parse. The page still renders, which is what makes
- * this one nasty: the symptom is a wall of "does not parse" long after the
- * real cause. Anything at module scope that touches the wasm has the same
- * problem.
+ * Built lazily and memoised: `ruleSet()` parses and validates the Datalog, and
+ * a page that never evaluates a policy should not pay for that at load.
  */
 
 import { type RuleSet, ruleSet } from "@statewalker/httpeers-access";
 
 let built: RuleSet | undefined;
 
-/** The mesh's rules. Call only after `ensureBiscuit()`; memoised, so cost is paid once. */
+/** The mesh's rules. Memoised, so the cost is paid once. */
 export function meshRules(): RuleSet {
   built ??= ruleSet({
     version: 1,

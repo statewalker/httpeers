@@ -36,7 +36,6 @@ import type { PeerSession, SessionState } from "@statewalker/httpeers-member";
 import { createSession } from "@statewalker/httpeers-member/browser";
 import type { FilesApi } from "@statewalker/webrun-files";
 import { MemFilesApi } from "@statewalker/webrun-files-mem";
-import { ensureBiscuit } from "../shared/biscuit.js";
 import { createImagesEndpoint, type ImageInfo, imagePath } from "../shared/images.js";
 import { fileToImage } from "../shared/local-image.js";
 import { EDGE_KEY, meshRules } from "../shared/policy.js";
@@ -240,9 +239,6 @@ function render(state: SessionState): void {
 }
 
 async function main(): Promise<void> {
-  // Before anything touches a token, and before `meshRules()` parses anything.
-  await ensureBiscuit();
-
   // Pictures up front, so the page has something to serve and to show the
   // moment it loads -- including before it has joined anything. Fetched in
   // PARALLEL by `loadStockImages`, then written here in order, so the gallery

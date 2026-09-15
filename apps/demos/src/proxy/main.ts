@@ -30,7 +30,6 @@ import type { PeerSession, SessionState } from "@statewalker/httpeers-member";
 import { createSession } from "@statewalker/httpeers-member/browser";
 import { MARKER, type Upstream, urlUpstream } from "@statewalker/webrun-http-proxy";
 import { Hono } from "hono";
-import { ensureBiscuit } from "../shared/biscuit.js";
 import { EDGE_KEY, meshRules } from "../shared/policy.js";
 import { needsPermissiveGater, readRelayAddrs } from "../shared/relay.js";
 import { localStorageRouteStore, type StoredRoute } from "../shared/route-store.js";
@@ -245,7 +244,6 @@ function render(state: SessionState): void {
 }
 
 async function main(): Promise<void> {
-  await ensureBiscuit();
   await reloadRoutes();
   const relayAddrs = await readRelayAddrs();
 

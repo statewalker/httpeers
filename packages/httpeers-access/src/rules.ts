@@ -63,7 +63,7 @@
  * `DEFAULT_RULES` below is written that way, and so is every policy this
  * package's own tests rely on.
  */
-import { AuthorizerBuilder, Policy, Rule } from "@biscuit-auth/biscuit-wasm";
+
 import type {
   FetchHandler,
   MeshClaims,
@@ -71,7 +71,9 @@ import type {
   UsesTransportIdentity,
 } from "@statewalker/httpeers-core";
 import { json, lookupClaims, lookupPeer } from "@statewalker/httpeers-core";
-import { LIMITS, retryOnSpuriousTimeout, warmUpTokens } from "./tokens.js";
+import type { AuthorizationResult } from "@statewalker/webrun-biscuit";
+import { canonicalStatement, Datalog, evaluate, failedCheckTexts, firstTerms } from "./biscuit.js";
+import { ENGINE_LIMITS } from "./tokens.js";
 
 // ---------------------------------------------------------------------------
 // The fact vocabulary a rule may consume
@@ -163,7 +165,7 @@ export function ruleSet(defs: RuleSetDefs = {}): RuleSet {
     }
     let canonical: string;
     try {
-      canonical = Rule.fromString(text).toString();
+      canonical = canonicalStatement(text, "rule", ENGINE_LIMITS);
     } catch (error) {
       problems.push(`rules[${i}]: ${parseProblem(text, error)}`);
       return;
@@ -182,7 +184,7 @@ export function ruleSet(defs: RuleSetDefs = {}): RuleSet {
     }
     let canonical: string;
     try {
-      canonical = Policy.fromString(text).toString();
+      canonical = canonicalStatement(text, "policy", ENGINE_LIMITS);
     } catch (error) {
       problems.push(`policies[${i}]: ${parseProblem(text, error)}`);
       return;
@@ -294,26 +296,18 @@ export function capabilityNames(rules: RuleSet): string[] {
  */
 export function deriveCapabilities(rules: RuleSet, roles: readonly string[]): Set<string> {
   assertBuilt(rules);
-  warmUpTokens();
-  // EVERYTHING IS REBUILT PER ATTEMPT, deliberately: these wasm handles are
-  // consumed by the call that takes them, so a retry that reused one would
-  // trap on a null pointer instead of retrying. `warmUpTokens` makes the same
-  // point about its own throwaway token.
-  const facts = retryOnSpuriousTimeout(() => {
-    const builder = new AuthorizerBuilder();
-    for (const role of roles) {
-      if (typeof role !== "string") continue; // never let a non-string reach wasm
-      builder.addCodeWithParameters("role({role});", { role }, {});
-    }
-    addRules(builder, rules);
-    return builder
-      .buildUnauthenticated()
-      .queryWithLimits(Rule.fromString("held($c) <- capability($c)"), LIMITS);
-  });
+  const code = new Datalog();
+  for (const role of roles) {
+    if (typeof role !== "string") continue; // a non-string role is no role at all
+    code.add`role(${role});`;
+  }
+  addRules(code, rules);
+  const evaluation = evaluate(null, code, ENGINE_LIMITS);
+  if (evaluation.result.kind === "execution") {
+    throw new Error(`deriveCapabilities: evaluation budget exhausted (${evaluation.result.error})`);
+  }
   return new Set(
-    facts
-      .map((fact: { terms(): unknown[] }) => fact.terms()[0])
-      .filter((term): term is string => typeof term === "string"),
+    firstTerms(evaluation, "capability").filter((term): term is string => typeof term === "string"),
   );
 }
 
@@ -365,77 +359,61 @@ export function authorize(
   claims: MeshClaims | null,
 ): Decision {
   assertBuilt(rules);
-  warmUpTokens();
 
   const build = (extraCapability?: string) => {
-    const builder = new AuthorizerBuilder();
-    builder.addCodeWithParameters(
-      "operation({operation}); resource({resource}); time_ms({now});",
-      { operation: facts.operation, resource: facts.resource, now: facts.now ?? Date.now() },
-      {},
-    );
+    const code = new Datalog()
+      .add`operation(${facts.operation}); resource(${facts.resource}); time_ms(${facts.now ?? Date.now()});`;
     if (facts.selfPeer != null) {
-      builder.addCodeWithParameters("self_peer({peer});", { peer: facts.selfPeer }, {});
+      code.add`self_peer(${facts.selfPeer});`;
     }
     if (facts.connectionPeer != null) {
-      builder.addCodeWithParameters("connection_peer({peer});", { peer: facts.connectionPeer }, {});
+      code.add`connection_peer(${facts.connectionPeer});`;
     }
     if (claims != null) {
-      builder.addCodeWithParameters(
-        "subject({sub}); mesh({mesh}); issued_at({iat}); expires_at({exp});",
-        { sub: claims.sub, mesh: claims.mesh, iat: claims.iat, exp: claims.exp },
-        {},
-      );
+      code.add`subject(${claims.sub}); mesh(${claims.mesh}); issued_at(${claims.iat}); expires_at(${claims.exp});`;
       for (const role of claims.roles) {
         if (typeof role !== "string") continue;
-        builder.addCodeWithParameters("role({role});", { role }, {});
+        code.add`role(${role});`;
       }
     }
     if (extraCapability != null) {
-      builder.addCodeWithParameters("capability({cap});", { cap: extraCapability }, {});
+      code.add`capability(${extraCapability});`;
     }
-    addRules(builder, rules);
-    // ONE addCode for the whole policy block, so the index `authorizeWithLimits`
-    // returns indexes THIS array and the matched policy can be named (A-06).
+    addRules(code, rules);
+    // Policies go in in `rules.policies` order, so the index the result reports
+    // indexes THIS array and the matched policy can be named (A-06).
     if (rules.policies.length > 0) {
-      builder.addCode(`${rules.policies.join(";\n")};`);
+      code.raw(`${rules.policies.join(";\n")};`);
     }
-    return builder.buildUnauthenticated();
+    return evaluate(null, code, ENGINE_LIMITS);
   };
 
-  try {
-    const index = retryOnSpuriousTimeout(() => build().authorizeWithLimits(LIMITS));
-    const matched = rules.policies[index];
+  const { result } = build();
+  if (result.kind === "ok") {
+    const matched = rules.policies[result.policy];
     return { allowed: true, matched, failed: [], reason: `allowed by policy: ${matched ?? ""}` };
-  } catch (error) {
-    return denial(rules, facts, error, build);
   }
+  return denial(rules, facts, result, failedCheckTexts(result), build);
 }
 
 function denial(
   rules: RuleSet,
   facts: RequestFacts,
-  error: unknown,
-  build: (extraCapability?: string) => { authorizeWithLimits(limits: unknown): number },
+  result: AuthorizationResult,
+  failed: string[],
+  build: (extraCapability?: string) => { result: AuthorizationResult },
 ): Decision {
-  if (hasKey(error, "RunLimit")) {
+  if (result.kind === "execution") {
     // P9 / A-25: a pathological rule set denies instead of becoming a DoS.
     return {
       allowed: false,
       failed: [],
-      reason: `evaluation budget exhausted (${String(error.RunLimit)})`,
+      reason: `evaluation budget exhausted (${result.error})`,
     };
   }
 
-  const unauthorized = hasKey(error, "FailedLogic")
-    ? (error.FailedLogic as Record<string, unknown>)
-    : undefined;
-  const detail = unauthorized?.Unauthorized as
-    | { policy?: { Deny?: number; Allow?: number }; checks?: unknown }
-    | undefined;
-  const failed = failedChecks(detail?.checks);
-
-  const denyIndex = detail?.policy?.Deny;
+  const denyIndex =
+    result.kind === "unauthorized" && "deny" in result.policy ? result.policy.deny : undefined;
   if (typeof denyIndex === "number") {
     const matched = rules.policies[denyIndex];
     return { allowed: false, matched, failed, reason: `denied by policy: ${matched ?? ""}` };
@@ -458,12 +436,7 @@ function denial(
   if (candidates.length > 0 && candidates.length <= MAX_PROBED_CAPABILITIES) {
     const sufficient: string[] = [];
     for (const cap of candidates) {
-      try {
-        retryOnSpuriousTimeout(() => build(cap).authorizeWithLimits(LIMITS));
-        sufficient.push(cap);
-      } catch {
-        /* this capability would not have helped */
-      }
+      if (build(cap).result.kind === "ok") sufficient.push(cap);
     }
     if (sufficient.length > 0) {
       return { allowed: false, failed, reason: `requires one of: ${sufficient.join(", ")}` };
@@ -572,8 +545,8 @@ export function withPolicy(init: PolicyInit) {
 // Internals
 // ---------------------------------------------------------------------------
 
-function addRules(builder: AuthorizerBuilder, rules: RuleSet): void {
-  if (rules.rules.length > 0) builder.addCode(`${rules.rules.join(";\n")};`);
+function addRules(code: Datalog, rules: RuleSet): void {
+  if (rules.rules.length > 0) code.raw(`${rules.rules.join(";\n")};`);
 }
 
 /** `Rule`/`Policy.fromString` reject a trailing `;`, but every authored line has one. */
@@ -582,10 +555,7 @@ function trimStatement(source: string): string {
 }
 
 function parseProblem(text: string, error: unknown): string {
-  const language = (error as { Language?: { ParseError?: { errors?: unknown } } })?.Language;
-  const errors = language?.ParseError?.errors;
-  const first = Array.isArray(errors) ? (errors[0] as { message?: string; input?: string }) : null;
-  const detail = first?.message ?? first?.input ?? String(error);
+  const detail = error instanceof Error ? error.message : String(error);
   return `does not parse (${detail}) in: ${text}`;
 }
 
@@ -604,23 +574,4 @@ function predicatesIn(text: string): string[] {
 function literalsOf(predicate: string, text: string): string[] {
   const pattern = new RegExp(`${predicate}\\(\\s*"([^"]*)"\\s*\\)`, "g");
   return [...text.matchAll(pattern)].map((m) => m[1] as string);
-}
-
-function failedChecks(checks: unknown): string[] {
-  if (!Array.isArray(checks)) return [];
-  return checks.map((check: unknown) => {
-    if (hasKey(check, "Authorizer")) {
-      const auth = check.Authorizer as { check_id: number; rule: string };
-      return `authorizer check ${auth.check_id}: ${auth.rule}`;
-    }
-    if (hasKey(check, "Block")) {
-      const block = check.Block as { block_id: number; check_id: number; rule: string };
-      return `block ${block.block_id} check ${block.check_id}: ${block.rule}`;
-    }
-    return JSON.stringify(check);
-  });
-}
-
-function hasKey<K extends string>(value: unknown, key: K): value is Record<K, unknown> {
-  return typeof value === "object" && value !== null && key in value;
 }

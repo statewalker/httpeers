@@ -25,7 +25,6 @@
     "join-smoke": "node scripts/join-smoke.mjs"
   },
   "dependencies": {
-    "@biscuit-auth/biscuit-wasm": "0.6.0",
     "@libp2p/interface": "3.2.5",
     "@statewalker/httpeers-access": "workspace:*",
     "@statewalker/httpeers-bridge": "workspace:*",
@@ -36,8 +35,8 @@
     "@statewalker/httpeers-qr": "workspace:*",
     "@statewalker/webrun-files": "catalog:",
     "@statewalker/webrun-files-mem": "catalog:",
-    "@statewalker/webrun-http-browser": "workspace:*",
-    "@statewalker/webrun-http-proxy": "workspace:*",
+    "@statewalker/webrun-http-browser": "^0.4.2",
+    "@statewalker/webrun-http-proxy": "^0.1.0",
     "hono": "catalog:"
   },
   "devDependencies": {
