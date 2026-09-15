@@ -13,10 +13,21 @@
  * empty is what is left.
  */
 
-/** A `Location` value at one of `origins` becomes root-relative; the empty remainder is `/`. */
+/**
+ * A `Location` value at one of `origins` becomes root-relative; the empty
+ * remainder is `/`. The match is CASE-INSENSITIVE (scheme and host are, per
+ * RFC 3986) and requires a real origin boundary after the prefix — `/`, `?`,
+ * `#` or end of string — so `http://litellm:4000` does not falsely match
+ * `http://litellm:40001/x` (a different host that merely starts with the same
+ * digits).
+ */
 export function rewriteLocation(value: string, origins: readonly string[]): string {
+  const lowerValue = value.toLowerCase();
   for (const origin of origins) {
-    if (value.startsWith(origin)) {
+    const lowerOrigin = origin.toLowerCase();
+    if (!lowerValue.startsWith(lowerOrigin)) continue;
+    const boundary = value.charAt(origin.length);
+    if (boundary === "" || boundary === "/" || boundary === "?" || boundary === "#") {
       const rest = value.slice(origin.length);
       return rest === "" ? "/" : rest;
     }

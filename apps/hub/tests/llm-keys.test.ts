@@ -6,7 +6,7 @@
 import { once } from "node:events";
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
 import type { AddressInfo } from "node:net";
-import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
 import { createKeys } from "../src/services/llm/keys.js";
 
 const HUB_PEER_ID = "H";
@@ -16,6 +16,8 @@ let server: Server;
 let upstream: string;
 let lastRequest: { url: string; headers: Record<string, string>; body: unknown } | undefined;
 let nextResponse: { status: number; body: unknown } = { status: 200, body: {} };
+let nextRedirect: string | undefined;
+let delayMs = 0;
 
 function readBody(req: IncomingMessage): Promise<string> {
   return new Promise((resolve, reject) => {
@@ -34,6 +36,15 @@ beforeAll(async () => {
       if (typeof value === "string") headers[name] = value;
     }
     lastRequest = { url: req.url ?? "/", headers, body: raw === "" ? undefined : JSON.parse(raw) };
+
+    if (delayMs > 0) await new Promise((resolve) => setTimeout(resolve, delayMs));
+
+    if (nextRedirect != null) {
+      res.writeHead(307, { location: nextRedirect });
+      res.end();
+      return;
+    }
+
     res.writeHead(nextResponse.status, { "content-type": "application/json" });
     res.end(JSON.stringify(nextResponse.body));
   });
@@ -41,6 +52,11 @@ beforeAll(async () => {
   await once(server, "listening");
   const { port } = server.address() as AddressInfo;
   upstream = `http://127.0.0.1:${port}`;
+});
+
+afterEach(() => {
+  nextRedirect = undefined;
+  delayMs = 0;
 });
 
 afterAll(() => {
@@ -57,13 +73,18 @@ function req(body: unknown, method = "POST"): Request {
 }
 
 describe("createKeys", () => {
-  it("forwards to /peers/<id>/llm/key/generate with Authorization: Bearer <masterKey>", async () => {
+  it("forwards to /peers/<id>/llm/key/generate with x-litellm-api-key: Bearer <masterKey>, never Authorization", async () => {
+    // IMPORTANT 1: the appliance sets litellm_key_header_name to
+    // x-litellm-api-key, so real LiteLLM reads the master key ONLY from that
+    // header and ignores Authorization entirely (spike Q3, measured) — the
+    // mesh token's own header must stay unused here.
     nextResponse = { status: 200, body: { key: "sk-new", key_alias: "a", expires: null } };
     const keys = createKeys({ upstream, masterKey: MASTER_KEY });
     const response = await keys(req({ key_alias: "a" }), HUB_PEER_ID);
     expect(response.status).toBe(200);
     expect(lastRequest?.url).toBe(`/peers/${HUB_PEER_ID}/llm/key/generate`);
-    expect(lastRequest?.headers.authorization).toBe(`Bearer ${MASTER_KEY}`);
+    expect(lastRequest?.headers["x-litellm-api-key"]).toBe(`Bearer ${MASTER_KEY}`);
+    expect(lastRequest?.headers.authorization).toBeUndefined();
     expect(lastRequest?.headers["content-type"]).toContain("application/json");
   });
 
@@ -123,6 +144,46 @@ describe("createKeys", () => {
     const body = (await response.json()) as { error: string; kind: string; detail: unknown };
     expect(body.kind).toBe("upstream-error");
     expect(body.detail).toEqual({ detail: "not allowed" });
+  });
+
+  it("a 2xx response without a string key is 502 { error, kind: upstream-error }", async () => {
+    nextResponse = { status: 200, body: { key_alias: "a", expires: null } }; // no `key`
+    const keys = createKeys({ upstream, masterKey: MASTER_KEY });
+    const response = await keys(req({ key_alias: "a" }), HUB_PEER_ID);
+    expect(response.status).toBe(502);
+    const body = (await response.json()) as { error: string; kind: string };
+    expect(body.kind).toBe("upstream-error");
+  });
+
+  it("minor 5: never follows a redirect (and so never re-sends the master key to it); reports upstream-error", async () => {
+    nextRedirect = "http://evil.test/steal-the-key";
+    const keys = createKeys({ upstream, masterKey: MASTER_KEY });
+    const response = await keys(req({ key_alias: "a" }), HUB_PEER_ID);
+    expect(response.status).toBe(502);
+    const body = (await response.json()) as { error: string; kind: string };
+    expect(body.kind).toBe("upstream-error");
+    // The fake server only ever sees the ORIGINAL request (this test's own
+    // upstream); nothing here proves a second request to evil.test never
+    // happened over the network, but `redirect: "manual"` is what makes that
+    // structurally true — Node's fetch never dereferences the Location itself.
+  });
+
+  it("minor 5: forwards the caller's abort signal to the upstream call", async () => {
+    delayMs = 2_000;
+    const keys = createKeys({ upstream, masterKey: MASTER_KEY });
+    const controller = new AbortController();
+    const request = new Request("http://mesh.local/llm/keys", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ key_alias: "a" }),
+      signal: controller.signal,
+    });
+    const pending = keys(request, HUB_PEER_ID);
+    controller.abort();
+    const response = await pending;
+    expect(response.status).toBe(502);
+    const body = (await response.json()) as { kind: string };
+    expect(body.kind).toBe("upstream-error");
   });
 
   it("400s an invalid body (not JSON, or not an object)", async () => {

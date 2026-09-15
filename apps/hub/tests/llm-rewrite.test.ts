@@ -32,6 +32,26 @@ describe("rewriteLocation", () => {
       "https://example.test/elsewhere",
     );
   });
+
+  it("matches case-insensitively (scheme and host)", () => {
+    expect(
+      rewriteLocation("HTTP://LLM.MESH.INVALID/peers/H/llm/ui/", [
+        "http://llm.mesh.invalid",
+        "https://llm.mesh.invalid",
+      ]),
+    ).toBe("/peers/H/llm/ui/");
+  });
+
+  it("requires a real origin boundary — a host that merely starts with the same digits does not match", () => {
+    // "http://litellm:40001" starts with "http://litellm:4000" as a raw
+    // string, but is a different host entirely.
+    expect(rewriteLocation("http://litellm:40001/x", ["http://litellm:4000"])).toBe(
+      "http://litellm:40001/x",
+    );
+    // "?" and "#" are also valid boundaries, not just "/".
+    expect(rewriteLocation("http://litellm:4000?a=1", ["http://litellm:4000"])).toBe("?a=1");
+    expect(rewriteLocation("http://litellm:4000#frag", ["http://litellm:4000"])).toBe("#frag");
+  });
 });
 
 describe("shouldRewriteBody", () => {

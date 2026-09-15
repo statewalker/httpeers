@@ -51,8 +51,13 @@ const POLICIES = [
 
 /** Build the `llm` service module — see the module comment for its routing. */
 export function llmModule(init: LlmModuleInit): ServiceModule {
-  const passthrough = createPassthrough({ upstream: init.upstream });
-  const keys = createKeys({ upstream: init.upstream, masterKey: init.masterKey });
+  // Normalized ONCE, here: `passthrough.ts` and `keys.ts` both build a target
+  // URL as `${upstream}/peers/...`, and a trailing slash on HUB_LLM_UPSTREAM
+  // would double up into `//peers/...` in both places if each stripped it
+  // independently (or, worse, if only one of them did).
+  const upstream = init.upstream.replace(/\/+$/, "");
+  const passthrough = createPassthrough({ upstream });
+  const keys = createKeys({ upstream, masterKey: init.masterKey });
   const openapiDocument = buildLlmOpenApi();
 
   return {

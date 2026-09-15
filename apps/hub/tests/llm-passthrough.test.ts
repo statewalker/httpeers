@@ -9,6 +9,7 @@
 import { once } from "node:events";
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
 import type { AddressInfo } from "node:net";
+import { gzipSync } from "node:zlib";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { createPassthrough } from "../src/services/llm/passthrough.js";
 
@@ -43,7 +44,31 @@ beforeAll(async () => {
 
     if (url === `/peers/${HUB_PEER_ID}/llm/v2/login` && req.method === "POST") {
       await readBody(req);
-      json(res, 200, { redirect_url: `${SENTINEL}/peers/${HUB_PEER_ID}/llm/ui/?login=success` });
+      const payload = { redirect_url: `${SENTINEL}/peers/${HUB_PEER_ID}/llm/ui/?login=success` };
+      if (req.headers["x-test-gzip"] === "1") {
+        const gz = gzipSync(Buffer.from(JSON.stringify(payload)));
+        res.writeHead(200, {
+          "content-type": "application/json",
+          "content-encoding": "gzip",
+          "content-length": String(gz.length),
+        });
+        res.end(gz);
+        return;
+      }
+      json(res, 200, payload);
+      return;
+    }
+
+    // A gzip-compressed body on a path NOT in the rewrite-gated list — exercises
+    // content-encoding stripping on the STREAMING branch (minor 1).
+    if (url === `/peers/${HUB_PEER_ID}/llm/gzip-stream`) {
+      const gz = gzipSync(Buffer.from(JSON.stringify({ ok: true })));
+      res.writeHead(200, {
+        "content-type": "application/json",
+        "content-encoding": "gzip",
+        "content-length": String(gz.length),
+      });
+      res.end(gz);
       return;
     }
 
@@ -203,6 +228,35 @@ describe("createPassthrough", () => {
     expect(body.note).toBe(`see ${SENTINEL}/docs`);
   });
 
+  it("minor 1: drops content-encoding and content-length on a gzipped rewritten body", async () => {
+    const passthrough = createPassthrough({ upstream });
+    const response = await passthrough(
+      new Request("http://mesh.local/llm/v2/login", {
+        method: "POST",
+        body: "{}",
+        headers: { "x-test-gzip": "1" },
+      }),
+      HUB_PEER_ID,
+    );
+    expect(response.headers.has("content-encoding")).toBe(false);
+    expect(response.headers.has("content-length")).toBe(false);
+    const body = (await response.json()) as { redirect_url: string };
+    // Still correctly decompressed AND rewritten, not just header-stripped.
+    expect(body.redirect_url).toBe(`/peers/${HUB_PEER_ID}/llm/ui/?login=success`);
+  });
+
+  it("minor 1: drops content-encoding and content-length on a gzipped streamed body", async () => {
+    const passthrough = createPassthrough({ upstream });
+    const response = await passthrough(
+      new Request("http://mesh.local/llm/gzip-stream"),
+      HUB_PEER_ID,
+    );
+    expect(response.headers.has("content-encoding")).toBe(false);
+    expect(response.headers.has("content-length")).toBe(false);
+    const body = (await response.json()) as { ok: boolean };
+    expect(body.ok).toBe(true);
+  });
+
   it("streams a body incrementally rather than buffering it (SSE)", async () => {
     const passthrough = createPassthrough({ upstream });
     const response = await passthrough(new Request("http://mesh.local/llm/sse"), HUB_PEER_ID);
@@ -227,13 +281,34 @@ describe("createPassthrough", () => {
     expect(lastAt - firstAt).toBeGreaterThan(80);
   });
 
-  it("rule 5: an unreachable upstream is reported as 502 { error, kind: upstream-unreachable }", async () => {
+  it("rule 5: an unreachable upstream is reported as 502 { error, kind: upstream-unreachable }, never naming the upstream", async () => {
     // Port 1 is a reserved, never-listening port on loopback.
-    const passthrough = createPassthrough({ upstream: "http://127.0.0.1:1" });
+    const unreachableUpstream = "http://127.0.0.1:1";
+    const passthrough = createPassthrough({ upstream: unreachableUpstream });
     const response = await passthrough(new Request("http://mesh.local/llm/v1/models"), HUB_PEER_ID);
     expect(response.status).toBe(502);
     const body = (await response.json()) as { error: string; kind: string };
     expect(body.kind).toBe("upstream-unreachable");
     expect(typeof body.error).toBe("string");
+    expect(body.error).not.toContain(unreachableUpstream);
+    expect(body.error).not.toContain("127.0.0.1");
+  });
+
+  it("rule 5: an opaque redirect from upstream is its own kind, upstream-redirect, never naming the upstream", async () => {
+    // `new Response(body, { status: 0 })` throws (confirmed directly), which
+    // is exactly why `urlUpstream` reports THIS via `response.type` instead —
+    // fabricate that with a fetch double, the only way to reach this branch
+    // outside a real browser/service-worker opaque redirect.
+    const fakeFetch = (async () => {
+      const opaque = new Response("redirected", { status: 200 });
+      Object.defineProperty(opaque, "type", { value: "opaqueredirect", configurable: true });
+      return opaque;
+    }) as typeof fetch;
+    const passthrough = createPassthrough({ upstream, fetchImpl: fakeFetch });
+    const response = await passthrough(new Request("http://mesh.local/llm/v1/models"), HUB_PEER_ID);
+    expect(response.status).toBe(502);
+    const body = (await response.json()) as { error: string; kind: string };
+    expect(body.kind).toBe("upstream-redirect");
+    expect(body.error).not.toContain(upstream);
   });
 });

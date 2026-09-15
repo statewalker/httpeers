@@ -105,7 +105,11 @@ export function buildLlmOpenApi(): LlmOpenApiDocument {
           operationId: "createKey",
           summary: "Mint a scoped LiteLLM key, using the hub's master key.",
           "x-httpeers-capability": "app:llm.admin",
-          security: SECURITY,
+          // NO llmKey security scheme here: unlike every other operation,
+          // this one is not forwarded to LiteLLM with a caller-supplied
+          // x-litellm-api-key at all — it is authorized purely by the mesh's
+          // own app:llm.admin capability, and the hub itself holds (and never
+          // exposes) the master key that actually talks to LiteLLM.
           requestBody: {
             required: true,
             content: jsonSchema({

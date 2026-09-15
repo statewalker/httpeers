@@ -2,53 +2,19 @@
  * The container entrypoint. Everything environment-shaped is here, so
  * `startDaemon` stays a function of its arguments.
  *
- * `main()` ONLY RUNS WHEN THIS FILE IS THE PROCESS ENTRY POINT (the guard at
- * the bottom). `modulesFor` is exported for `main.test.ts`, which needs to
- * import this file to reach it; without the guard, that import would itself
- * load real config from `process.env` and start contacting the real relay.
+ * NO ENTRY-POINT GUARD. `modulesFor` (the one piece worth unit-testing here)
+ * lives in `modules.ts` instead, precisely so this file can run
+ * unconditionally when executed — see that module's comment for why an
+ * `import.meta.url` vs. `argv[1]` guard is the wrong fix (it silently no-ops
+ * under a symlinked entrypoint).
  */
 
-import { pathToFileURL } from "node:url";
-import { type HubConfig, loadConfig } from "./config.js";
+import { loadConfig } from "./config.js";
 import { startDaemon } from "./daemon.js";
-import type { ServiceModule } from "./service-module.js";
-import { llmModule } from "./services/llm/index.js";
+import { modulesFor } from "./modules.js";
 
 /** Docker's default stop grace is 10 s; finish (or give up loudly) before SIGKILL. */
 const STOP_DEADLINE_MS = 8_000;
-
-/**
- * The built-in service modules, by id. `HUB_SERVICES` picks from these.
- *
- * `llm` needs both `HUB_LLM_UPSTREAM` and `LITELLM_MASTER_KEY`; enabling it
- * without either is a configuration error, not a silently half-working
- * service, so this throws before `startDaemon` ever runs.
- */
-const MODULES: Record<string, (config: HubConfig) => ServiceModule> = {
-  llm: (config) => {
-    if (config.llmUpstream == null || config.litellmMasterKey == null) {
-      const missing = [
-        config.llmUpstream == null ? "HUB_LLM_UPSTREAM" : null,
-        config.litellmMasterKey == null ? "LITELLM_MASTER_KEY" : null,
-      ].filter((name): name is string => name != null);
-      throw new Error(
-        `hub: HUB_SERVICES includes "llm" but ${missing.join(" and ")} ${missing.length > 1 ? "are" : "is"} not set`,
-      );
-    }
-    return llmModule({ upstream: config.llmUpstream, masterKey: config.litellmMasterKey });
-  },
-};
-
-export function modulesFor(config: HubConfig): ServiceModule[] {
-  return config.services.map((id) => {
-    const make = MODULES[id];
-    if (make == null) {
-      const known = Object.keys(MODULES).join(", ") || "none";
-      throw new Error(`hub: unknown service "${id}" in HUB_SERVICES (known: ${known})`);
-    }
-    return make(config);
-  });
-}
 
 async function main(): Promise<void> {
   const config = loadConfig(process.env);
@@ -83,9 +49,7 @@ async function main(): Promise<void> {
   process.once("SIGINT", () => shutdown("SIGINT"));
 }
 
-if (process.argv[1] != null && import.meta.url === pathToFileURL(process.argv[1]).href) {
-  main().catch((error: unknown) => {
-    console.log(`hub: failed to start: ${(error as Error).stack ?? error}`);
-    process.exit(1);
-  });
-}
+main().catch((error: unknown) => {
+  console.log(`hub: failed to start: ${(error as Error).stack ?? error}`);
+  process.exit(1);
+});

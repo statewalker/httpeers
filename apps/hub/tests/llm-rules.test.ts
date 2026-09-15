@@ -75,6 +75,12 @@ describe("the llm module's rules, behind withAccess", () => {
     expect(await statusFor("admin", "/llm/keys")).toBe(200);
     expect(await statusFor("admin", "/llm/ui/")).toBe(200);
 
+    // Minor 9: a member's capability policy names exact resource strings
+    // (the `.contains($r)` array) — nothing near-miss should slip through.
+    for (const path of ["/llm/v1/models-evil", "/llm/v1/models/", "/llmx"]) {
+      expect(await statusFor("member", path), path).toBe(403);
+    }
+
     // An anonymous connection has no usable token at all.
     const anon = withAccess({ issuer, rules, selfPeer, provenPeer: () => ANONYMOUS })(reached);
     expect(

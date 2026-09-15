@@ -66,6 +66,16 @@ describe("buildLlmOpenApi", () => {
     expect(Object.keys(responses).sort()).toEqual(["application/json", "text/event-stream"]);
   });
 
+  it("minor 7: /keys declares no llmKey security — it is never sent a caller x-litellm-api-key, the hub's master key authorizes it", () => {
+    const doc = buildLlmOpenApi();
+    expect((doc.paths["/keys"].post as Record<string, unknown>).security).toBeUndefined();
+    // Every other operation still does.
+    expect(doc.paths["/ui/"].get).toMatchObject({ security: [{ llmKey: [] }] });
+    expect(doc.paths["/v1/models"].get).toMatchObject({ security: [{ llmKey: [] }] });
+    expect(doc.paths["/v1/chat/completions"].post).toMatchObject({ security: [{ llmKey: [] }] });
+    expect(doc.paths["/v1/embeddings"].post).toMatchObject({ security: [{ llmKey: [] }] });
+  });
+
   it("/ui/ names the html-app resource and its entry", () => {
     const doc = buildLlmOpenApi();
     expect(doc.paths["/ui/"].get).toMatchObject({

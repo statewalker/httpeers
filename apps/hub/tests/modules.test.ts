@@ -1,13 +1,17 @@
 /**
- * `modulesFor` (`main.ts`): resolves `HUB_SERVICES` against the built-in
- * `MODULES` registry. `llm` is the one entry with its own preconditions —
+ * `modulesFor` (`src/modules.ts`): resolves `HUB_SERVICES` against the
+ * built-in registry. `llm` is the one entry with its own preconditions —
  * both `HUB_LLM_UPSTREAM` and `LITELLM_MASTER_KEY` must be set, or the
  * daemon must refuse to start with a clear error, before any network step.
+ *
+ * Deliberately does NOT import `main.ts`: that file's top-level `main()` call
+ * has a real side effect (starts a daemon against `process.env`); `modulesFor`
+ * lives in its own module precisely so this can exercise it without that.
  */
 
 import { describe, expect, it } from "vitest";
 import type { HubConfig } from "../src/config.js";
-import { modulesFor } from "../src/main.js";
+import { modulesFor } from "../src/modules.js";
 
 function configWith(overrides: Partial<HubConfig>): HubConfig {
   return {
