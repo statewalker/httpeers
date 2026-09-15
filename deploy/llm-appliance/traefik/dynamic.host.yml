@@ -9,7 +9,11 @@ http:
       rule: "PathPrefix(`/`)"
       entryPoints: ["web"]
       service: hub
-      middlewares: ["admin-auth"]
+      # Order matters: basic auth first, so only an authenticated request is
+      # forwarded with the door secret. `door-secret` is defined in
+      # door-secret.yml, generated at container start from $HUB_DOOR_SECRET
+      # (compose.yml's traefik command) -- never written to this repo.
+      middlewares: ["admin-auth", "door-secret"]
   middlewares:
     admin-auth:
       basicAuth:
@@ -17,5 +21,8 @@ http:
   services:
     hub:
       loadBalancer:
+        # The client's Host goes through unchanged (Traefik's default, stated
+        # here because the hub's HUB_DOOR_ALLOWED_HOSTS check depends on it).
+        passHostHeader: true
         servers:
           - url: "http://127.0.0.1:8787"

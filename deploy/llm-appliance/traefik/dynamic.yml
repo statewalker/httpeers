@@ -1,7 +1,8 @@
 # Traefik's file-provider dynamic config (static config is on the command
-# line in compose.yml). No secrets here: the basic-auth users file is
-# generated at container start from $ADMIN_HTPASSWD (see compose.yml's
-# `traefik` entrypoint override) and mounted separately — see README's
+# line in compose.yml). No secrets here: the basic-auth users file and the
+# door-secret middleware are generated at container start from
+# $ADMIN_HTPASSWD and $HUB_DOOR_SECRET (see compose.yml's
+# `traefik` entrypoint override), never stored in this directory — see README's
 # "Traefik and the admin htpasswd" section for why.
 #
 # One router for everything: the hub's local door already does its own
@@ -14,7 +15,11 @@ http:
       rule: "PathPrefix(`/`)"
       entryPoints: ["web"]
       service: hub
-      middlewares: ["admin-auth"]
+      # Order matters: basic auth first, so only an authenticated request is
+      # forwarded with the door secret. `door-secret` is defined in
+      # door-secret.yml, generated at container start from $HUB_DOOR_SECRET
+      # (compose.yml's traefik command) -- never written to this repo.
+      middlewares: ["admin-auth", "door-secret"]
   middlewares:
     admin-auth:
       basicAuth:
@@ -22,5 +27,8 @@ http:
   services:
     hub:
       loadBalancer:
+        # The client's Host goes through unchanged (Traefik's default, stated
+        # here because the hub's HUB_DOOR_ALLOWED_HOSTS check depends on it).
+        passHostHeader: true
         servers:
           - url: "http://hub:8787"

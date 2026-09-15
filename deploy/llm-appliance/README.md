@@ -25,6 +25,7 @@ access (to `relay.httpeers.net`) but publishes nothing except the admin door.
 ```sh
 cd deploy/llm-appliance
 cp .env.example .env
+chmod 600 .env
 ```
 
 ### Secrets
@@ -33,8 +34,8 @@ Fill in `.env` (never commit it — it's gitignored, along with `data/`):
 
 ```sh
 # LiteLLM's master key and its at-rest encryption key for stored credentials.
-LITELLM_MASTER_KEY="sk-$(openssl rand -hex 24)"
-LITELLM_SALT_KEY="sk-$(openssl rand -hex 24)"
+LITELLM_MASTER_KEY="sk-$(openssl rand -hex 32)"
+LITELLM_SALT_KEY="sk-$(openssl rand -hex 32)"
 
 # Postgres's password for the "litellm" user (compose.yml sets the user and
 # database name; only the password is a secret).
@@ -52,7 +53,15 @@ ADMIN_USER=admin
 ADMIN_PASSWORD="$(openssl rand -hex 12)"
 # If `htpasswd` isn't installed locally:
 ADMIN_HTPASSWD="$(docker run --rm httpd:2.4-alpine htpasswd -nbB "$ADMIN_USER" "$ADMIN_PASSWORD")"
+
+# The secret Traefik presents to the hub's local door (see "The admin door").
+# Letters, digits, "_" and "-" only: Traefik's start script writes it into its
+# config and refuses anything else.
+HUB_DOOR_SECRET="$(openssl rand -hex 32)"
 ```
+
+Every secret is required: `compose.yml` uses `${VAR:?}` for each, so
+`docker compose up` refuses to start with one unset or empty.
 
 Write each generated value into `.env` by hand (or script it — the snippet
 above is shell, not a file to source).
@@ -71,6 +80,28 @@ round-trip-safe re-serialization; the value the container actually receives
 was confirmed byte-for-byte correct (`docker compose run --rm traefik sh -c
 'echo $ADMIN_HTPASSWD'` prints the untouched hash).
 
+### The admin door
+
+Traefik on `127.0.0.1:8080` (basic auth) is the only way in to the hub's
+local door — the admin UI, `/hub/api/*`, and `/peers/<hubPeerId>/llm/*` with
+the master key. Not publishing the hub's port is **not** enough by itself: a
+Linux host routes to container bridge IPs, so every local process could
+otherwise reach `http://<hub-container-ip>:8787` unauthenticated, and a web
+page could through DNS rebinding. So the door checks every request:
+
+1. **`x-hub-door-secret`** must equal `HUB_DOOR_SECRET`, or **401**. Traefik
+   adds it after basic auth (the `door-secret` middleware, generated at
+   Traefik's start from `.env`), replacing any value a client sent. The hub
+   refuses to start without the secret.
+2. **`Host`** must be in `HUB_DOOR_ALLOWED_HOSTS` (default
+   `127.0.0.1:8080,localhost:8080` — Traefik passes the client's Host
+   through), or **421**. If you publish Traefik elsewhere, change both.
+3. A **non-GET/HEAD** request with an `Origin` must come from
+   `http://<an allowed host>`, or **403**.
+
+`scripts/health.sh` checks the last point from the outside: a direct request
+to the hub container's own address must be refused.
+
 ### Bring it up
 
 ```sh
@@ -88,9 +119,10 @@ long-running service `healthy` once it's ready.
 ## Using it
 
 - **Admin UI**: `http://127.0.0.1:8080/` (basic auth: `ADMIN_USER` /
-  `ADMIN_PASSWORD`). Shows the mesh id and relay/direct link mode, mints
-  invitations (with a QR code), lists members with revoke, and links to the
-  LiteLLM dashboard.
+  `ADMIN_PASSWORD`). Shows the mesh id and relay addresses, mints
+  invitations (with a QR code), lists members — each with the link the hub
+  currently has to it (`direct`, `relay`, or not connected) — with revoke, and
+  links to the LiteLLM dashboard.
 - **LiteLLM dashboard**: `http://127.0.0.1:8080/peers/<hubPeerId>/llm/ui/login/`
   (note the trailing slash — see "Rough edges" below), login with
   `UI_USERNAME` / `UI_PASSWORD`. `<hubPeerId>` is in `./data/hub/hub.env` and
@@ -101,10 +133,66 @@ long-running service `healthy` once it's ready.
   in `GET /peers/<id>/llm/v1/models` (their key needs no reconfiguration).
 - **Inviting a member**: mint an invitation in the admin UI (or
   `POST /hub/api/invitations {"roles":["member"]}` through the door), send
-  them the link. They open it, join, and (if allowed by their role) can
-  request their own LiteLLM key from the chat page.
+  them the link. They open it and join. A member **cannot mint a LiteLLM
+  key** (the hub answers 403); give them one — see "LLM keys" below.
 
-## Host networking (optional, Linux only)
+## LLM keys
+
+**Only admins mint keys.** Three ways, all equivalent for LiteLLM:
+
+- **The mesh page as an admin**: join `mesh.html` with an `admin` invitation
+  and press "Request a key". It mints a key with alias
+  `mesh-chat-<timestamp>` that **expires after 30 days** and has no budget.
+- **The door**: `POST /peers/<hubPeerId>/llm/keys` through Traefik. The hub
+  adds the master key itself and forwards only `key_alias`, `user_id`,
+  `models`, `max_budget`, `budget_duration`, `duration`, `tpm_limit`,
+  `rpm_limit` and `metadata`:
+
+  ```sh
+  curl -u "$ADMIN_USER:$ADMIN_PASSWORD" -H 'content-type: application/json' \
+    -d '{"key_alias":"alice","duration":"30d","max_budget":5,"budget_duration":"30d","rpm_limit":30}' \
+    "http://127.0.0.1:8080/peers/$HUB_PEER_ID/llm/keys"
+  ```
+
+- **LiteLLM's dashboard** ("Virtual Keys" → "Create New Key").
+
+**Issue one key per member, with limits** (`max_budget`, `rpm_limit`,
+`duration`), so one member's use is visible and bounded, and one key can be
+revoked without touching the others. The member pastes it into the chat
+page's Key step.
+
+**Removing a member from the mesh does NOT revoke their LiteLLM key.**
+`DELETE /hub/api/members/<peerId>` (or "Revoke" in the admin UI) takes away
+their mesh access, so they can no longer reach this hub's LLM service — but
+the key itself stays valid in LiteLLM, and anyone holding it who can reach
+the service (another member it was shared with) can still use it. Revoke the
+key in LiteLLM too: in the dashboard, or through the door with the master key:
+
+```sh
+curl -u "$ADMIN_USER:$ADMIN_PASSWORD" \
+  -H "x-litellm-api-key: Bearer $LITELLM_MASTER_KEY" -H 'content-type: application/json' \
+  -d '{"key_aliases":["alice"]}' \
+  "http://127.0.0.1:8080/peers/$HUB_PEER_ID/llm/key/delete"
+```
+
+(The master key goes in `x-litellm-api-key`, not `Authorization` —
+`litellm/config.yaml` points LiteLLM at that header.)
+
+### Known risk: the dashboard on an app origin
+
+LiteLLM's dashboard over the mesh (`https://<app origin>/peers/<id>/llm/ui/`)
+runs **in that app's origin**: it shares the origin's storage (localStorage,
+IndexedDB, cookies) and so the mesh identity that page holds, and the
+dashboard's scripts could read or use them — as could any other page served
+on that origin. Admins should open the dashboard from a **dedicated origin**
+(one that hosts nothing else and holds no identity worth protecting) or from
+the local door, `http://127.0.0.1:8080/peers/<hubPeerId>/llm/ui/login/`.
+
+## Host networking (EXPERIMENTAL, Linux only)
+
+**EXPERIMENTAL: never brought up, only validated with `docker compose
+config`.** Test it yourself before relying on it.
+
 
 By default the hub is bridge-networked, so members without a working WebRTC
 path always fall back to the relay circuit — this works everywhere but adds
@@ -126,10 +214,18 @@ older and doesn't support `!reset`, hand-edit `compose.yml` to drop the
 layering `compose.host.yml` on top, or upgrade Compose.
 
 This needs **Compose >= 2.24** (the `!reset` merge tag). It was **not
-exercised beyond `docker compose config`** in this task's verification — the
-verification below runs the default bridge/relay-fallback `compose.yml`
-only; this variant was never brought up (it would also collide with the
-already-running bridge stack and the spike's host-networked containers).
+exercised beyond `docker compose config`** — the default bridge/relay-fallback
+`compose.yml` is the one verified; this variant was never brought up (it
+would also collide with the already-running bridge stack).
+
+In this variant the door listens on the host's `127.0.0.1:8787`, gated exactly
+as above (door secret, Host allowlist, Origin). **LiteLLM is not published on
+the host**: the host-networked hub reaches it at a fixed bridge address
+(`LITELLM_BRIDGE_IP`, default `172.31.87.40`, on `APPLIANCE_SUBNET`, default
+`172.31.87.0/24` — pick one that does not collide with your networks). As in
+the default variant, local processes can route to that bridge address; LiteLLM's
+own authentication (master key, virtual keys, dashboard login) is what guards
+it.
 
 ## Backup and data
 
@@ -188,11 +284,11 @@ LiteLLM's own tables aren't keyed by `HUB_PEER_ID`.
 | --- | --- |
 | `../../apps/hub/Dockerfile` | The hub image (multi-stage; build context is the repo root) |
 | `compose.yml` | The appliance: hub, litellm, postgres, traefik |
-| `compose.host.yml` | Optional: direct WebRTC via host networking (Linux) |
+| `compose.host.yml` | EXPERIMENTAL: direct WebRTC via host networking (Linux) |
 | `compose.test.yml` | Local smoke test: a fake OpenAI upstream + model registration |
 | `.env.example` | Secrets template — copy to `.env` |
 | `litellm/config.yaml` | LiteLLM's config (the key-header fix; no secrets) |
 | `litellm-entrypoint.sh` | Waits for the hub's identity, sets `SERVER_ROOT_PATH`/`PROXY_BASE_URL`, execs LiteLLM |
-| `traefik/dynamic.yml`, `traefik/dynamic.host.yml` | Traefik's file-provider dynamic config (router, basic auth, service) |
+| `traefik/dynamic.yml`, `traefik/dynamic.host.yml` | Traefik's file-provider dynamic config (router, basic auth then the door secret, service); `door-secret.yml` is generated beside it at start |
 | `scripts/health.sh` | Smoke-checks the running stack through Traefik |
 | `test/fake-llm.mjs`, `test/register-model.mjs` | compose.test.yml's fake upstream and model-registration one-shot |

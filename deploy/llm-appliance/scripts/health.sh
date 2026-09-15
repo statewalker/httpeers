@@ -76,6 +76,29 @@ else
   fail "GET /peers/$HUB_PEER_ID/llm/openapi.json through Traefik -> $STATUS (expected 200)"
 fi
 
+# 6. The door refuses anyone but Traefik. A Linux host routes to container
+# bridge IPs, so "not published" alone is not a gate: straight to the hub
+# container's own address, without the door secret, must be 401 (or not
+# reachable at all, e.g. Docker Desktop, where bridge IPs are not routed).
+HUB_CID=$(docker compose ps -q hub 2>/dev/null)
+HUB_IPS=""
+if [ -n "$HUB_CID" ]; then
+  HUB_IPS=$(docker inspect -f '{{range .NetworkSettings.Networks}}{{.IPAddress}} {{end}}' "$HUB_CID" 2>/dev/null)
+fi
+[ "$(docker inspect -f '{{.HostConfig.NetworkMode}}' "$HUB_CID" 2>/dev/null)" = "host" ] && HUB_IPS="127.0.0.1"
+if [ -z "$(echo "$HUB_IPS" | tr -d ' ')" ]; then
+  fail "no address found for the hub container — cannot check the door refuses direct requests"
+else
+  for IP in $HUB_IPS; do
+    STATUS=$(curl -s -m 5 -o /dev/null -w '%{http_code}' "http://$IP:8787/hub/api/mesh")
+    if [ "$STATUS" = "401" ] || [ "$STATUS" = "000" ]; then
+      pass "direct to the hub at $IP:8787 without the door secret is refused ($STATUS)"
+    else
+      fail "direct to the hub at $IP:8787 without the door secret -> $STATUS (expected 401)"
+    fi
+  done
+fi
+
 echo ""
 if [ "$FAILED" -eq 0 ]; then
   echo "ALL PASS"

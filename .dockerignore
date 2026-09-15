@@ -22,7 +22,9 @@
 **/.turbo/
 **/*.tsbuildinfo
 .git/
-.env
-*.key
+# Secrets at ANY depth (see the `**/` note above): deploy/llm-appliance/.env
+# is not at the context root.
+**/.env
+**/*.key
 data/
 deploy/llm-appliance/data/

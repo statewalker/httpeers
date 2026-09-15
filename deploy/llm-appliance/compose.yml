@@ -11,6 +11,17 @@
 # unreachable from the host or the internet even though the network itself
 # can reach out.
 #
+# SECRETS. Every secret is `${VAR:?...}`: compose refuses to start with one
+# unset or empty, instead of starting a hub with an open door or a LiteLLM
+# with an empty master key.
+#
+# THE DOOR. Not publishing the hub's port is not enough on its own: a Linux
+# host routes to container bridge IPs, so any local process (or a browser page,
+# through DNS rebinding) could reach `<hub-ip>:8787`. The door therefore
+# answers only requests carrying `x-hub-door-secret: $HUB_DOOR_SECRET` -- which
+# Traefik adds, after basic auth, overwriting any client-sent value -- with a
+# `Host` in HUB_DOOR_ALLOWED_HOSTS (apps/hub/src/local-door.ts).
+#
 # RESTARTS. `restart: unless-stopped` on every long-running service: the hub
 # in particular exits 1 on a relay-fetch failure at start (a transient
 # network blip must not leave the appliance down until an operator notices).
@@ -25,20 +36,26 @@ services:
     restart: unless-stopped
     networks:
       - appliance
-    # NEVER published: the local door is unauthenticated (it never goes
-    # through `withAccess` — apps/hub/src/local-door.ts). Traefik, on
-    # 127.0.0.1:8080 with basic auth, is its only way in from the host.
+    # NEVER published. The local door never goes through `withAccess`
+    # (apps/hub/src/local-door.ts); its gate is Traefik (127.0.0.1:8080, basic
+    # auth) plus the door secret and Host allowlist Traefik satisfies.
     volumes:
       - ./data/hub:/data/hub
     environment:
       - HUB_SERVICES=llm
       - HUB_LLM_UPSTREAM=http://litellm:4000
       - HUB_JOIN_PAGE_URL=${HUB_JOIN_PAGE_URL:-https://llm-chat.httpeers.net/mesh.html}
-      - LITELLM_MASTER_KEY=${LITELLM_MASTER_KEY}
+      - LITELLM_MASTER_KEY=${LITELLM_MASTER_KEY:?set LITELLM_MASTER_KEY in .env}
+      - HUB_DOOR_SECRET=${HUB_DOOR_SECRET:?set HUB_DOOR_SECRET in .env}
+      # The Host a browser uses to reach Traefik (it passes Host through).
+      # Change it together with Traefik's published port.
+      - HUB_DOOR_ALLOWED_HOSTS=${HUB_DOOR_ALLOWED_HOSTS:-127.0.0.1:8080,localhost:8080}
     healthcheck:
       # Both halves of "the hub is up": its identity is written (`hub.env`,
-      # apps/hub/src/identity.ts) AND the local door answers — Node 24 has a
-      # global `fetch`, so no extra tooling is needed in the runtime image.
+      # apps/hub/src/identity.ts) AND the local door answers. `node:http`, not
+      # `fetch`: the door answers only an allowed Host (the one Traefik passes
+      # through), and `fetch` cannot set Host. No `$` in this script -- compose
+      # would interpolate it.
       test:
         - CMD
         - node
@@ -46,9 +63,20 @@ services:
         - |
           const fs = require("node:fs");
           if (!fs.existsSync("/data/hub/hub.env")) process.exit(1);
-          fetch("http://127.0.0.1:8787/hub/api/mesh")
-            .then((r) => process.exit(r.ok ? 0 : 1))
-            .catch(() => process.exit(1));
+          const host = (process.env.HUB_DOOR_ALLOWED_HOSTS || "").split(",")[0].trim();
+          require("node:http")
+            .get(
+              {
+                host: "127.0.0.1",
+                port: 8787,
+                path: "/hub/api/mesh",
+                headers: { host, "x-hub-door-secret": process.env.HUB_DOOR_SECRET },
+                timeout: 4000,
+              },
+              (r) => process.exit(r.statusCode === 200 ? 0 : 1),
+            )
+            .on("error", () => process.exit(1))
+            .on("timeout", () => process.exit(1));
       interval: 5s
       timeout: 5s
       retries: 24
@@ -63,7 +91,7 @@ services:
       - ./data/postgres:/var/lib/postgresql/data
     environment:
       - POSTGRES_USER=litellm
-      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}
       - POSTGRES_DB=litellm
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U litellm"]
@@ -90,11 +118,11 @@ services:
       # Read-only: this container only ever reads the hub's identity.
       - ./data/hub:/data/hub:ro
     environment:
-      - DATABASE_URL=postgresql://litellm:${POSTGRES_PASSWORD}@postgres:5432/litellm
-      - LITELLM_MASTER_KEY=${LITELLM_MASTER_KEY}
-      - LITELLM_SALT_KEY=${LITELLM_SALT_KEY}
-      - UI_USERNAME=${UI_USERNAME}
-      - UI_PASSWORD=${UI_PASSWORD}
+      - DATABASE_URL=postgresql://litellm:${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}@postgres:5432/litellm
+      - LITELLM_MASTER_KEY=${LITELLM_MASTER_KEY:?set LITELLM_MASTER_KEY in .env}
+      - LITELLM_SALT_KEY=${LITELLM_SALT_KEY:?set LITELLM_SALT_KEY in .env}
+      - UI_USERNAME=${UI_USERNAME:?set UI_USERNAME in .env}
+      - UI_PASSWORD=${UI_PASSWORD:?set UI_PASSWORD in .env}
       - STORE_MODEL_IN_DB=True
     entrypoint: ["/bin/sh", "/litellm-entrypoint.sh"]
     healthcheck:
@@ -128,9 +156,10 @@ services:
     ports:
       - "127.0.0.1:8080:8080"
     volumes:
-      - ./traefik/dynamic.yml:/etc/traefik/dynamic.yml:ro
+      - ./traefik/dynamic.yml:/etc/traefik/dynamic/dynamic.yml:ro
     environment:
-      - ADMIN_HTPASSWD=${ADMIN_HTPASSWD}
+      - ADMIN_HTPASSWD=${ADMIN_HTPASSWD:?set ADMIN_HTPASSWD in .env}
+      - HUB_DOOR_SECRET=${HUB_DOOR_SECRET:?set HUB_DOOR_SECRET in .env}
     # Static config is these command flags (no static config file needed).
     # The container's own entrypoint.sh is bypassed: ADMIN_HTPASSWD (an
     # htpasswd line, containing literal "$" — bcrypt/MD5-crypt hash
@@ -142,12 +171,22 @@ services:
     # that entirely for the dynamic config, at the cost of needing it here,
     # in the one place ADMIN_HTPASSWD's literal value is written out — see
     # README's "Traefik and the admin htpasswd" section.
+    #
+    # THE DOOR SECRET is written the same way, as a second file-provider file
+    # (`door-secret.yml`, the `door-secret` middleware dynamic.yml chains after
+    # basic auth) in the directory the provider reads. Traefik's `headers`
+    # middleware SETS a custom request header, replacing any value the client
+    # sent. The secret must be hex/base64url characters (openssl rand -hex 32),
+    # so it needs no YAML quoting; anything else refuses to start.
     entrypoint: ["/bin/sh", "-c"]
     command:
       - >-
+        case "$$HUB_DOOR_SECRET" in ''|*[!A-Za-z0-9_-]*)
+        echo "traefik: HUB_DOOR_SECRET must be non-empty [A-Za-z0-9_-]" >&2; exit 1;; esac &&
         printf '%s\n' "$$ADMIN_HTPASSWD" > /etc/traefik/usersfile &&
+        printf 'http:\n  middlewares:\n    door-secret:\n      headers:\n        customRequestHeaders:\n          X-Hub-Door-Secret: "%s"\n' "$$HUB_DOOR_SECRET" > /etc/traefik/dynamic/door-secret.yml &&
         exec traefik
         --entrypoints.web.address=:8080
-        --providers.file.filename=/etc/traefik/dynamic.yml
+        --providers.file.directory=/etc/traefik/dynamic
         --providers.file.watch=true
         --log.level=INFO

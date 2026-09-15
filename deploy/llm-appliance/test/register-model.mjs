@@ -11,8 +11,13 @@
  * `Authorization`, carries the master key (global-constraints.md; measured
  * in the spike: with `litellm_key_header_name` configured, LiteLLM ignores
  * `Authorization` for this entirely).
+ *
+ * THE DOOR ANSWERS ONLY ITS PROXY: this presents `x-hub-door-secret` and an
+ * allowed `Host`, as Traefik does. `node:http`, not `fetch`, because `fetch`
+ * cannot set Host.
  */
 import { readFileSync } from "node:fs";
+import { request } from "node:http";
 
 const env = readFileSync("/data/hub/hub.env", "utf8");
 const match = env.match(/HUB_PEER_ID=(\S+)/);
@@ -27,22 +32,48 @@ if (!masterKey) {
   process.exit(1);
 }
 
-const base = `http://hub:8787/peers/${hubPeerId}/llm`;
-const response = await fetch(`${base}/model/new`, {
-  method: "POST",
-  headers: {
-    "content-type": "application/json",
-    "x-litellm-api-key": `Bearer ${masterKey}`,
+const doorSecret = process.env.HUB_DOOR_SECRET;
+const doorHost = (process.env.HUB_DOOR_ALLOWED_HOSTS ?? "").split(",")[0]?.trim();
+if (!doorSecret || !doorHost) {
+  console.error("register-model: HUB_DOOR_SECRET and HUB_DOOR_ALLOWED_HOSTS must be set");
+  process.exit(1);
+}
+
+const path = `/peers/${hubPeerId}/llm/model/new`;
+const body = JSON.stringify({
+  model_name: "fake",
+  litellm_params: {
+    model: "openai/fake-model",
+    api_base: "http://fake-llm:4000/v1",
+    api_key: "x",
   },
-  body: JSON.stringify({
-    model_name: "fake",
-    litellm_params: {
-      model: "openai/fake-model",
-      api_base: "http://fake-llm:4000/v1",
-      api_key: "x",
-    },
-  }),
 });
-const text = await response.text();
-console.log(`register-model: POST ${base}/model/new -> ${response.status} ${text}`);
-process.exit(response.ok ? 0 : 1);
+const { status, text } = await new Promise((resolve, reject) => {
+  const req = request(
+    {
+      host: "hub",
+      port: 8787,
+      method: "POST",
+      path,
+      headers: {
+        host: doorHost,
+        "x-hub-door-secret": doorSecret,
+        "content-type": "application/json",
+        "content-length": Buffer.byteLength(body),
+        "x-litellm-api-key": `Bearer ${masterKey}`,
+      },
+    },
+    (res) => {
+      let text = "";
+      res.setEncoding("utf8");
+      res.on("data", (chunk) => {
+        text += chunk;
+      });
+      res.on("end", () => resolve({ status: res.statusCode ?? 0, text }));
+    },
+  );
+  req.on("error", reject);
+  req.end(body);
+});
+console.log(`register-model: POST hub:8787${path} -> ${status} ${text}`);
+process.exit(status >= 200 && status < 300 ? 0 : 1);

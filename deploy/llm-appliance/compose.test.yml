@@ -45,6 +45,10 @@ services:
       - ./data/hub:/data/hub:ro
       - ./test/register-model.mjs:/register-model.mjs:ro
     environment:
-      - LITELLM_MASTER_KEY=${LITELLM_MASTER_KEY}
+      - LITELLM_MASTER_KEY=${LITELLM_MASTER_KEY:?set LITELLM_MASTER_KEY in .env}
+      # It calls the hub's door directly, so it presents what Traefik would:
+      # the door secret and an allowed Host.
+      - HUB_DOOR_SECRET=${HUB_DOOR_SECRET:?set HUB_DOOR_SECRET in .env}
+      - HUB_DOOR_ALLOWED_HOSTS=${HUB_DOOR_ALLOWED_HOSTS:-127.0.0.1:8080,localhost:8080}
     command: ["node", "/register-model.mjs"]
     restart: "no"
