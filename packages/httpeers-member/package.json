@@ -71,7 +71,7 @@
     "@libp2p/tcp": "11.0.26",
     "@libp2p/webrtc": "6.0.29",
     "@libp2p/websockets": "10.1.19",
-    "@statewalker/webrun-http-browser": "workspace:*",
+    "@statewalker/webrun-http-browser": "^0.4.2",
     "@types/node": "catalog:",
     "idb-keyval": "^6.3.0",
     "libp2p": "3.3.8",

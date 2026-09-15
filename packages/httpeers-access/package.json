@@ -2,7 +2,7 @@
   "name": "@statewalker/httpeers-access",
   "version": "0.1.0",
   "type": "module",
-  "description": "Who is calling, and may they. Biscuit tokens, Datalog policy, revocation and one middleware \u2014 with no libp2p in the graph.",
+  "description": "Who is calling, and may they. Biscuit tokens, Datalog policy, revocation and one middleware — with no libp2p in the graph.",
   "license": "MIT",
   "repository": {
     "type": "git",
