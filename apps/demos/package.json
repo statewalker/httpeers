@@ -3,7 +3,7 @@
   "version": "0.1.0",
   "private": true,
   "type": "module",
-  "description": "The four demo sites — hub, app, images and proxy — built on the extracted libraries.",
+  "description": "The four demo sites \u2014 hub, app, images and proxy \u2014 built on the extracted libraries.",
   "scripts": {
     "build": "pnpm run build:hub && pnpm run build:images && pnpm run build:app && pnpm run build:proxy",
     "build:hub": "node scripts/copy-assets.mjs && vite build --config vite.hub.config.ts",
@@ -25,7 +25,6 @@
     "join-smoke": "node scripts/join-smoke.mjs"
   },
   "dependencies": {
-    "@biscuit-auth/biscuit-wasm": "0.6.0",
     "@libp2p/interface": "3.2.5",
     "@statewalker/httpeers-access": "workspace:*",
     "@statewalker/httpeers-bridge": "workspace:*",

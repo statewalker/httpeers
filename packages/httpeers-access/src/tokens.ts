@@ -133,16 +133,7 @@
  * predicate -> unsatisfied check -> deny, A-20) rather than silently comparing
  * two different notions of time.
  */
-import {
-  AuthorizerBuilder,
-  Biscuit,
-  BiscuitBuilder,
-  KeyPair,
-  PrivateKey,
-  PublicKey,
-  Rule,
-  SignatureAlgorithm,
-} from "@biscuit-auth/biscuit-wasm";
+
 import type {
   Anonymous,
   MeshClaims,
@@ -150,84 +141,42 @@ import type {
   TokenRejectionReason,
 } from "@statewalker/httpeers-core";
 import { ANONYMOUS } from "@statewalker/httpeers-core";
+import {
+  Biscuit,
+  SignatureError,
+  type VerifiedBiscuit,
+  type WorldSnapshot,
+} from "@statewalker/webrun-biscuit";
+import {
+  datalog,
+  type EngineLimits,
+  evaluate,
+  failedCheckTexts,
+  queryFirstTerms,
+} from "./biscuit.js";
 import { type IssuerKeys, meshIdProblem, publicKeyOf, selfCertifyingKeys } from "./keys.js";
 import type { Signer } from "./signer.js";
 
 /**
- * The evaluation budget (spec P9, ADR-0019), and NOT an optional hardening
- * measure: `Authorizer.authorize()` with this build's default limits throws
- * `{ RunLimit: 'Timeout' }` on a single-fact policy, so every authorization
- * goes through `authorizeWithLimits`. The ceiling is far above any legitimate
- * evaluation; it is here so that a pathological one — a token carrying a rule
- * set that explodes combinatorially — denies with `TooManyFacts` instead of
- * becoming a denial of service. `rules.test.ts` proves that, and asserts
- * `TooManyFacts` BY NAME: which limit fires is the whole point, because only
- * `max_facts` and `max_iterations` count work and therefore fire on the same
- * inputs every time.
+ * The evaluation budget (spec P9, ADR-0019). The ceiling is far above any
+ * legitimate evaluation; it is here so that a pathological one — a token
+ * carrying a rule set that explodes combinatorially — denies with
+ * `TooManyFacts` instead of becoming a denial of service. `rules.test.ts`
+ * proves that.
  *
- * `max_time_micro` IS VESTIGIAL IN THIS BUILD, and it is left at one second
- * rather than raised because raising it changes nothing. The wasm reports
- * `Timeout` spuriously and independently of this number — measured: with the
- * budget at THIRTY seconds, a decision that took 13 ms still came back
- * `Timeout` under CPU contention. See `retryOnSpuriousTimeout` in `rules.ts`,
- * which is the actual mitigation, and `warmUpTokens` below, which is the same
- * defect's first-call form (prototype 10's finding F2).
+ * The shape (snake_case, microseconds) is kept from the wasm era because it is
+ * public API; `ENGINE_LIMITS` is what the engine takes. Unlike the wasm build,
+ * `max_time_micro` is real here: a `Timeout` is a measured wall clock, never a
+ * spurious report, so nothing retries it.
  */
 export const LIMITS = { max_facts: 5_000, max_iterations: 200, max_time_micro: 1_000_000 };
 
-/** How many times a `Timeout` is re-tried before it is believed. Three, as in `warmUpTokens`. */
-const TIMEOUT_ATTEMPTS = 3;
-
-function hasRunLimit(error: unknown): error is { RunLimit: unknown } {
-  return typeof error === "object" && error !== null && "RunLimit" in error;
-}
-
-/** A `Timeout` from this wasm build is a glitch to re-try; every other RunLimit is an answer. */
-export function isSpuriousTimeout(error: unknown): boolean {
-  return hasRunLimit(error) && String(error.RunLimit) === "Timeout";
-}
-
-/**
- * Run a wasm evaluation, disbelieving the first `RunLimit: Timeout`.
- *
- * THIS BUILD REPORTS `Timeout` SPURIOUSLY, AND IT COSTS A LEGITIMATE ANSWER.
- * Prototype 10's finding F2 recorded the first-call form — a fresh process
- * times out regardless of `max_time_micro` — and `warmUpTokens` has absorbed
- * that since. Measured here: it is not only the first call. Under CPU
- * contention (16 busy processes on 8 cores), 4 of 300 legitimate ADMIN
- * authorizations came back `Timeout` while the median decision took 0.19 ms,
- * and raising the budget to THIRTY seconds did not reduce it — which is what
- * proves the report is spurious rather than a real exhaustion. It first
- * surfaced as a 1-in-5 failure of this package's own suite under parallel load.
- *
- * WHAT IT COSTS WHEN NOT MITIGATED, per call site: a denied authorization
- * (`rules.ts`), a REJECTED VALID TOKEN (`verifyToken`), or a thrown
- * `deriveCapabilities`. All three are a legitimate member being turned away
- * because the machine was busy.
- *
- * WHY RETRYING IS SOUND. These evaluations are pure functions of the rule set
- * and the facts, so the same run twice must reach the same answer: a retry
- * cannot manufacture an allow that was not already there. A GENUINE exhaustion
- * reproduces on every attempt and still fails closed. And `TooManyFacts` — the
- * limit that actually bounds a pathological rule set, because it counts work
- * rather than elapsed time — is deliberately NOT retried, so the
- * denial-of-service bound is untouched.
- *
- * Failing closed is right when the INPUT is suspect. It is not right when the
- * VERDICT is.
- */
-export function retryOnSpuriousTimeout<T>(run: () => T): T {
-  let last: unknown;
-  for (let attempt = 0; attempt < TIMEOUT_ATTEMPTS; attempt++) {
-    try {
-      return run();
-    } catch (error) {
-      if (!isSpuriousTimeout(error)) throw error;
-      last = error;
-    }
-  }
-  throw last;
-}
+/** @internal `LIMITS` in the engine's own units. */
+export const ENGINE_LIMITS: EngineLimits = {
+  maxFacts: LIMITS.max_facts,
+  maxIterations: LIMITS.max_iterations,
+  maxTimeMs: LIMITS.max_time_micro / 1000,
+};
 
 /**
  * `generateMeshKey` used to live here, returning libp2p's `Ed25519PrivateKey`.
@@ -291,15 +240,18 @@ export class TokenVerificationError extends Error {
  * key, which is the whole reason a token minted here verifies against a hub's
  * peerId.
  */
-function signingKeyFor(seed: Uint8Array): PrivateKey {
-  return PrivateKey.fromBytes(seed, SignatureAlgorithm.Ed25519);
+function signingKeyFor(seed: Uint8Array): Uint8Array {
+  return seed;
 }
 
 /**
  * Recover the root public key from a mesh id. Local computation, never a fetch
  * — see `keys.ts` for why a peerId is its own key and what that saves.
  */
-async function rootKeysFor(issuer: string, keys: IssuerKeys | undefined): Promise<PublicKey[]> {
+async function rootKeysFor(
+  issuer: string,
+  keys: IssuerKeys | undefined,
+): Promise<readonly Uint8Array[]> {
   if (keys === undefined) return [rootKeyFor(issuer)];
   const raw = await keys.resolve(issuer);
   if (raw.length === 0) {
@@ -312,10 +264,10 @@ async function rootKeysFor(issuer: string, keys: IssuerKeys | undefined): Promis
       "no verifying key is available for this mesh",
     );
   }
-  return raw.map((bytes) => PublicKey.fromBytes(bytes, SignatureAlgorithm.Ed25519));
+  return raw;
 }
 
-function rootKeyFor(issuer: string): PublicKey {
+function rootKeyFor(issuer: string): Uint8Array {
   const raw = publicKeyOf(issuer);
   if (raw == null) {
     // The two reasons are kept apart deliberately. "Not a peerId" and "a
@@ -330,66 +282,19 @@ function rootKeyFor(issuer: string): PublicKey {
     }
     throw new TokenVerificationError("unparseable-issuer", "issuer peerId is not parseable");
   }
-  return PublicKey.fromBytes(raw, SignatureAlgorithm.Ed25519);
+  return raw;
 }
 
 // ---------------------------------------------------------------------------
 // Warm-up
 // ---------------------------------------------------------------------------
 
-let warmedUp = false;
-
 /**
- * Absorb the first authorization in this process on a throwaway key.
- *
- * Two reasons, one measured and one inherited. Measured: the first
- * `authorizeWithLimits` in a process costs ~20 ms of one-time wasm warm-up and
- * every later one costs ~0.1 ms; paying that at start-up keeps it off a real
- * request. Inherited: prototype 10's finding F2 records that in this build the
- * first call throws `{ RunLimit: 'Timeout' }` *regardless* of `max_time_micro`,
- * so a peer that skips this fails its first authorized request closed for no
- * reason. F2 did NOT reproduce here — under Node 24.8, in vitest and under
- * `tsx`, the first call succeeds in ~20 ms against `LIMITS`' 1-second budget —
- * but the failure mode is a spurious denial of a legitimate request on a
- * machine slower than this one, and the mitigation costs one key generation.
- * It stays until the defect is understood.
- *
- * Idempotent, synchronous, and never throws: `verifyToken` calls it lazily, so
- * no caller has to remember. An application may call it at start-up to move
- * the cost off its first request.
+ * A no-op, kept because it is public API. It absorbed the wasm build's
+ * one-time instantiation cost and its spurious first-call `Timeout`
+ * (prototype 10's finding F2); a TypeScript engine has neither.
  */
-export function warmUpTokens(attempts = 3): void {
-  if (warmedUp) return;
-  warmedUp = true;
-  try {
-    // A fixed, published seed: this key signs nothing but the throwaway token
-    // below, which never leaves this function, so there is nothing to protect
-    // and one less source of nondeterminism at start-up.
-    const pair = KeyPair.fromPrivateKey(
-      PrivateKey.fromBytes(new Uint8Array(32).fill(7), SignatureAlgorithm.Ed25519),
-    );
-    const builder = new BiscuitBuilder();
-    builder.addCode("warm(true); check if time_ms($t), $t < 1;");
-    // Keep the BYTES, not the parsed token: these wasm handles are consumed by
-    // the call that takes them, so a retry that reused one would fail with a
-    // null-pointer trap instead of retrying. Everything is rebuilt per attempt.
-    const bytes = builder.build(pair.getPrivateKey()).toBase64();
-    for (let i = 0; i < attempts; i++) {
-      const authorizer = new AuthorizerBuilder();
-      authorizer.addCode("time_ms(0); allow if warm(true);");
-      try {
-        authorizer
-          .buildAuthenticated(Biscuit.fromBase64(bytes, pair.getPublicKey()))
-          .authorizeWithLimits(LIMITS);
-        return;
-      } catch {
-        /* the defect this function exists for; retry */
-      }
-    }
-  } catch {
-    /* warming up is best-effort — never let it break the caller */
-  }
-}
+export function warmUpTokens(_attempts = 3): void {}
 
 // ---------------------------------------------------------------------------
 // Mint
@@ -450,8 +355,8 @@ export async function mintToken(options: MintTokenOptions): Promise<string> {
       `mintToken: iat and exp must be safe integer milliseconds (got iat=${iat}, exp=${exp})`,
     );
   }
-  // Same wasm-boundary guard as `verifyToken` — a non-string here traps rather
-  // than throwing, and the trap says nothing about where it came from.
+  // Same input guard as `verifyToken` — `datalog` would throw a TypeError, but
+  // one that does not name the option that was wrong.
   if (typeof options.sub !== "string") {
     throw new TypeError("mintToken: sub must be a peerId string");
   }
@@ -473,23 +378,20 @@ export async function mintToken(options: MintTokenOptions): Promise<string> {
   }
   const mesh = options.signer.mesh;
 
-  const builder = new BiscuitBuilder();
-  builder.addCodeWithParameters(
-    "mesh({mesh}); subject({sub}); bound({sub}); issued_at({iat}); expires_at({exp});",
-    { mesh, sub: options.sub, iat, exp },
-    {},
-  );
+  const code: string[] = [
+    datalog`mesh(${mesh}); subject(${options.sub}); bound(${options.sub}); issued_at(${iat}); expires_at(${exp});`,
+  ];
   for (const role of options.roles) {
-    builder.addCodeWithParameters("role({role});", { role }, {});
+    code.push(datalog`role(${role});`);
   }
   // ADR-0009: the token is usable only over a connection that proved its
   // subject. Stated as a check in the AUTHORITY block, where a later appended
   // block's facts are invisible to it — see the module comment.
-  builder.addCode("check if bound($k), connection_peer($k);");
+  code.push("check if bound($k), connection_peer($k);");
   // Self-certification: the mesh this token names must be the mesh whose key
   // just verified it. The signature already proves the signer holds that key;
   // this catches a hub that signed a token naming somebody else's mesh.
-  builder.addCode("check if mesh($m), root_mesh($m);");
+  code.push("check if mesh($m), root_mesh($m);");
   // ADR-0020: the audience, and it is ALWAYS stated — see "THE AUDIENCE" and
   // "UNRESTRICTED IS A STATE, NOT A SILENCE" in the module comment. Both
   // branches are a fact plus a check in the AUTHORITY block, so a later block
@@ -497,21 +399,21 @@ export async function mintToken(options: MintTokenOptions): Promise<string> {
   // DESTINATION, which is what makes the destination the one that enforces.
   if (options.audience !== undefined) {
     for (const peer of options.audience) {
-      builder.addCodeWithParameters("audience({peer});", { peer }, {});
+      code.push(datalog`audience(${peer});`);
     }
-    builder.addCode("check if audience($k), self_peer($k);");
+    code.push("check if audience($k), self_peer($k);");
   } else {
     // Biscuit predicates take at least one term, so the marker carries one:
     // `audience_unrestricted()` is a parse error (prototype 10, finding F5).
-    builder.addCode("audience_unrestricted(true);");
-    builder.addCode("check if audience_unrestricted(true);");
+    code.push("audience_unrestricted(true);");
+    code.push("check if audience_unrestricted(true);");
   }
   // Expiry, against the verifier's clock. The bound is INLINED rather than
   // read from `expires_at($e)`: a check is existential, so a rule that read the
   // fact would be satisfiable by any later `expires_at` a block cared to add.
-  builder.addCodeWithParameters("check if time_ms($t), $t < {exp};", { exp }, {});
+  code.push(datalog`check if time_ms($t), $t < ${exp};`);
 
-  return builder.build(signingKeyFor(options.signer.seed)).toBase64();
+  return Biscuit.build(signingKeyFor(options.signer.seed), code.join("\n")).toBase64();
 }
 
 // ---------------------------------------------------------------------------
@@ -566,13 +468,9 @@ export interface VerifyTokenOptions {
 
 /** Verify a Biscuit membership token and return the claims its authority block carries. */
 export async function verifyToken(token: string, options: VerifyTokenOptions): Promise<MeshClaims> {
-  warmUpTokens();
-  // Guard the wasm boundary before anything reaches it. `addCodeWithParameters`
-  // given a value it has no term type for does not throw — it traps, and a wasm
-  // `RuntimeError: unreachable` surfaces from deep inside the binding shim with
-  // no indication of which caller was wrong. A `connectionPeer` of `undefined`
-  // (a caller on an untyped path, or one written before this argument existed)
-  // is the way that happens in practice, so it is named here instead.
+  // Guard the inputs before anything reaches the engine: `datalog` would throw
+  // a TypeError anyway, but naming the argument is what tells a caller on an
+  // untyped path which one was wrong.
   if (typeof token !== "string") {
     throw new TokenVerificationError("malformed-token", "token must be a string");
   }
@@ -592,64 +490,43 @@ export async function verifyToken(token: string, options: VerifyTokenOptions): P
 
   const now = options.now ?? Date.now;
 
-  // THE WHOLE EVALUATION IS REBUILT PER ATTEMPT — parse included. The wasm
-  // handles are consumed by the calls that take them (`buildAuthenticated`
-  // consumes `parsed`), so a retry that reused one would trap on a null
-  // pointer rather than retry. See `retryOnSpuriousTimeout` for why a retry is
-  // here at all: this build reports `Timeout` spuriously, and at THIS call
-  // site the cost of believing it is a VALID MEMBER'S TOKEN REJECTED because
-  // the machine was busy.
-  //
-  // Nothing else is retried. A parse failure, a failed check and a real budget
-  // exhaustion all rethrow on the first attempt, so a bad token stays exactly
-  // as expensive to reject as it was.
-  return retryOnSpuriousTimeout(() => {
-    let parsed: Biscuit | undefined;
-    let lastParseError: unknown;
-    for (const root of roots) {
-      try {
-        parsed = Biscuit.fromBase64(token, root);
-        break;
-      } catch (error) {
-        lastParseError = error;
-      }
-    }
-    if (parsed === undefined) throw parseFailure(lastParseError);
-
-    const builder = new AuthorizerBuilder();
-    builder.addCodeWithParameters(
-      "root_mesh({mesh}); time_ms({now});",
-      { mesh: options.issuer, now: now() },
-      {},
-    );
-    if (options.connectionPeer !== ANONYMOUS) {
-      builder.addCodeWithParameters(
-        "connection_peer({peer});",
-        { peer: options.connectionPeer },
-        {},
-      );
-    }
-    // The destination's statement about itself, which the token's audience check
-    // consumes (ADR-0020). Omitted, nothing satisfies `audience($k), self_peer($k)`.
-    if (options.selfPeer !== undefined) {
-      builder.addCodeWithParameters("self_peer({peer});", { peer: options.selfPeer }, {});
-    }
-    // This verifier contributes no policy of its own — the token's checks are the
-    // whole decision.
-    builder.addCode("allow if true;");
-
-    const authorizer = builder.buildAuthenticated(parsed);
+  let verified: VerifiedBiscuit | undefined;
+  let lastParseError: unknown;
+  for (const root of roots) {
     try {
-      authorizer.authorizeWithLimits(LIMITS);
+      verified = Biscuit.fromBase64(token).verify(root);
+      break;
     } catch (error) {
-      // A spurious Timeout must reach the retry as itself; everything else is
-      // a verdict and is mapped to its rejection reason here.
-      if (isSpuriousTimeout(error)) throw error;
-      throw denial(error);
+      lastParseError = error;
     }
+  }
+  if (verified === undefined) throw parseFailure(lastParseError);
 
-    return readClaims(authorizer, options.issuer);
-  });
+  const code = [datalog`root_mesh(${options.issuer}); time_ms(${now()});`];
+  if (options.connectionPeer !== ANONYMOUS) {
+    code.push(datalog`connection_peer(${options.connectionPeer});`);
+  }
+  // The destination's statement about itself, which the token's audience check
+  // consumes (ADR-0020). Omitted, nothing satisfies `audience($k), self_peer($k)`.
+  if (options.selfPeer !== undefined) {
+    code.push(datalog`self_peer(${options.selfPeer});`);
+  }
+  // This verifier contributes no policy of its own — the token's checks are the
+  // whole decision.
+  code.push("allow if true;");
+
+  const { result, world } = evaluate(verified.token, code.join("\n"), ENGINE_LIMITS);
+  if (result.kind === "execution") {
+    throw new TokenVerificationError(
+      "evaluation-budget",
+      `evaluation budget exhausted (${result.error})`,
+    );
+  }
+  if (result.kind !== "ok") {
+    throw denial(failedCheckTexts(result, world));
+  }
+
+  return readClaims(world, options.issuer);
 }
 
 /**
@@ -661,10 +538,7 @@ export async function verifyToken(token: string, options: VerifyTokenOptions): P
  * Each is required and must be unique: two `subject` facts is a hub bug, and
  * picking one arbitrarily would be picking a subject arbitrarily.
  */
-function readClaims(
-  authorizer: ReturnType<AuthorizerBuilder["buildAuthenticated"]>,
-  issuer: string,
-): MeshClaims {
+function readClaims(authorizer: WorldSnapshot, issuer: string): MeshClaims {
   const mesh = one(queryTerms(authorizer, "mesh"), "mesh");
   const sub = one(queryTerms(authorizer, "subject"), "subject");
   const iat = one(queryTerms(authorizer, "issued_at"), "issued_at");
@@ -705,9 +579,7 @@ function readClaims(
  * resolved: the two carry different checks, so guessing which one describes
  * the token would be reporting an audience this function cannot know.
  */
-function readAudience(
-  authorizer: ReturnType<AuthorizerBuilder["buildAuthenticated"]>,
-): MeshClaims["audience"] {
+function readAudience(authorizer: WorldSnapshot): MeshClaims["audience"] {
   const named = queryTerms(authorizer, "audience")
     .filter((term): term is string => typeof term === "string")
     .sort();
@@ -722,16 +594,9 @@ function readAudience(
   return unrestricted ? "unrestricted" : "unstated";
 }
 
-/** Every first term of `<predicate>($x)`, as JS values. */
-function queryTerms(
-  authorizer: ReturnType<AuthorizerBuilder["buildAuthenticated"]>,
-  predicate: string,
-): unknown[] {
-  const facts = authorizer.queryWithLimits(
-    Rule.fromString(`claim($x) <- ${predicate}($x)`),
-    LIMITS,
-  );
-  return facts.map((fact: { terms(): unknown[] }) => fact.terms()[0]);
+/** Every first term of `<predicate>($x)` in the authority/authorizer scope, as JS values. */
+function queryTerms(world: WorldSnapshot, predicate: string): unknown[] {
+  return queryFirstTerms(world, predicate);
 }
 
 function one(values: unknown[], predicate: string): unknown {
@@ -744,9 +609,9 @@ function one(values: unknown[], predicate: string): unknown {
   return values[0];
 }
 
-/** `Biscuit.fromBase64` failed: bad bytes, or bytes that are not ours. */
+/** Decoding or the signature chain failed: bad bytes, or bytes that are not ours. */
 function parseFailure(error: unknown): TokenVerificationError {
-  if (hasKey(error, "Format") && hasKey(error.Format, "Signature")) {
+  if (error instanceof SignatureError) {
     return new TokenVerificationError(
       "signature",
       "token signature does not verify against this mesh's key",
@@ -756,19 +621,12 @@ function parseFailure(error: unknown): TokenVerificationError {
 }
 
 /**
- * `authorizeWithLimits` failed. Map the failing check back to a reason by the
+ * Authorization failed. Map the failing check back to a reason by the
  * predicate it names — the four checks `mintToken` writes are the four
  * outcomes a well-formed token can fail on, and anything else is a constraint
  * this verifier does not know how to satisfy, which denies (A-20).
  */
-function denial(error: unknown): TokenVerificationError {
-  if (hasKey(error, "RunLimit")) {
-    return new TokenVerificationError(
-      "evaluation-budget",
-      `evaluation budget exhausted (${String(error.RunLimit)})`,
-    );
-  }
-  const checks = failedChecks(error);
+function denial(checks: string[]): TokenVerificationError {
   const joined = checks.join(" ");
   if (joined.includes("connection_peer")) {
     return new TokenVerificationError(
@@ -802,28 +660,4 @@ function denial(error: unknown): TokenVerificationError {
     checks.length > 0 ? `unsatisfied constraint: ${joined}` : "no policy matched",
     checks,
   );
-}
-
-/** Pull `block_id` / `check_id` / `rule` out of Biscuit's structured failure (spec P8). */
-function failedChecks(error: unknown): string[] {
-  if (!hasKey(error, "FailedLogic")) return [];
-  const failed = error.FailedLogic;
-  if (!hasKey(failed, "Unauthorized")) return [];
-  const checks = (failed.Unauthorized as { checks?: unknown }).checks;
-  if (!Array.isArray(checks)) return [];
-  return checks.map((check: unknown) => {
-    if (hasKey(check, "Block")) {
-      const block = check.Block as { block_id: number; check_id: number; rule: string };
-      return `block ${block.block_id} check ${block.check_id}: ${block.rule}`;
-    }
-    if (hasKey(check, "Authorizer")) {
-      const auth = check.Authorizer as { check_id: number; rule: string };
-      return `authorizer check ${auth.check_id}: ${auth.rule}`;
-    }
-    return JSON.stringify(check);
-  });
-}
-
-function hasKey<K extends string>(value: unknown, key: K): value is Record<K, unknown> {
-  return typeof value === "object" && value !== null && key in value;
 }

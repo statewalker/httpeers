@@ -2,7 +2,7 @@
   "name": "@statewalker/httpeers-access",
   "version": "0.1.0",
   "type": "module",
-  "description": "Who is calling, and may they. Biscuit tokens, Datalog policy, revocation and one middleware — with no libp2p in the graph.",
+  "description": "Who is calling, and may they. Biscuit tokens, Datalog policy, revocation and one middleware \u2014 with no libp2p in the graph.",
   "license": "MIT",
   "repository": {
     "type": "git",
@@ -38,12 +38,13 @@
     "lint:check": "biome check src tests"
   },
   "dependencies": {
-    "@biscuit-auth/biscuit-wasm": "0.6.0",
     "@statewalker/httpeers-core": "workspace:*",
+    "@statewalker/webrun-biscuit": "^0.1.0",
     "multiformats": "14.0.5"
   },
   "devDependencies": {
     "@biomejs/biome": "catalog:",
+    "@biscuit-auth/biscuit-wasm": "0.6.0",
     "@libp2p/crypto": "5.1.22",
     "@libp2p/interface": "3.2.5",
     "@libp2p/peer-id": "6.0.14",
