@@ -213,8 +213,8 @@ importers:
         specifier: workspace:*
         version: link:../httpeers-core
       '@statewalker/webrun-biscuit':
-        specifier: ^0.2.0
-        version: 0.2.0
+        specifier: ^0.2.1
+        version: 0.2.1
       multiformats:
         specifier: 14.0.5
         version: 14.0.5
@@ -1508,8 +1508,8 @@ packages:
   '@standard-schema/spec@1.1.0':
     resolution: {integrity: sha512-l2aFy5jALhniG5HgqrD6jXLi/rUWrKvqN/qJx6yoJsgKhblVd+iqqU4RCXavm/jPityDo5TCvKMnpjKnOriy0w==}
 
-  '@statewalker/webrun-biscuit@0.2.0':
-    resolution: {integrity: sha512-yKFF/4TlL3lbum6HCIxZElecav6OHf3ed9BZoDqd8SqP/EwW4IGJzbQLHBKBRWUiiX/AuStcQfVpknXKOqco3w==}
+  '@statewalker/webrun-biscuit@0.2.1':
+    resolution: {integrity: sha512-Qv7Ax3rbnACBba7qKTzd/7ZnRRPh77aIMTqXkfSgfJrDkUYeQasIkG+oDkggGyfd46DnJjyL4saXYSQYFCQw7Q==}
 
   '@statewalker/webrun-files-mem@0.7.2':
     resolution: {integrity: sha512-OwbmkOJZx038lhABxJdL4dw7j2+u3lJeLN/n4G7S7E6pQfcwEV+LjQ9VKEaiK5CG2Y2ILmw2P1hkb5shCtdBHA==}
@@ -4284,7 +4284,7 @@ snapshots:
 
   '@standard-schema/spec@1.1.0': {}
 
-  '@statewalker/webrun-biscuit@0.2.0':
+  '@statewalker/webrun-biscuit@0.2.1':
     dependencies:
       '@noble/curves': 2.4.0
       '@noble/hashes': 2.4.0
