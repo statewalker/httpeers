@@ -57,24 +57,55 @@ describe("discoverLlm", () => {
     expect(calls[0]?.url).toBe(`${EDGE}${HUB}/llm/openapi.json`);
   });
 
-  it("resolves a server URL other than '.' against the document, with no trailing slash", async () => {
+  it("accepts a server URL other than '.' that stays under the hub's llm mount", async () => {
     const { fetchImpl } = fetchAnswering(() =>
       Response.json(
         documentStub({
-          servers: [{ url: "../llm2/" }],
+          servers: [{ url: "./" }],
           components: { securitySchemes: { llmKey: { in: "header", name: "x-api-key" } } },
           paths: { "/ui/": { get: { "x-httpeers-entry": "ui/" } } },
         }),
       ),
     );
-    const service = await discoverLlm(fetchImpl, EDGE, HUB);
-    expect(service).toMatchObject({
-      serviceBase: `${EDGE}${HUB}/llm2/`,
-      baseUrl: `${EDGE}${HUB}/llm2/v1`,
+    expect(await discoverLlm(fetchImpl, EDGE, HUB)).toEqual({
+      serviceBase: `${EDGE}${HUB}/llm/`,
+      baseUrl: `${EDGE}${HUB}/llm/v1`,
       apiKeyHeader: "x-api-key",
       canMintKeys: false,
-      dashboardUrl: `${EDGE}${HUB}/llm2/ui/`,
+      dashboardUrl: `${EDGE}${HUB}/llm/ui/`,
     });
+  });
+
+  describe("refuses a document that would send the key or the admin anywhere but the hub's llm mount", () => {
+    const hostile: Array<[string, Record<string, unknown>]> = [
+      ["an absolute off-origin server", { servers: [{ url: "https://evil.example/v1/" }] }],
+      ["a same-origin server on another peer", { servers: [{ url: `${EDGE}rogue/llm/` }] }],
+      ["a ../ escape to a sibling mount", { servers: [{ url: "../llm2/" }] }],
+      ["a ../ escape out of the hub", { servers: [{ url: "../../rogue/llm/" }] }],
+      ["an encoded ../ escape", { servers: [{ url: "%2e%2e/llm2/" }] }],
+      ["a protocol-relative server", { servers: [{ url: "//evil.example/llm/" }] }],
+      ["a server carrying a query", { servers: [{ url: ".?to=evil" }] }],
+      [
+        "an absolute dashboard entry",
+        { paths: { "/ui/": { get: { "x-httpeers-entry": "https://evil.example/ui/" } } } },
+      ],
+      [
+        "an escaping dashboard entry",
+        { paths: { "/ui/": { get: { "x-httpeers-entry": "../../rogue/ui/" } } } },
+      ],
+      [
+        "a root-relative dashboard entry",
+        { paths: { "/ui/": { get: { "x-httpeers-entry": "/ui/login/" } } } },
+      ],
+    ];
+    for (const [name, overrides] of hostile) {
+      it(name, async () => {
+        const { fetchImpl } = fetchAnswering(() => Response.json(documentStub(overrides)));
+        await expect(discoverLlm(fetchImpl, EDGE, HUB)).rejects.toThrow(
+          `outside ${EDGE}${HUB}/llm/`,
+        );
+      });
+    }
   });
 
   it("falls back to the /ui/ path when the entry extension is absent", async () => {
@@ -141,13 +172,19 @@ describe("the mesh view", () => {
     advertisements: [images, llm],
   };
 
-  it("finds the llm openapi-service advert and nothing else", () => {
-    expect(findLlmAdvert(view)?.peerId).toBe(HUB);
-    expect(findLlmAdvert({ ...view, advertisements: [images] })).toBeUndefined();
+  it("finds the llm openapi-service advert of the hub and nothing else", () => {
+    expect(findLlmAdvert(view, HUB)?.peerId).toBe(HUB);
+    expect(findLlmAdvert({ ...view, advertisements: [images] }, HUB)).toBeUndefined();
     expect(
-      findLlmAdvert({ ...view, advertisements: [{ ...llm, kind: "images" }] }),
+      findLlmAdvert({ ...view, advertisements: [{ ...llm, kind: "images" }] }, HUB),
     ).toBeUndefined();
-    expect(findLlmAdvert(null)).toBeUndefined();
+    expect(findLlmAdvert(null, HUB)).toBeUndefined();
+  });
+
+  it("ignores an llm advert from any peer but the hub, even when it comes first", () => {
+    const rogue = { ...llm, peerId: "rogue-member" };
+    expect(findLlmAdvert({ ...view, advertisements: [rogue] }, HUB)).toBeUndefined();
+    expect(findLlmAdvert({ ...view, advertisements: [rogue, llm] }, HUB)).toBe(llm);
   });
 
   it("is admin only when this member's own roles carry admin", () => {
@@ -175,7 +212,7 @@ describe("meshConfig", () => {
     expect(meshConfig(stored, service)).toEqual(stored);
   });
 
-  it("keeps the stored key but drops the models when the hub changed", () => {
+  it("drops the stored key and the models when the endpoint changed: hub A's key never goes to hub B", () => {
     const stored: ChatConfig = {
       baseUrl: `${EDGE}other/llm/v1`,
       apiKey: "sk-kept",
@@ -183,6 +220,6 @@ describe("meshConfig", () => {
       models: ["fake"],
       defaultModel: "fake",
     };
-    expect(meshConfig(stored, service)).toEqual({ ...service, apiKey: "sk-kept", models: [] });
+    expect(meshConfig(stored, service)).toEqual({ ...service, apiKey: "", models: [] });
   });
 });

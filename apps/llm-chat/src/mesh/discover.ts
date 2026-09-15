@@ -11,9 +11,14 @@
  *   - `components.securitySchemes.llmKey.name` is the header the key travels in;
  *   - `paths["/ui/"].get["x-httpeers-entry"]`, resolved against the service base, is the dashboard;
  *   - `paths["/keys"]` existing is what offers "Request a key". The call may still be refused.
+ *
+ * TRUST ONLY THE HUB. Any member can advertise `llm` on its heartbeat and serve its own document,
+ * so discovery targets the hub's peer id and nothing else, and every URL the document yields —
+ * the service base, the OpenAI base and the dashboard — must stay under `<edge><hubPeerId>/llm/`.
+ * Otherwise a hostile `servers[0].url` (absolute, `../`, another peer) would receive the key.
  */
 
-import { applyEndpoint, type ChatConfig } from "../core/config.js";
+import { applyEndpoint, type ChatConfig, normalizeBaseUrl } from "../core/config.js";
 
 export const LLM_ADVERT_ID = "llm";
 export const LLM_ADVERT_KIND = "openapi-service";
@@ -48,11 +53,17 @@ export class DiscoveryError extends Error {
   }
 }
 
-/** The hub's `llm` service advert, if this mesh has one. */
+/**
+ * The HUB's `llm` service advert, if it has one. A presence signal only: the same advert from any
+ * other peer is ignored, because members' adverts are not vouched for by anyone.
+ */
 export function findLlmAdvert(
   view: Pick<MeshViewLike, "advertisements"> | null,
+  hubPeerId: string,
 ): MeshViewLike["advertisements"][number] | undefined {
-  return view?.advertisements.find((ad) => ad.id === LLM_ADVERT_ID && ad.kind === LLM_ADVERT_KIND);
+  return view?.advertisements.find(
+    (ad) => ad.peerId === hubPeerId && ad.id === LLM_ADVERT_ID && ad.kind === LLM_ADVERT_KIND,
+  );
 }
 
 /**
@@ -72,8 +83,21 @@ export async function discoverLlm(
   edgeBase: string,
   hubPeerId: string,
 ): Promise<LlmService> {
+  if (!/^[A-Za-z0-9]+$/.test(hubPeerId)) {
+    throw new DiscoveryError(`"${hubPeerId}" is not a peer id.`);
+  }
   const edge = edgeBase.endsWith("/") ? edgeBase : `${edgeBase}/`;
-  const docUrl = new URL(`${hubPeerId}/${LLM_ADVERT_ID}/openapi.json`, edge);
+  const mount = new URL(`${hubPeerId}/${LLM_ADVERT_ID}/`, edge).href;
+  const docUrl = new URL("openapi.json", mount);
+  const underMount = (what: string, url: URL): string => {
+    if (url.search !== "" || url.hash !== "" || !url.href.startsWith(mount)) {
+      throw new DiscoveryError(
+        `The LLM service document's ${what} resolves to ${url.href}, outside ${mount}; ` +
+          "refusing to send the key or open anything there.",
+      );
+    }
+    return url.href;
+  };
 
   let response: Response;
   try {
@@ -104,12 +128,16 @@ export async function discoverLlm(
   }
 
   const entry = doc.paths?.["/ui/"]?.get?.["x-httpeers-entry"];
+  const serviceBase = underMount("servers[0].url", service);
   return {
-    serviceBase: service.href,
-    baseUrl: new URL("v1", service).href,
+    serviceBase,
+    baseUrl: underMount("OpenAI base", new URL("v1", serviceBase)),
     apiKeyHeader: header.toLowerCase(),
     canMintKeys: doc.paths?.["/keys"] != null,
-    dashboardUrl: new URL(typeof entry === "string" ? entry : "ui/", service).href,
+    dashboardUrl: underMount(
+      "x-httpeers-entry",
+      new URL(typeof entry === "string" ? entry : "ui/", serviceBase),
+    ),
   };
 }
 
@@ -166,8 +194,9 @@ export async function mintKey(
 }
 
 /**
- * The config to store after discovery: the discovered endpoint and header, keeping whatever key
- * is already stored. The same endpoint keeps its models; a different one (another hub) clears them.
+ * The config to store after discovery: the discovered endpoint and header. The stored key, models
+ * and default are kept ONLY for the same endpoint; a different one (another hub) starts without a
+ * key, so hub A's key is never sent to hub B.
  */
 export function meshConfig(
   previous: ChatConfig | null,
@@ -175,7 +204,10 @@ export function meshConfig(
 ): ChatConfig {
   return applyEndpoint(previous, {
     baseUrl: service.baseUrl,
-    apiKey: previous?.apiKey ?? "",
+    apiKey:
+      previous != null && previous.baseUrl === normalizeBaseUrl(service.baseUrl)
+        ? (previous.apiKey ?? "")
+        : "",
     apiKeyHeader: service.apiKeyHeader,
   });
 }

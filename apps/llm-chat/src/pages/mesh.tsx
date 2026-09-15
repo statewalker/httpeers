@@ -3,9 +3,11 @@
  * standalone page uses (spec §7).
  *
  *   1. Session: resume, or join from `?join=` or a pasted link/blob; the phases are shown.
- *   2. Live: find the advert `{ id: "llm", kind: "openapi-service" }` in the mesh view.
- *   3. Read its `openapi.json`: the base URL and the key header (`discoverLlm`).
- *   4. Store them in the "mesh" config, keeping a key stored earlier.
+ *   2. Live: find the HUB's advert `{ id: "llm", kind: "openapi-service" }` in the mesh view. The
+ *      same advert from any other peer is ignored: a member could advertise it to collect keys.
+ *   3. Read the hub's `openapi.json`: the base URL and the key header (`discoverLlm`, which refuses
+ *      any URL outside `<edge><hubPeerId>/llm/`).
+ *   4. Store them in the "mesh" config, keeping a key stored earlier for the same endpoint only.
  *   5. No key yet: paste one, or request one from the hub (admins only; a member sees the 403).
  *   6. The chat, with the link mode and, for an admin, the LiteLLM dashboard link in its header.
  *
@@ -46,7 +48,8 @@ type Stage =
   | { kind: "session" }
   | { kind: "finding" }
   | { kind: "unavailable"; message: string }
-  | { kind: "key"; service: LlmService; config: ChatConfig }
+  /** `run`: the discovery run that produced this step; a key arriving after a newer run is dropped. */
+  | { kind: "key"; service: LlmService; config: ChatConfig; run: number }
   | { kind: "chat"; service: LlmService };
 
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
@@ -212,7 +215,12 @@ function LinkStatus({ state }: { state: SessionState | null }) {
 
 function DashboardLink({ href }: { href: string }) {
   return (
-    <a className="text-xs text-blue-700 underline" href={href} target="_blank" rel="noopener">
+    <a
+      className="text-xs text-blue-700 underline"
+      href={href}
+      target="_blank"
+      rel="noopener noreferrer"
+    >
       LiteLLM dashboard
     </a>
   );
@@ -227,6 +235,12 @@ function MeshPage() {
   const sessionRef = useRef<PeerSession | null>(null);
   /** The handle discovery last ran for: a new join or reconnect gets a new handle, and runs it again. */
   const discoveredFor = useRef<unknown>(null);
+  /**
+   * Bumped by every discovery start and by leaving live. A run whose number is no longer current
+   * writes nothing — no config, no stage — so an old handle's discovery (or a superseded "Try
+   * again") can never overwrite what a newer one decided.
+   */
+  const discoveryRun = useRef(0);
 
   useEffect(() => {
     let timer: ReturnType<typeof setInterval> | undefined;
@@ -248,27 +262,38 @@ function MeshPage() {
   const discover = useCallback(async (live: SessionState) => {
     const handle = live.handle;
     if (handle == null) return;
+    const run = ++discoveryRun.current;
+    const current = () => discoveryRun.current === run;
     setStage({ kind: "finding" });
     try {
-      let advert = findLlmAdvert(handle.meshView());
+      // Only the hub is trusted with the key: the advert must be the hub's own, and discovery
+      // reads the hub's document whoever else advertises `llm`.
+      const hubPeerId = handle.hubPeerId;
+      let advert = findLlmAdvert(handle.meshView(), hubPeerId);
       for (let waited = 0; advert == null && waited < ADVERT_WAIT_MS; waited += 500) {
         await sleep(500);
-        advert = findLlmAdvert(handle.meshView());
+        if (!current()) return;
+        advert = findLlmAdvert(handle.meshView(), hubPeerId);
       }
+      if (!current()) return;
       if (advert == null) {
-        setStage({ kind: "unavailable", message: "This mesh has no LLM service advertised." });
+        setStage({ kind: "unavailable", message: "This mesh's hub advertises no LLM service." });
         return;
       }
       const edgeBase = new URL(handle.baseUrl ?? "/peers/", location.href).href;
-      const service = await discoverLlm(pageFetch, edgeBase, advert.peerId);
+      const service = await discoverLlm(pageFetch, edgeBase, hubPeerId);
+      if (!current()) return;
       const config = meshConfig(await configStore.get(), service);
+      if (!current()) return;
       await configStore.set(config);
+      if (!current()) return;
       setStage(
         config.apiKey == null || config.apiKey === ""
-          ? { kind: "key", service, config }
+          ? { kind: "key", service, config, run }
           : { kind: "chat", service },
       );
     } catch (error) {
+      if (!current()) return;
       const message =
         error instanceof DiscoveryError || error instanceof Error ? error.message : String(error);
       setStage({ kind: "unavailable", message });
@@ -280,6 +305,7 @@ function MeshPage() {
   useEffect(() => {
     if (phaseKind !== "live" || handle == null) {
       discoveredFor.current = null;
+      discoveryRun.current++;
       setStage({ kind: "session" });
       return;
     }
@@ -359,7 +385,9 @@ function MeshPage() {
             onMinted={() => setMintOutcome(true)}
             onRefused={() => setMintOutcome(false)}
             onKey={async (key) => {
+              if (discoveryRun.current !== stage.run) return;
               await configStore.set({ ...stage.config, apiKey: key });
+              if (discoveryRun.current !== stage.run) return;
               setStage({ kind: "chat", service: stage.service });
             }}
           />
