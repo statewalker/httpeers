@@ -78,10 +78,15 @@ Steps 2–5 are chained: a failure skips the ones after it.
 Every `docker` call has a timeout (120 s for `docker run`, which may pull; 30 s otherwise), so a
 hung daemon fails the run instead of hanging it.
 
-Afterwards the isolated container and network are removed.
+Afterwards the isolated container and network are removed, and the keys the run minted are
+deleted (reported separately, see "Side effects").
 
 ## Side effects
 
-- Each run adds members to the hub (A, B — revoked — and C) and mints one LiteLLM key, alias
-  `mesh-chat-<ISO timestamp>`. Neither is cleaned up.
+- Each run adds members to the hub (A, B — revoked — and C); they are not cleaned up.
+- Each run mints one LiteLLM key, alias `mesh-chat-<ISO timestamp>` (30-day expiry). After the
+  steps, the script deletes the keys it minted through the door (`POST …/llm/key/delete` with
+  `{"key_aliases": [...]}` and the master key in `x-litellm-api-key`, read from `.env` as
+  `LITELLM_MASTER_KEY`). The cleanup prints its own `PASS`/`FAIL` line and never changes the exit
+  code; a failed cleanup leaves the key for an admin to delete (see `../README.md`, "LLM keys").
 - The member's refused `POST …/llm/keys` never reaches LiteLLM.

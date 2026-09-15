@@ -24,6 +24,9 @@
  *      sample is the recorded latency.
  *   6. Host browser: browser C launched on the host joins as a member; its link mode is recorded.
  *
+ * Then, reported separately and never failing the run: the LiteLLM keys this run minted are
+ * deleted (`POST …/llm/key/delete` through the door, with the master key from `.env`).
+ *
  * Environment (all optional):
  *   APPLIANCE_ENV      path of the appliance `.env` (default: ../.env next to this directory)
  *   HUB_DOOR_URL       the Traefik door (default http://127.0.0.1:8080)
@@ -139,10 +142,10 @@ async function screenshots(prefix) {
 // ---------------------------------------------------------------------------------------------
 // The door
 
-async function door(method, path, body) {
+async function door(method, path, body, extraHeaders = {}) {
   const res = await fetch(`${DOOR}${path}`, {
     method,
-    headers: { authorization: DOOR_AUTH, "content-type": "application/json" },
+    headers: { ...extraHeaders, authorization: DOOR_AUTH, "content-type": "application/json" },
     body: body == null ? undefined : JSON.stringify(body),
   });
   const text = await res.text();
@@ -406,6 +409,40 @@ async function inPageChatCall(page, hubPeerId, key) {
   );
 }
 
+/**
+ * Deletes the keys this run minted, by alias, through the door with the master key (LiteLLM's
+ * `POST /key/delete {"key_aliases": [...]}`, as its own OpenAPI document describes it). Separate
+ * from the steps: a cleanup failure is reported, not counted against the run.
+ */
+async function cleanupKeys() {
+  const aliases = facts.keyAliases.filter((alias) => typeof alias === "string" && alias !== "");
+  facts.keyCleanup = { aliases, outcome: "SKIP", deleted: 0 };
+  if (aliases.length === 0 || hubPeerId === "") {
+    console.log("SKIP  cleanup. Delete the keys this run minted (none minted)");
+    return;
+  }
+  const started = Date.now();
+  try {
+    check(env.LITELLM_MASTER_KEY, `LITELLM_MASTER_KEY is missing from ${ENV_FILE}`);
+    const answer = await door(
+      "POST",
+      `/peers/${hubPeerId}/llm/key/delete`,
+      { key_aliases: aliases },
+      { "x-litellm-api-key": `Bearer ${env.LITELLM_MASTER_KEY}` },
+    );
+    const deleted = Array.isArray(answer?.deleted_keys) ? answer.deleted_keys.length : 0;
+    check(deleted === aliases.length, `deleted ${deleted} of ${aliases.length} key(s)`);
+    facts.keyCleanup = { aliases, outcome: "PASS", deleted, ms: Date.now() - started };
+    console.log(
+      `PASS  cleanup. Deleted the ${deleted} key(s) this run minted (${Date.now() - started} ms): ${JSON.stringify(aliases)}`,
+    );
+  } catch (error) {
+    // `door` errors carry LiteLLM's answer, never the master key.
+    facts.keyCleanup = { aliases, outcome: "FAIL", deleted: 0, detail: error.message };
+    console.log(`FAIL  cleanup. Delete the keys this run minted\n      ${error.message}`);
+  }
+}
+
 // ---------------------------------------------------------------------------------------------
 // The run
 
@@ -634,6 +671,7 @@ try {
   await isolated?.close().catch(() => {});
   await host?.close().catch(() => {});
   await stopIsolatedBrowserServer();
+  await cleanupKeys();
 }
 
 facts.finished = new Date();
@@ -647,6 +685,7 @@ if (facts.pageErrors.length > 0) {
 }
 console.log(`link modes: ${JSON.stringify(facts.modes ?? {})}`);
 console.log(`key aliases minted: ${JSON.stringify(facts.keyAliases)}`);
+console.log(`key cleanup: ${facts.keyCleanup?.outcome ?? "SKIP"}`);
 console.log(`artifacts: ${ARTIFACTS}`);
 const failed = results.filter((r) => r.outcome !== "PASS");
 console.log(
