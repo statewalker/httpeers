@@ -10,6 +10,10 @@
     "url": "git+ssh://git@github.com/statewalker/httpeers.git",
     "directory": "apps/hub"
   },
+  "files": [
+    "dist",
+    "dist-ui"
+  ],
   "scripts": {
     "build": "tsc -p tsconfig.build.json && pnpm run build:ui",
     "build:ui": "vite build --config ui/vite.config.ts",

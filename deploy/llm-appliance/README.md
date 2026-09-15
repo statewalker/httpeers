@@ -115,13 +115,21 @@ the hub's local door) on `network_mode: host` for direct WebRTC:
 docker compose -f compose.yml -f compose.host.yml up -d --build
 ```
 
+**Warning: do not run this on Compose < 2.24 (no `!reset` support).**
+VERIFIED against this task's actual installed Compose (v2.3.3): `docker
+compose -f compose.yml -f compose.host.yml config` renders without error,
+but the base file's `networks:`/`ports:` entries are still silently merged
+in alongside `network_mode: host` (`!reset` is a no-op on that version) —
+`docker compose up` refuses that combination outright. If your Compose is
+older and doesn't support `!reset`, hand-edit `compose.yml` to drop the
+`networks:`/`ports:` lines from the `hub` and `traefik` services before
+layering `compose.host.yml` on top, or upgrade Compose.
+
 This needs **Compose >= 2.24** (the `!reset` merge tag). It was **not
-exercised in this task's verification** — the verification below runs the
-default bridge/relay-fallback `compose.yml` only. If your Compose is older
-and doesn't support `!reset`, you'll need to hand-edit `compose.yml` to drop
-the `networks:` line from the `hub` and `traefik` services before layering
-`compose.host.yml` on top (Docker refuses a service with both `network_mode`
-and `networks:` set).
+exercised beyond `docker compose config`** in this task's verification — the
+verification below runs the default bridge/relay-fallback `compose.yml`
+only; this variant was never brought up (it would also collide with the
+already-running bridge stack and the spike's host-networked containers).
 
 ## Backup and data
 

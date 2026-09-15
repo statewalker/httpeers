@@ -19,10 +19,31 @@
 #
 # NEEDS COMPOSE >= 2.24 (the `!reset` merge tag, which clears the base
 # file's `networks:`/`ports:` list instead of merging into it — required
-# because `network_mode` and `networks:` cannot both be set on a service).
-# NOT EXERCISED in this task's verification, which runs the default
-# bridge/relay-fallback compose.yml only — see README's "Host networking"
-# section before relying on this in anything but a quick local check.
+# because `network_mode` and `networks:`/`ports:` cannot all be set on a
+# service at once). VERIFIED on the Compose actually installed here (v2.3.3):
+# `!reset` is silently ignored — `docker compose -f compose.yml -f
+# compose.host.yml config` still shows the base file's `networks: {appliance:
+# null}` and the base `ports:` entry merged in alongside `network_mode:
+# host`, which `docker compose up` would refuse outright (a service cannot
+# combine `network_mode` with `networks:`/`ports:`). Upgrade Compose to use
+# this file for real; `config` renders (this file's own YAML is valid, and
+# `command:` — a plain sequence, not a map-shaped field — DOES fully replace
+# on this Compose version, confirmed below) but `up` will not succeed here.
+# NOT EXERCISED (beyond `config`) in this task's verification, which runs the
+# default bridge/relay-fallback compose.yml only — see README's "Host
+# networking" section before relying on this in anything but a quick local
+# check, and DO NOT `docker compose up` it on a Compose this old.
+#
+# SECURITY: the entrypoint address below is `127.0.0.1:8080`, not the base
+# file's bare `:8080`. On the bridge network (compose.yml alone) `:8080`
+# inside the container is correct and safe — Docker's own `ports:
+# 127.0.0.1:8080:8080` publish is what restricts it to loopback on the host,
+# and the container must listen on all ITS OWN interfaces for that publish to
+# reach it. With `network_mode: host` there is no publish step: Traefik binds
+# directly to the host's real interfaces, so leaving the address as bare
+# `:8080` would put the basic-auth-only admin door on every network this
+# machine is on. `127.0.0.1:8080` makes Traefik itself enforce the same
+# loopback-only restriction the port publish gave it in bridge mode.
 services:
   hub:
     network_mode: host
@@ -42,3 +63,17 @@ services:
     ports: !reset []
     volumes: !reset
       - ./traefik/dynamic.host.yml:/etc/traefik/dynamic.yml:ro
+    # `entrypoint:` (["/bin/sh", "-c"]) is inherited unchanged from the base
+    # file; this replaces only `command:` — the single script string `-c`
+    # runs — confirmed this replaces cleanly (not merges/duplicates) even on
+    # Compose v2.3.3, unlike the map-shaped `networks:`/`ports:` fields
+    # above. Only the entrypoint ADDRESS changed from the base file (see the
+    # SECURITY note above); everything else is identical.
+    command:
+      - >-
+        printf '%s\n' "$$ADMIN_HTPASSWD" > /etc/traefik/usersfile &&
+        exec traefik
+        --entrypoints.web.address=127.0.0.1:8080
+        --providers.file.filename=/etc/traefik/dynamic.yml
+        --providers.file.watch=true
+        --log.level=INFO
