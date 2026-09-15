@@ -11,12 +11,14 @@
     "directory": "apps/hub"
   },
   "scripts": {
-    "build": "tsc -p tsconfig.build.json",
+    "build": "tsc -p tsconfig.build.json && pnpm run build:ui",
+    "build:ui": "vite build --config ui/vite.config.ts",
     "start": "node dist/main.js",
     "test": "vitest run",
-    "typecheck": "tsc --noEmit",
-    "lint": "biome check src tests",
-    "lint:check": "biome check src tests"
+    "test:ui": "pnpm run build && node tests/ui.e2e.mjs",
+    "typecheck": "tsc --noEmit && tsc --noEmit -p ui/tsconfig.json",
+    "lint": "biome check src tests ui",
+    "lint:check": "biome check src tests ui"
   },
   "dependencies": {
     "@chainsafe/libp2p-noise": "17.0.0",
@@ -32,6 +34,7 @@
     "@statewalker/httpeers-hub": "workspace:*",
     "@statewalker/httpeers-libp2p": "workspace:*",
     "@statewalker/httpeers-member": "workspace:*",
+    "@statewalker/httpeers-qr": "workspace:*",
     "@statewalker/webrun-http-proxy": "^0.1.0",
     "libp2p": "3.3.8"
   },
@@ -40,7 +43,9 @@
     "@libp2p/crypto": "5.1.22",
     "@statewalker/httpeers-relay": "workspace:*",
     "@types/node": "catalog:",
+    "playwright": "^1.63.0",
     "typescript": "catalog:",
+    "vite": "^8.3.0",
     "vitest": "catalog:"
   }
 }

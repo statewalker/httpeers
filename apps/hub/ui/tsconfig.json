@@ -1,0 +1,12 @@
+{
+  "extends": "../../../tsconfig.base.json",
+  "compilerOptions": {
+    // A browser page, unlike the daemon's own `../tsconfig.json` (Node-only,
+    // ES2022 lib): DOM is correct here.
+    "lib": ["ES2022", "DOM", "DOM.Iterable"],
+    "types": ["node", "vite/client"],
+    "rootDir": ".",
+    "noEmit": true
+  },
+  "include": ["*.ts"]
+}

@@ -12,17 +12,81 @@
  *     and the path rewritten to `/<moduleId>/...`, the shape the mesh mount
  *     hands the same handler. The query string is kept, the body streamed.
  *   - `/hub/api` and `/hub/api/...` -> the admin API, when one is given.
- *   - everything else -> the UI, when one is given; otherwise 404.
+ *   - everything else -> the UI: `init.ui` when given, otherwise the built-in
+ *     static server over `dist-ui/` next to this file (Task 6's admin page,
+ *     `apps/hub/ui/` built by `build:ui`). 404 when even that has nothing.
  *
  * The hub's own mesh endpoints (`/.well-known`, `/admin`) are NOT served here:
  * they read the caller from its token, and there is none.
  */
 
+import { readFile } from "node:fs/promises";
+import { dirname, extname, join, normalize, sep } from "node:path";
+import { fileURLToPath } from "node:url";
 import { serve } from "@hono/node-server";
 import { PEER_ID_HEADER } from "@statewalker/httpeers-core";
 import type { ServiceModule } from "./service-module.js";
 
 type Handler = (request: Request) => Promise<Response>;
+
+const CONTENT_TYPES: Record<string, string> = {
+  ".html": "text/html; charset=utf-8",
+  ".js": "text/javascript; charset=utf-8",
+  ".mjs": "text/javascript; charset=utf-8",
+  ".css": "text/css; charset=utf-8",
+  ".json": "application/json; charset=utf-8",
+  ".map": "application/json; charset=utf-8",
+  ".svg": "image/svg+xml",
+  ".png": "image/png",
+  ".ico": "image/x-icon",
+  ".woff": "font/woff",
+  ".woff2": "font/woff2",
+  ".txt": "text/plain; charset=utf-8",
+};
+
+/**
+ * A static file server for one directory, `/` -> `index.html`.
+ *
+ * THE BOUNDARY CHECK IS THE POINT. `join` alone would happily walk a decoded
+ * `../` out of `root`; a literal `..` in the URL is already collapsed by
+ * `new URL(...)` before this runs, but a percent-encoded one (`/%2e%2e/…`) is
+ * not -- it only becomes ".." after `decodeURIComponent`, which happens here.
+ * So the check has to happen after decoding, against the real, `normalize`d
+ * filesystem path: it must still start with `root`, or the request is
+ * refused exactly like a missing file (404, not 403 -- this never confirms
+ * to a caller that a path outside `root` exists).
+ */
+export function createStaticUiHandler(root: string): Handler {
+  const base = normalize(root);
+  return async (request) => {
+    const { pathname } = new URL(request.url);
+    let decoded: string;
+    try {
+      decoded = decodeURIComponent(pathname);
+    } catch {
+      return notFound(pathname);
+    }
+    const target = normalize(join(base, decoded === "/" ? "/index.html" : decoded));
+    if (target !== base && !target.startsWith(base + sep)) return notFound(pathname);
+
+    let body: Buffer;
+    try {
+      body = await readFile(target);
+    } catch {
+      return notFound(pathname);
+    }
+    const type = CONTENT_TYPES[extname(target).toLowerCase()] ?? "application/octet-stream";
+    return new Response(body, { status: 200, headers: { "content-type": type } });
+  };
+}
+
+/** `apps/hub/dist-ui`, found relative to THIS file so it is right whether it runs from `src/` (tests) or `dist/` (built). */
+const DEFAULT_UI_ROOT = normalize(join(dirname(fileURLToPath(import.meta.url)), "..", "dist-ui"));
+let defaultUiHandler: Handler | undefined;
+function builtInUiHandler(): Handler {
+  defaultUiHandler ??= createStaticUiHandler(DEFAULT_UI_ROOT);
+  return defaultUiHandler;
+}
 
 export interface LocalDoorInit {
   hubPeerId: string;
@@ -91,7 +155,7 @@ export function createLocalDoorHandler(init: LocalDoorInit): Handler {
       return init.adminApi != null ? init.adminApi(request) : notFound(path);
     }
 
-    return init.ui != null ? init.ui(request) : notFound(path);
+    return (init.ui ?? builtInUiHandler())(request);
   };
 }
 

@@ -162,6 +162,9 @@ importers:
       '@statewalker/httpeers-member':
         specifier: workspace:*
         version: link:../../packages/httpeers-member
+      '@statewalker/httpeers-qr':
+        specifier: workspace:*
+        version: link:../../packages/httpeers-qr
       '@statewalker/webrun-http-proxy':
         specifier: ^0.1.0
         version: 0.1.0
@@ -181,9 +184,15 @@ importers:
       '@types/node':
         specifier: 'catalog:'
         version: 26.4.1
+      playwright:
+        specifier: ^1.63.0
+        version: 1.63.0
       typescript:
         specifier: 'catalog:'
         version: 7.0.2
+      vite:
+        specifier: ^8.3.0
+        version: 8.3.0(@types/node@26.4.1)(esbuild@0.28.2)(jiti@2.7.0)(terser@5.51.2)(tsx@4.23.13)
       vitest:
         specifier: 'catalog:'
         version: 4.1.11(@types/node@26.4.1)(@vitest/browser-playwright@4.1.11)(vite@8.3.0(@types/node@26.4.1)(esbuild@0.28.2)(jiti@2.7.0)(terser@5.51.2)(tsx@4.23.13))

@@ -1,0 +1,124 @@
+/**
+ * The local admin UI (spec §5.5), in a real browser, against a real daemon.
+ *
+ *   pnpm run test:ui     (builds `dist/` and `dist-ui/` first, see package.json)
+ *
+ * NOTHING HERE TOUCHES THE PUBLIC INTERNET. Same shape as `tests/daemon.test.ts`:
+ * an in-process relay on loopback, and a relay document served from a local
+ * HTTP server. This is a plain script, not a vitest file, and it imports the
+ * BUILT `dist/` (like `apps/llm-chat/scripts/smoke.mjs` imports its `dist/`)
+ * because a real browser needs a real static build (`dist-ui/`) to open —
+ * there is no point running this against transpiled-on-the-fly source.
+ *
+ * The `llm` upstream is never actually called here: only its PRESENCE among
+ * the daemon's modules matters, for the dashboard link. A bogus URL is fine.
+ */
+
+import { once } from "node:events";
+import { mkdtemp, rm } from "node:fs/promises";
+import { createServer } from "node:http";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { generateKeyPair } from "@libp2p/crypto/keys";
+import { startRelay } from "@statewalker/httpeers-relay";
+import { chromium } from "playwright";
+import { startDaemon } from "../dist/daemon.js";
+import { llmModule } from "../dist/services/llm/index.js";
+
+let step = "start";
+const check = (condition, message) => {
+  if (!condition) throw new Error(message);
+};
+
+async function startRelayDoc() {
+  const relay = await startRelay({ privateKey: await generateKeyPair("Ed25519"), port: 0 });
+  const relayAddrs = relay.node
+    .getMultiaddrs()
+    .map((addr) => addr.toString())
+    .filter((addr) => addr.startsWith("/ip4/127.0.0.1/"));
+  check(relayAddrs.length > 0, "the loopback relay advertised no /ip4/127.0.0.1/ address");
+
+  const doc = createServer((req, res) => {
+    if (req.url !== "/.well-known/httpeers-relay.json") {
+      res.writeHead(404).end();
+      return;
+    }
+    res.writeHead(200, { "content-type": "application/json" }).end(JSON.stringify({ relayAddrs }));
+  });
+  doc.listen(0, "127.0.0.1");
+  await once(doc, "listening");
+  const { port } = doc.address();
+  return {
+    relayDocUrl: `http://127.0.0.1:${port}/.well-known/httpeers-relay.json`,
+    close: async () => {
+      doc.close();
+      await relay.stop();
+    },
+  };
+}
+
+const relayDoc = await startRelayDoc();
+const dataDir = await mkdtemp(join(tmpdir(), "hub-ui-e2e-"));
+
+const daemon = await startDaemon(
+  {
+    dataDir,
+    relayDoc: relayDoc.relayDocUrl,
+    services: ["llm"],
+    joinPageUrl: "https://example.test/mesh.html",
+    localDoorPort: 0,
+    localDoorHost: "127.0.0.1",
+  },
+  // A fake upstream: never dialled by this test, only advertised.
+  [llmModule({ upstream: "http://127.0.0.1:1", masterKey: "sk-test" })],
+);
+
+const doorUrl = `http://${daemon.localDoorAddress}:${daemon.localDoorPort}/`;
+const browser = await chromium.launch();
+const page = await browser.newPage();
+const problems = [];
+page.on("pageerror", (error) => problems.push(`pageerror: ${error.message}`));
+
+try {
+  step = "the page loads and shows the Hub heading";
+  await page.goto(doorUrl);
+  await page.getByRole("heading", { name: "Hub" }).waitFor();
+
+  step = "the Roles select is populated, with member available";
+  const rolesSelect = page.getByRole("combobox", { name: "Roles" });
+  await rolesSelect.waitFor();
+  await rolesSelect.selectOption("member");
+
+  step = "the Members table is present";
+  await page.getByRole("table", { name: "Members" }).waitFor();
+
+  step = "the LiteLLM dashboard link has the right href";
+  const dashboardLink = page.getByRole("link", { name: "LiteLLM dashboard" });
+  await dashboardLink.waitFor();
+  const href = await dashboardLink.getAttribute("href");
+  check(
+    href === `/peers/${daemon.hubPeerId}/llm/ui/login/`,
+    `dashboard link href was "${href}", expected "/peers/${daemon.hubPeerId}/llm/ui/login/"`,
+  );
+
+  step = "Mint invitation produces a link and a QR code";
+  await page.getByRole("button", { name: "Mint invitation" }).click();
+  const linkField = page.getByRole("textbox", { name: "Link" });
+  await linkField.waitFor();
+  const link = await page.waitForFunction(() => document.querySelector("#link")?.value || null);
+  const linkValue = await link.jsonValue();
+  check(linkValue?.includes("?join="), `unexpected invitation link: ${linkValue}`);
+  await page.locator("#qr svg").waitFor();
+
+  check(problems.length === 0, problems.join("\n"));
+  console.log("ui.e2e: all steps passed");
+} catch (error) {
+  console.error(`ui.e2e FAILED at "${step}": ${error.message}`);
+  for (const problem of problems) console.error(problem);
+  process.exitCode = 1;
+} finally {
+  await browser.close();
+  await daemon.stop().catch(() => {});
+  await relayDoc.close().catch(() => {});
+  await rm(dataDir, { recursive: true, force: true }).catch(() => {});
+}
