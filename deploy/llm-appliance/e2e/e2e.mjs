@@ -309,9 +309,9 @@ async function newMember(before, role) {
   }
 }
 
-/** What the hub's member list says about a member's addresses (its adverts, not the hub link). */
+/** What the hub's member list says: the link the hub has to the member, and its advertised addresses. */
 const addrsOf = (member) =>
-  `${member.addrs.length} listed addr(s)${member.addrs.some((a) => a.includes("/p2p-circuit")) ? ", circuit among them" : ""}`;
+  `link ${member.link ?? "none"}; ${member.addrs.length} listed addr(s)${member.addrs.some((a) => a.includes("/p2p-circuit")) ? ", circuit among them" : ""}`;
 
 async function chooseModel(page) {
   const dialog = page.getByRole("dialog", { name: "Choose a model" });
@@ -480,6 +480,7 @@ try {
       const before = await members();
       const { mode, ms } = await joinMesh(adminPage, ["admin"]);
       const admin = await newMember(before, "admin");
+      facts.hubLinks = { ...facts.hubLinks, A: admin.link ?? null };
       facts.modes = { A: mode };
       facts.joins = { A: ms };
       note(`A joined in ${ms} ms: Connected (${mode}); hub member list: ${addrsOf(admin)}`);
@@ -576,6 +577,7 @@ try {
     const { mode, ms } = await joinMesh(memberPage, ["member"]);
     const member = await newMember(before, "member");
     memberPeerId = member.peerId;
+    facts.hubLinks = { ...facts.hubLinks, B: member.link ?? null };
     facts.modes.B = mode;
     facts.joins.B = ms;
     facts.memberB = memberPeerId;
@@ -660,6 +662,7 @@ try {
       const before = await members();
       const { mode, ms } = await joinMesh(page, ["member"]);
       const member = await newMember(before, "member");
+      facts.hubLinks = { ...facts.hubLinks, C: member.link ?? null };
       facts.modes = { ...facts.modes, C: mode };
       facts.joins = { ...facts.joins, C: ms };
       await page.getByLabel("Key", { exact: true }).waitFor({ timeout: 30_000 });
@@ -684,6 +687,7 @@ if (facts.pageErrors.length > 0) {
   for (const line of facts.pageErrors) console.log(`  ${line}`);
 }
 console.log(`link modes: ${JSON.stringify(facts.modes ?? {})}`);
+console.log(`hub's link per member (GET /hub/api/members): ${JSON.stringify(facts.hubLinks ?? {})}`);
 console.log(`key aliases minted: ${JSON.stringify(facts.keyAliases)}`);
 console.log(`key cleanup: ${facts.keyCleanup?.outcome ?? "SKIP"}`);
 console.log(`artifacts: ${ARTIFACTS}`);
