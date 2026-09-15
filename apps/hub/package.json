@@ -32,6 +32,7 @@
     "@statewalker/httpeers-hub": "workspace:*",
     "@statewalker/httpeers-libp2p": "workspace:*",
     "@statewalker/httpeers-member": "workspace:*",
+    "@statewalker/webrun-http-proxy": "^0.1.0",
     "libp2p": "3.3.8"
   },
   "devDependencies": {

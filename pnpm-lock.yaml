@@ -162,6 +162,9 @@ importers:
       '@statewalker/httpeers-member':
         specifier: workspace:*
         version: link:../../packages/httpeers-member
+      '@statewalker/webrun-http-proxy':
+        specifier: ^0.1.0
+        version: 0.1.0
       libp2p:
         specifier: 3.3.8
         version: 3.3.8
