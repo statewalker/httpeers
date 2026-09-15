@@ -81,7 +81,10 @@ export function Thread({ controller }: { controller: ChatController }) {
         ? controller.send(textOf(message))
         : controller.edit(index, textOf(message));
     },
-    onReload: () => controller.regenerate(),
+    onReload: (parentId) => {
+      const index = indexOfId(parentId);
+      return index == null ? controller.regenerate() : controller.regenerateFrom(index);
+    },
     onCancel: async () => controller.cancel(),
   });
 

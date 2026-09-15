@@ -148,6 +148,27 @@ describe("chat controller", () => {
     expect(requests[1]?.messages).toEqual([{ role: "user", content: "q" }]);
   });
 
+  it("regenerateFrom replies again to an earlier message and drops what followed", async () => {
+    const { controller, requests } = setup({ deltas: ["r"] });
+    await controller.send("one");
+    await controller.send("two");
+    await controller.regenerateFrom(0);
+    expect(controller.getState().session?.messages).toEqual([
+      { role: "user", content: "one" },
+      { role: "assistant", content: "r" },
+    ]);
+    expect(requests.at(-1)?.messages).toEqual([{ role: "user", content: "one" }]);
+  });
+
+  it("regenerateFrom on a non-user index changes nothing and makes no request", async () => {
+    const { controller, requests } = setup({ deltas: ["r"] });
+    await controller.send("one");
+    const before = controller.getState().session?.messages;
+    await controller.regenerateFrom(1);
+    expect(controller.getState().session?.messages).toEqual(before);
+    expect(requests).toHaveLength(1);
+  });
+
   it("edit replaces a user message, drops what followed, and replies again", async () => {
     const { controller, requests } = setup({ deltas: ["r"] });
     await controller.send("one");

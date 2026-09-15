@@ -124,6 +124,28 @@ try {
   check((await userTexts())[0]?.includes("edited"), "the edited text is not shown");
   check((await assistantTexts()).at(-1)?.includes("reply to: edited"), "no reply to the edit");
 
+  step = "regenerate on an earlier reply replies to THAT message, not the latest one";
+  await page.getByLabel("Message").fill("another");
+  await page.getByRole("button", { name: "Send" }).click();
+  await completions(5);
+  await page.locator('[data-role="assistant"]').first().hover();
+  await page
+    .locator('[data-role="assistant"]')
+    .first()
+    .getByRole("button", { name: "Regenerate" })
+    .click();
+  await completions(6);
+  await page.waitForFunction(() => document.querySelectorAll('[data-role="user"]').length === 1);
+  check((await userTexts()).length === 1, "regenerating an earlier reply should leave one turn");
+  check(
+    (await assistantTexts()).length === 1,
+    "regenerating an earlier reply should leave one reply",
+  );
+  check(
+    (await assistantTexts()).at(-1)?.includes("reply to: edited"),
+    "regenerate replied to the wrong message",
+  );
+
   step = "Stop keeps a partial reply";
   await page.getByLabel("Message").fill("slow please");
   await page.getByRole("button", { name: "Send" }).click();
@@ -131,7 +153,7 @@ try {
     [...document.querySelectorAll('[data-role="assistant"]')].at(-1)?.textContent?.includes("w3"),
   );
   await page.getByRole("button", { name: "Stop" }).click();
-  await completions(5);
+  await completions(7);
   const partial = (await assistantTexts()).at(-1) ?? "";
   check(partial.includes("w3") && !partial.includes("w59"), `not a partial reply: ${partial}`);
 

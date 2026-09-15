@@ -60,6 +60,8 @@ export interface ChatController {
   send(text: string): Promise<void>;
   /** Replace the last assistant reply with a new one. */
   regenerate(): Promise<void>;
+  /** Drop everything after the user message at `index` and reply to it again. */
+  regenerateFrom(index: number): Promise<void>;
   /** Replace the user message at `index`, drop everything after it, and send again. */
   edit(index: number, text: string): Promise<void>;
   cancel(): void;
@@ -169,6 +171,15 @@ export function createChatController(init: ChatControllerInit): ChatController {
           last?.role === "assistant" ? session.messages.slice(0, -1) : session.messages;
         if (messages.at(-1)?.role !== "user") return;
         const saved = await save(session.id, { messages });
+        set({ session: saved });
+        await reply(saved);
+      }),
+
+    regenerateFrom: (index) =>
+      exclusive(async () => {
+        const session = state.session;
+        if (session == null || session.messages[index]?.role !== "user") return;
+        const saved = await save(session.id, { messages: session.messages.slice(0, index + 1) });
         set({ session: saved });
         await reply(saved);
       }),
