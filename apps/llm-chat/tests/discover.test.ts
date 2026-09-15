@@ -130,7 +130,7 @@ describe("mintKey", () => {
   const SERVICE = `${EDGE}${HUB}/llm/`;
   const now = new Date("2026-09-15T10:20:30.456Z");
 
-  it("POSTs a dated key alias to keys and returns the key", async () => {
+  it("POSTs a dated key alias with a 30-day duration to keys and returns the key", async () => {
     const { calls, fetchImpl } = fetchAnswering(() =>
       Response.json({ key: "sk-new", key_alias: "a", expires: null }),
     );
@@ -139,8 +139,10 @@ describe("mintKey", () => {
     expect(calls[0]?.init?.method).toBe("POST");
     expect(calls[0]?.init?.headers).toMatchObject({ "content-type": "application/json" });
     expect(Object.keys(calls[0]?.init?.headers ?? {})).not.toContain("authorization");
+    // Exactly these two: no budget or limits are invented here.
     expect(JSON.parse(String(calls[0]?.init?.body))).toEqual({
       key_alias: "mesh-chat-2026-09-15T10:20:30.456Z",
+      duration: "30d",
     });
   });
 

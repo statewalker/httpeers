@@ -157,7 +157,11 @@ export class KeyRequestError extends Error {
  * carries no key and no `Authorization`, so the edge attaches the mesh token that authorizes it.
  *
  * The alias carries the full timestamp, not just the day: LiteLLM refuses a duplicate key alias.
+ * The key expires after `KEY_DURATION` ("30d"), so a forgotten one does not stay live forever; no
+ * budget or rate limit is set here — per-member limits are the admin's call (README "LLM keys").
  */
+export const KEY_DURATION = "30d";
+
 export async function mintKey(
   fetchImpl: typeof fetch,
   serviceBase: string,
@@ -166,7 +170,7 @@ export async function mintKey(
   const response = await fetchImpl(new URL("keys", serviceBase).href, {
     method: "POST",
     headers: { "content-type": "application/json" },
-    body: JSON.stringify({ key_alias: `mesh-chat-${now.toISOString()}` }),
+    body: JSON.stringify({ key_alias: `mesh-chat-${now.toISOString()}`, duration: KEY_DURATION }),
   });
   if (response.status === 403) {
     throw new KeyRequestError(
