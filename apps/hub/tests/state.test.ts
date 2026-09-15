@@ -98,4 +98,22 @@ describe("persistentRevocations", () => {
       /revocations\.json/,
     );
   });
+
+  it("refuses a file with a malformed entry rather than dropping that entry", async () => {
+    const file = await tempFile();
+    await writeFile(
+      file,
+      JSON.stringify({
+        version: 1,
+        entries: [
+          { peerId: "peer-a", changedAt: Date.now(), roles: [] },
+          { peerId: "peer-b", changedAt: "yesterday", roles: [] },
+        ],
+      }),
+    );
+    const registry = new RevocationRegistry({ maxTokenTtlMs: HOUR });
+    await expect(persistentRevocations(file, registry, { maxTokenTtlMs: HOUR })).rejects.toThrow(
+      /revocations\.json.*entries\[1\]/,
+    );
+  });
 });

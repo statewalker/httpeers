@@ -29,7 +29,12 @@
 import { join } from "node:path";
 import { type RuleSet, selfCertifyingKeys, withAccess } from "@statewalker/httpeers-access";
 import { mintToken } from "@statewalker/httpeers-access/issuer";
-import { ANONYMOUS, type FetchHandler, lookupPeer } from "@statewalker/httpeers-core";
+import {
+  ANONYMOUS,
+  createMonotonicClock,
+  type FetchHandler,
+  lookupPeer,
+} from "@statewalker/httpeers-core";
 import { createHub, type Hub, usesTransportIdentity } from "@statewalker/httpeers-hub";
 import { fileStorage } from "@statewalker/httpeers-hub/node";
 import { servePeer, signerOf } from "@statewalker/httpeers-libp2p";
@@ -64,6 +69,14 @@ export interface Daemon {
   /** The relay address this hub holds its reservation on. */
   relayAddr: string;
   localDoorPort: number;
+  /** The address the local door actually bound. */
+  localDoorAddress: string;
+  /**
+   * Resolves once every revocation so far is on disk (and rejects if a write
+   * failed). `revoke()` is synchronous; a revoke endpoint awaits this before
+   * answering, so it never reports a revocation a crash could still lose.
+   */
+  revocationsFlushed(): Promise<void>;
   stop(): Promise<void>;
 }
 
@@ -72,6 +85,13 @@ function assertModules(modules: ServiceModule[]): void {
   for (const m of modules) {
     if (!/^[A-Za-z0-9_-]+$/.test(m.id) || RESERVED_IDS.has(m.id)) {
       throw new Error(`hub: a service module cannot be mounted at "/${m.id}"`);
+    }
+    // The discovery convention: a service's mount is `/<advert id>`.
+    if (m.advertisement.id !== m.id) {
+      throw new Error(
+        `hub: service module "${m.id}" advertises id "${m.advertisement.id}"; ` +
+          "the advertisement id must be the mount id",
+      );
     }
     if (seen.has(m.id)) throw new Error(`hub: service module "${m.id}" is registered twice`);
     seen.add(m.id);
@@ -116,9 +136,15 @@ export async function startDaemon(config: HubConfig, modules: ServiceModule[]): 
 
     // THE SAME KEY SIGNS AND SPEAKS: tokens name the peer members talk to.
     const signer = signerOf(privateKey);
+    // ONE CLOCK for minting and revoking. A token minted in the same
+    // millisecond as a revocation would otherwise pass `iat >= changedAt` and
+    // outlive it for its whole TTL; two calls through one monotonic clock can
+    // never tie (`httpeers-access/src/revocation.ts`).
+    const now = createMonotonicClock();
     const hub = await createHub({
       selfPeerId: hubPeerId,
       policies: rules,
+      now,
       storage: fileStorage(join(hubDir, "state", "hub")),
       sweepIntervalMs: SWEEP_INTERVAL_MS,
       maxTokenTtlMs: TOKEN_TTL_MS,
@@ -129,6 +155,7 @@ export async function startDaemon(config: HubConfig, modules: ServiceModule[]): 
           signer,
           sub,
           roles,
+          now,
           ttlMs: Math.min(options?.ttlMs ?? TOKEN_TTL_MS, TOKEN_TTL_MS),
           ...(options?.audience != null ? { audience: options.audience } : {}),
         }),
@@ -138,7 +165,7 @@ export async function startDaemon(config: HubConfig, modules: ServiceModule[]): 
     const revocations = await persistentRevocations(
       join(hubDir, REVOCATIONS_FILE),
       hub.revocations,
-      { maxTokenTtlMs: TOKEN_TTL_MS },
+      { maxTokenTtlMs: TOKEN_TTL_MS, now },
     );
     unwind.push(() => revocations.flushed());
     isMember = (peerId) => hub.isMember(peerId);
@@ -160,9 +187,14 @@ export async function startDaemon(config: HubConfig, modules: ServiceModule[]): 
     });
     unwind.push(() => peer.stop());
 
-    const door = await startLocalDoor({ port: config.localDoorPort, hubPeerId, modules });
+    const door = await startLocalDoor({
+      port: config.localDoorPort,
+      hostname: config.localDoorHost,
+      hubPeerId,
+      modules,
+    });
     unwind.push(() => door.stop());
-    console.log(`hub: local door on port ${door.port}`);
+    console.log(`hub: local door on ${door.address}:${door.port}`);
 
     console.log(`READY ${hubPeerId}`);
 
@@ -174,6 +206,8 @@ export async function startDaemon(config: HubConfig, modules: ServiceModule[]): 
       relayAddrs,
       relayAddr,
       localDoorPort: door.port,
+      localDoorAddress: door.address,
+      revocationsFlushed: () => revocations.flushed(),
       stop() {
         stopping ??= teardown();
         return stopping;

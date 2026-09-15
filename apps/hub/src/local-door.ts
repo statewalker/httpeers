@@ -35,13 +35,18 @@ export interface LocalDoorInit {
 
 export interface StartLocalDoorInit extends LocalDoorInit {
   port: number;
-  /** Default `0.0.0.0`: the door is reached from the proxy's container. */
+  /**
+   * Default `0.0.0.0`: on a compose bridge network the door is reached from the
+   * proxy's container. A host-networked hub must pass `127.0.0.1`.
+   */
   hostname?: string;
 }
 
 export interface LocalDoor {
   /** The bound port -- the configured one, or the one picked for port 0. */
   port: number;
+  /** The address actually bound, as the server reports it. */
+  address: string;
   stop(): Promise<void>;
 }
 
@@ -118,6 +123,7 @@ export async function startLocalDoor(init: StartLocalDoorInit): Promise<LocalDoo
         server.off("error", reject);
         resolve({
           port: info.port,
+          address: info.address,
           stop: () =>
             new Promise<void>((done) => {
               // Streams (SSE, long completions) would hold `close` open forever.

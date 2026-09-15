@@ -21,6 +21,13 @@ export interface HubConfig {
   joinPageUrl: string;
   /** The local door's port. `0` picks a free one (tests). */
   localDoorPort: number;
+  /**
+   * The address the local door binds (`HUB_LOCAL_DOOR_HOST`). `0.0.0.0` is right
+   * on a compose bridge network, where the proxy reaches it from another
+   * container. A HOST-networked hub must set `127.0.0.1`: there `0.0.0.0` puts
+   * the unauthenticated door on every host interface.
+   */
+  localDoorHost: string;
   llmUpstream?: string;
   litellmMasterKey?: string;
 }
@@ -29,6 +36,7 @@ export const DEFAULT_DATA_DIR = "/data";
 export const DEFAULT_RELAY_DOC = "https://relay.httpeers.net/.well-known/httpeers-relay.json";
 export const DEFAULT_JOIN_PAGE_URL = "https://llm-chat.httpeers.net/mesh.html";
 export const DEFAULT_LOCAL_DOOR_PORT = 8787;
+export const DEFAULT_LOCAL_DOOR_HOST = "0.0.0.0";
 
 function setting(env: NodeJS.ProcessEnv, name: string): string | undefined {
   const value = env[name]?.trim();
@@ -57,6 +65,7 @@ export function loadConfig(env: NodeJS.ProcessEnv): HubConfig {
       .filter((id) => id !== ""),
     joinPageUrl: setting(env, "HUB_JOIN_PAGE_URL") ?? DEFAULT_JOIN_PAGE_URL,
     localDoorPort: port(env, "HUB_LOCAL_DOOR_PORT", DEFAULT_LOCAL_DOOR_PORT),
+    localDoorHost: setting(env, "HUB_LOCAL_DOOR_HOST") ?? DEFAULT_LOCAL_DOOR_HOST,
     ...(llmUpstream != null ? { llmUpstream } : {}),
     ...(litellmMasterKey != null ? { litellmMasterKey } : {}),
   };

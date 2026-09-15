@@ -55,21 +55,33 @@ async function readEntries(file: string): Promise<ChangeEntry[]> {
     if ((error as { code?: string }).code === "ENOENT") return [];
     throw error;
   }
+  let doc: Partial<RevocationsDocument>;
   try {
-    const doc = JSON.parse(text) as Partial<RevocationsDocument>;
-    if (!Array.isArray(doc.entries)) throw new Error("no entries array");
-    return doc.entries.filter(
-      (e): e is ChangeEntry =>
-        typeof e?.peerId === "string" &&
-        typeof e.changedAt === "number" &&
-        Array.isArray(e.roles) &&
-        e.roles.every((r) => typeof r === "string"),
-    );
+    doc = JSON.parse(text) as Partial<RevocationsDocument>;
   } catch (error) {
     // Refuse to start rather than forget: a hub that dropped an unreadable
     // file would re-admit every revoked token.
     throw new Error(`revocations: ${file} is unreadable: ${(error as Error).message}`);
   }
+  if (!Array.isArray(doc?.entries)) {
+    throw new Error(`revocations: ${file} is unreadable: no "entries" array`);
+  }
+  // A malformed ENTRY is refused the same way, never skipped: skipping it
+  // forgets exactly the revocation it held.
+  doc.entries.forEach((e: Partial<ChangeEntry> | null, i) => {
+    const valid =
+      typeof e?.peerId === "string" &&
+      typeof e.changedAt === "number" &&
+      Number.isFinite(e.changedAt) &&
+      Array.isArray(e.roles) &&
+      e.roles.every((r) => typeof r === "string");
+    if (!valid) {
+      throw new Error(
+        `revocations: ${file} is unreadable: entries[${i}] is not { peerId, changedAt, roles }`,
+      );
+    }
+  });
+  return doc.entries;
 }
 
 export async function persistentRevocations(

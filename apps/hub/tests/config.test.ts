@@ -9,6 +9,7 @@ describe("loadConfig", () => {
       services: [],
       joinPageUrl: "https://llm-chat.httpeers.net/mesh.html",
       localDoorPort: 8787,
+      localDoorHost: "0.0.0.0",
     });
   });
 
@@ -20,6 +21,7 @@ describe("loadConfig", () => {
         HUB_SERVICES: " llm, echo ,,",
         HUB_JOIN_PAGE_URL: "https://example.test/join.html",
         HUB_LOCAL_DOOR_PORT: "9999",
+        HUB_LOCAL_DOOR_HOST: "127.0.0.1",
         HUB_LLM_UPSTREAM: "http://litellm:4000",
         LITELLM_MASTER_KEY: "sk-master",
       }),
@@ -29,6 +31,7 @@ describe("loadConfig", () => {
       services: ["llm", "echo"],
       joinPageUrl: "https://example.test/join.html",
       localDoorPort: 9999,
+      localDoorHost: "127.0.0.1",
       llmUpstream: "http://litellm:4000",
       litellmMasterKey: "sk-master",
     });

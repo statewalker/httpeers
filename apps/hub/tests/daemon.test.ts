@@ -107,6 +107,7 @@ async function configFor(dataDir?: string): Promise<HubConfig> {
     joinPageUrl: "https://example.test/mesh.html",
     // Port 0: the suite must not depend on 8787 being free.
     localDoorPort: 0,
+    localDoorHost: "127.0.0.1",
   };
 }
 
@@ -142,6 +143,7 @@ async function relayOnlyNode({ privateKey }: { privateKey?: Ed25519PrivateKey })
 async function joinMember(
   daemon: Daemon,
   createNode: (init: { privateKey?: Ed25519PrivateKey }) => ReturnType<typeof webRTCNode>,
+  keepaliveIntervalMs?: number,
 ): Promise<MemberHandle> {
   const { id } = await daemon.hub.invitations.create(["member"], 60_000);
   const member = await startMember({
@@ -151,6 +153,7 @@ async function joinMember(
     config: { relayAddrs: daemon.relayAddrs, hubPeerId: daemon.hubPeerId },
     platform: { createNode: ({ privateKey }) => createNode({ privateKey }) },
     invitationId: id,
+    ...(keepaliveIntervalMs != null ? { keepaliveIntervalMs } : {}),
   });
   members.push(member);
   return member;
@@ -175,6 +178,7 @@ describe("startDaemon", () => {
 
   it("serves a module on the local door with caller local, and 404s everything else", async () => {
     const daemon = await start(await configFor());
+    expect(daemon.localDoorAddress).toBe("127.0.0.1");
     const door = `http://127.0.0.1:${daemon.localDoorPort}`;
 
     const res = await fetch(`${door}/peers/${daemon.hubPeerId}/echo/x`);
@@ -230,5 +234,50 @@ describe("startDaemon", () => {
     const second = await start(config);
     expect(second.hub.isMember(member.peerId)).toBe(true);
     expect(second.hub.revocations.list().map((e) => e.peerId)).toEqual([member.peerId]);
+  }, 90_000);
+
+  it("refuses a module whose advertisement names another mount", async () => {
+    const misnamed: ServiceModule = {
+      ...echo,
+      advertisement: { ...echo.advertisement, id: "other" },
+    };
+    await expect(startDaemon(await configFor(), [misnamed])).rejects.toThrow(/advertisement/);
+  });
+
+  it("refuses a revoked member's existing token, and still refuses it after a restart", async () => {
+    const config = await configFor();
+    const first = await start(config);
+    const member = await joinMember(first, webRTCNode, 1_000);
+    const echoUrl = `http://local/peers/${first.hubPeerId}/echo/x`;
+    expect((await member.fetch(new Request(echoUrl))).status).toBe(200);
+    const token = member.token();
+
+    // What the admin API's revoke does: forget the member, revoke its tokens.
+    first.hub.members.remove(member.peerId);
+    first.hub.revocations.revoke(member.peerId);
+    await first.revocationsFlushed();
+
+    const refused = await member.fetch(new Request(echoUrl));
+    expect(refused.status).toBe(403);
+    expect(await refused.text()).toContain("revoked");
+    expect(member.token()).toBe(token);
+
+    await first.stop();
+    daemons.splice(daemons.indexOf(first), 1);
+    const second = await start(config);
+    expect(second.hub.isMember(member.peerId)).toBe(false);
+
+    // The member's keepalive re-links to the restarted hub; until it has, a
+    // call fails at the transport. Once it lands, the old token must be refused.
+    let after: Response | undefined;
+    for (let attempt = 0; attempt < 60; attempt++) {
+      after = await member.fetch(new Request(echoUrl)).catch(() => undefined);
+      if (after != null && (after.status === 200 || after.status === 401 || after.status === 403))
+        break;
+      await new Promise((resolve) => setTimeout(resolve, 500));
+    }
+    expect(member.token()).toBe(token);
+    expect(after?.status).toBe(403);
+    expect(await after?.text()).toContain("revoked");
   }, 90_000);
 });
