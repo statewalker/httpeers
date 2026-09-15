@@ -72,14 +72,7 @@ import type {
 } from "@statewalker/httpeers-core";
 import { json, lookupClaims, lookupPeer } from "@statewalker/httpeers-core";
 import type { AuthorizationResult } from "@statewalker/webrun-biscuit";
-import {
-  canonicalStatement,
-  datalog,
-  evaluate,
-  failedCheckTexts,
-  NO_TOKEN,
-  queryFirstTerms,
-} from "./biscuit.js";
+import { canonicalStatement, Datalog, evaluate, failedCheckTexts, firstTerms } from "./biscuit.js";
 import { ENGINE_LIMITS } from "./tokens.js";
 
 // ---------------------------------------------------------------------------
@@ -303,18 +296,18 @@ export function capabilityNames(rules: RuleSet): string[] {
  */
 export function deriveCapabilities(rules: RuleSet, roles: readonly string[]): Set<string> {
   assertBuilt(rules);
-  const code: string[] = [];
+  const code = new Datalog();
   for (const role of roles) {
     if (typeof role !== "string") continue; // a non-string role is no role at all
-    code.push(datalog`role(${role});`);
+    code.add`role(${role});`;
   }
   addRules(code, rules);
-  const { result, world } = evaluate(NO_TOKEN, code.join("\n"), ENGINE_LIMITS);
-  if (result.kind === "execution") {
-    throw new Error(`deriveCapabilities: evaluation budget exhausted (${result.error})`);
+  const evaluation = evaluate(null, code, ENGINE_LIMITS);
+  if (evaluation.result.kind === "execution") {
+    throw new Error(`deriveCapabilities: evaluation budget exhausted (${evaluation.result.error})`);
   }
   return new Set(
-    queryFirstTerms(world, "capability").filter((term): term is string => typeof term === "string"),
+    firstTerms(evaluation, "capability").filter((term): term is string => typeof term === "string"),
   );
 }
 
@@ -368,42 +361,39 @@ export function authorize(
   assertBuilt(rules);
 
   const build = (extraCapability?: string) => {
-    const code = [
-      datalog`operation(${facts.operation}); resource(${facts.resource}); time_ms(${facts.now ?? Date.now()});`,
-    ];
+    const code = new Datalog()
+      .add`operation(${facts.operation}); resource(${facts.resource}); time_ms(${facts.now ?? Date.now()});`;
     if (facts.selfPeer != null) {
-      code.push(datalog`self_peer(${facts.selfPeer});`);
+      code.add`self_peer(${facts.selfPeer});`;
     }
     if (facts.connectionPeer != null) {
-      code.push(datalog`connection_peer(${facts.connectionPeer});`);
+      code.add`connection_peer(${facts.connectionPeer});`;
     }
     if (claims != null) {
-      code.push(
-        datalog`subject(${claims.sub}); mesh(${claims.mesh}); issued_at(${claims.iat}); expires_at(${claims.exp});`,
-      );
+      code.add`subject(${claims.sub}); mesh(${claims.mesh}); issued_at(${claims.iat}); expires_at(${claims.exp});`;
       for (const role of claims.roles) {
         if (typeof role !== "string") continue;
-        code.push(datalog`role(${role});`);
+        code.add`role(${role});`;
       }
     }
     if (extraCapability != null) {
-      code.push(datalog`capability(${extraCapability});`);
+      code.add`capability(${extraCapability});`;
     }
     addRules(code, rules);
     // Policies go in in `rules.policies` order, so the index the result reports
     // indexes THIS array and the matched policy can be named (A-06).
     if (rules.policies.length > 0) {
-      code.push(`${rules.policies.join(";\n")};`);
+      code.raw(`${rules.policies.join(";\n")};`);
     }
-    return evaluate(NO_TOKEN, code.join("\n"), ENGINE_LIMITS);
+    return evaluate(null, code, ENGINE_LIMITS);
   };
 
-  const { result, world } = build();
+  const { result } = build();
   if (result.kind === "ok") {
     const matched = rules.policies[result.policy];
     return { allowed: true, matched, failed: [], reason: `allowed by policy: ${matched ?? ""}` };
   }
-  return denial(rules, facts, result, failedCheckTexts(result, world), build);
+  return denial(rules, facts, result, failedCheckTexts(result), build);
 }
 
 function denial(
@@ -555,8 +545,8 @@ export function withPolicy(init: PolicyInit) {
 // Internals
 // ---------------------------------------------------------------------------
 
-function addRules(code: string[], rules: RuleSet): void {
-  if (rules.rules.length > 0) code.push(`${rules.rules.join(";\n")};`);
+function addRules(code: Datalog, rules: RuleSet): void {
+  if (rules.rules.length > 0) code.raw(`${rules.rules.join(";\n")};`);
 }
 
 /** `Rule`/`Policy.fromString` reject a trailing `;`, but every authored line has one. */

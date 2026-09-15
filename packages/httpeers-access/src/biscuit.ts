@@ -3,94 +3,82 @@
  * (`@statewalker/webrun-biscuit`), no WebAssembly.
  *
  * `tokens.ts` and `rules.ts` speak only through this file, so it is the one
- * place that knows the engine's shape. It supplies the four things the wasm
- * binding offered directly and webrun-biscuit 0.1.0 does not:
+ * place that knows the engine's shape. It is thin on purpose: the engine binds
+ * parameters, answers queries, evaluates without a token and names failed
+ * checks by their rule text itself. What is left here is vocabulary.
  *
- *   1. PARAMETER BINDING. The wasm had `addCodeWithParameters`; here values
- *      are rendered as Datalog literals by `datalog\`...\``. Interpolating an
- *      untrusted string into Datalog is an injection seam, so this is the
- *      security-relevant part: a string is quoted exactly the way the engine's
- *      own printer quotes it (backslash and double quote escaped, nothing else
- *      — the parser takes every other character literally), a number must be a
- *      safe integer, and nothing else is accepted. `tests/biscuit.test.ts`
- *      round-trips hostile strings through the parser to prove it.
- *   2. QUERIES. The wasm had `authorizer.query(rule)`; here the facts are read
- *      out of `authorizeDetailed`'s world snapshot, keeping only those an
- *      authorizer-scoped query can see (origin within {authority, authorizer}).
- *      The snapshot prints terms, so they are parsed back with the engine's own
- *      parser — a round trip the corpus world-snapshot suite already pins.
- *   3. AUTHORIZING WITH NO TOKEN (`buildUnauthenticated`): an empty
- *      `LoadedToken`.
- *   4. FAILED-CHECK TEXT. Results name a failed check by block and index; the
- *      rule text comes from the same snapshot.
+ * VALUES ARE PARAMETERS, NEVER TEXT. `Datalog.add` is a tagged template, so a
+ * call site reads like the program it builds, but every interpolated value is
+ * bound as a `{pN}` parameter — a TERM. A `sub`, a role or a request path is
+ * never spliced into source, so none of them can change a program's shape:
+ * a role named `"); role("admin` is a role with a silly name and nothing more.
  *
- * What it no longer needs: a warm-up, a spurious-`Timeout` retry, a wasm
- * loader, bundler aliases, or guards against values that trap at the wasm
- * boundary. A `Timeout` from this engine is a real wall-clock measurement.
+ * What the wasm era needed and this does not: a warm-up, a spurious-`Timeout`
+ * retry, a loader, bundler aliases, and guards against values that trap at the
+ * wasm boundary. A `Timeout` from this engine is a real wall-clock measurement.
  */
 
 import {
   type AuthorizationResult,
-  type AuthorizeDetails,
-  type AuthorizeOptions,
-  authorizeDetailed,
+  type Evaluation,
+  evaluate as evaluateProgram,
   type LoadedToken,
+  type ParamValue,
   parseAuthorizer,
+  type RunLimits,
   type Term,
-  type WorldSnapshot,
 } from "@statewalker/webrun-biscuit";
 
-export type EngineLimits = NonNullable<AuthorizeOptions["limits"]>;
+export type EngineLimits = RunLimits;
 
-/** Render one value as a Datalog literal. Throws on anything without a safe literal form. */
-export function literal(value: unknown): string {
-  if (typeof value === "string") {
-    return `"${value.replace(/\\/g, "\\\\").replace(/"/g, '\\"')}"`;
+/** Datalog source plus the parameters its interpolated values were bound to. */
+export class Datalog {
+  private readonly lines: string[] = [];
+  private readonly bound: Record<string, ParamValue> = {};
+  private next = 0;
+
+  /** Append source. Every `${value}` becomes a `{pN}` parameter — a term, never text. */
+  add(strings: TemplateStringsArray, ...values: ParamValue[]): this {
+    let line = strings[0] ?? "";
+    values.forEach((value, i) => {
+      const name = `p${this.next++}`;
+      this.bound[name] = value;
+      line += `{${name}}${strings[i + 1] ?? ""}`;
+    });
+    this.lines.push(line);
+    return this;
   }
-  if (typeof value === "number") {
-    if (!Number.isSafeInteger(value)) {
-      throw new TypeError(`datalog: ${value} is not a safe integer`);
-    }
-    return String(value);
+
+  /** Append source that interpolates nothing — rules and policies already validated. */
+  raw(source: string): this {
+    this.lines.push(source);
+    return this;
   }
-  if (typeof value === "boolean") return value ? "true" : "false";
-  throw new TypeError(`datalog: no literal form for a value of type ${typeof value}`);
+
+  get source(): string {
+    return this.lines.join("\n");
+  }
+
+  get params(): Readonly<Record<string, ParamValue>> {
+    return this.bound;
+  }
 }
 
-/** Datalog source with every interpolated value bound as a literal — `addCodeWithParameters`. */
-export function datalog(strings: TemplateStringsArray, ...values: unknown[]): string {
-  return strings.reduce((out, s, i) => out + s + (i < values.length ? literal(values[i]) : ""), "");
-}
-
-/** What `buildUnauthenticated` evaluated against: no blocks, no keys. */
-export const NO_TOKEN: LoadedToken = Object.freeze({
-  blocks: [],
-  publicKeyToBlockIds: new Map(),
-  revocationIds: [],
-}) as LoadedToken;
-
-export function evaluate(token: LoadedToken, code: string, limits: EngineLimits): AuthorizeDetails {
-  return authorizeDetailed(token, code, { limits });
+/** Run `code` against a verified token, or against no token at all. */
+export function evaluate(
+  token: LoadedToken | null,
+  code: Datalog,
+  limits: EngineLimits,
+): Evaluation {
+  return evaluateProgram(token, code.source, { limits, params: code.params });
 }
 
 /**
- * Every first term of `<predicate>(...)` visible to an authorizer-scoped query,
- * as JS values — `authorizer.query("claim($x) <- <predicate>($x)")`.
- *
- * Visible means every origin of the fact is the authority block (0) or the
- * authorizer (printed `null`): a later block's facts are out of scope, exactly
- * as they were for the wasm query.
+ * Every first term of `<predicate>(...)` an authorizer-scoped query can see,
+ * as JS values. `predicate` is always a constant of this package, never input.
  */
-export function queryFirstTerms(world: WorldSnapshot, predicate: string): unknown[] {
-  const prefix = `${predicate}(`;
-  const printed = world.facts
-    .filter((group) => group.origin.every((id) => id === 0 || id === null))
-    .flatMap((group) => group.facts)
-    .filter((fact) => fact.startsWith(prefix));
-  if (printed.length === 0) return [];
-  return parseAuthorizer(`${printed.join(";\n")};`).facts.map((fact) =>
-    toJs(fact.predicate.terms[0]),
-  );
+export function firstTerms(evaluation: Evaluation, predicate: string): unknown[] {
+  return evaluation.query(`claim($x) <- ${predicate}($x)`).map((fact) => toJs(fact.terms[0]));
 }
 
 function toJs(term: Term | undefined): unknown {
@@ -100,28 +88,22 @@ function toJs(term: Term | undefined): unknown {
     case "bool":
       return term.v;
     case "int":
-      // The wasm handed integers back as JS numbers; keep that contract. One
-      // that does not fit stays a bigint, which the caller's type check refuses
-      // rather than silently rounding.
+      // Integers come back as JS numbers, as the wasm handed them. One that does
+      // not fit stays a bigint, which the caller's type check refuses rather
+      // than silently rounding.
       return Number.isSafeInteger(Number(term.v)) ? Number(term.v) : term.v;
     default:
       return term;
   }
 }
 
-/** Render a result's failed checks as `block <id> check <id>: <rule>` / `authorizer check <id>: <rule>`. */
-export function failedCheckTexts(result: AuthorizationResult, world: WorldSnapshot): string[] {
+/** A result's failed checks as `block <id> check <id>: <rule>` / `authorizer check <id>: <rule>`. */
+export function failedCheckTexts(result: AuthorizationResult): string[] {
   if (result.kind !== "unauthorized" && result.kind !== "noMatchingPolicy") return [];
-  // The snapshot keys authorizer checks by the u64 block id `usize::MAX`,
-  // which a JS number cannot hold exactly; anything past u32 is the authorizer.
-  const textOf = (origin: number, index: number): string =>
-    world.checks.find((g) => (origin < 0 ? g.origin > 0xffffffff : g.origin === origin))?.checks[
-      index
-    ] ?? "?";
   return result.checks.map((check) =>
     check.source === "authorizer"
-      ? `authorizer check ${check.checkId}: ${textOf(-1, check.checkId)}`
-      : `block ${check.blockId} check ${check.checkId}: ${textOf(check.blockId, check.checkId)}`,
+      ? `authorizer check ${check.checkId}: ${check.rule}`
+      : `block ${check.blockId} check ${check.checkId}: ${check.rule}`,
   );
 }
 
@@ -139,7 +121,7 @@ export function canonicalStatement(
   if (count !== 1 || wanted !== 1) {
     throw new Error(`expected exactly one ${kind}`);
   }
-  const { world } = evaluate(NO_TOKEN, code, limits);
+  const world = evaluateProgram(null, code, { limits }).snapshot();
   const canonical = kind === "rule" ? world.rules[0]?.rules[0] : world.policies[0];
   if (canonical === undefined) throw new Error(`expected exactly one ${kind}`);
   return canonical;
