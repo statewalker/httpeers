@@ -25,7 +25,6 @@
     "join-smoke": "node scripts/join-smoke.mjs"
   },
   "dependencies": {
-    "@biscuit-auth/biscuit-wasm": "0.6.0",
     "@libp2p/interface": "3.2.5",
     "@statewalker/httpeers-access": "workspace:*",
     "@statewalker/httpeers-bridge": "workspace:*",

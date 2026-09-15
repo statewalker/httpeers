@@ -1,7 +1,8 @@
 /**
  * The boundary, inverted where it must be and kept where it matters.
  *
- * This package is ALLOWED WebAssembly — Biscuit is its whole job — and it is
+ * This package is allowed a Biscuit engine — that is its whole job; it is pure
+ * TypeScript (`@statewalker/webrun-biscuit`), so no WebAssembly — and it is
  * allowed `multiformats`, which is how a peerId's own public key is recovered
  * without libp2p. What it may not have is the thing the extraction exists to
  * cut: `libp2p` and `@libp2p/*` must not appear in `src/`, or verification
@@ -92,8 +93,8 @@ describe("the isomorphism boundary", () => {
       dependencies?: Record<string, string>;
     };
     expect(Object.keys(pkg.dependencies ?? {}).sort()).toEqual([
-      "@biscuit-auth/biscuit-wasm",
       "@statewalker/httpeers-core",
+      "@statewalker/webrun-biscuit",
       "multiformats",
     ]);
     // The point of the package, as a dependency claim: no libp2p, at any

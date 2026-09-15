@@ -20,15 +20,15 @@ const webrunUrl = new URL("../../../webrun-wire/packages/", import.meta.url);
 
 function aliasesIn(baseUrl: URL) {
   return readdirSync(fileURLToPath(baseUrl)).flatMap((name) => {
-  const srcUrl = new URL(`${name}/src/`, baseUrl);
-  if (!existsSync(new URL("index.ts", srcUrl))) return [];
-  const specifier = `@statewalker/${name}`.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-  const srcDir = fileURLToPath(srcUrl);
-  return [
-    // Subpath first: the more specific pattern has to win.
-    { find: new RegExp(`^${specifier}/(.+)$`), replacement: `${srcDir}$1.ts` },
-    { find: new RegExp(`^${specifier}$`), replacement: `${srcDir}index.ts` },
-  ];
+    const srcUrl = new URL(`${name}/src/`, baseUrl);
+    if (!existsSync(new URL("index.ts", srcUrl))) return [];
+    const specifier = `@statewalker/${name}`.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    const srcDir = fileURLToPath(srcUrl);
+    return [
+      // Subpath first: the more specific pattern has to win.
+      { find: new RegExp(`^${specifier}/(.+)$`), replacement: `${srcDir}$1.ts` },
+      { find: new RegExp(`^${specifier}$`), replacement: `${srcDir}index.ts` },
+    ];
   });
 }
 
@@ -36,36 +36,10 @@ function aliasesIn(baseUrl: URL) {
 // webrun-http-browser's ServiceWorker adapter.
 const alias = [...aliasesIn(packagesUrl), ...aliasesIn(webrunUrl)];
 
-// biscuit-wasm's `exports` map is `{ "import": "./module/biscuit.js" }` with no
-// wildcard, so the deep imports the loader seam needs are unreachable by any
-// strict resolver. These two aliases are the "documented bundler alias" that
-// `httpeers-access/engine` says a caller must supply -- and a demo app will
-// need the same two lines in its own Vite config.
-const biscuit = fileURLToPath(
-  new URL("../../../../node_modules/.pnpm/@biscuit-auth+biscuit-wasm@0.6.0/node_modules/@biscuit-auth/biscuit-wasm/module/", import.meta.url),
-);
-
 export default {
-  // Keep the aliased entry out of the dependency pre-bundler: an optimized
-  // copy would be a SECOND module instance, and arming one leaves the other
-  // -- the one the library actually calls -- holding no wasm.
-  optimizeDeps: { exclude: ["@biscuit-auth/biscuit-wasm"] },
-  resolve: {
-    alias: [
-      // THE ENTRY ITSELF, redirected to the binding module. biscuit-wasm's
-      // published entry runs `__wbg_set_wasm(wasm)` where `wasm` is a `.wasm`
-      // import -- a MODULE in Node, a URL STRING under Vite. Left in place it
-      // loads whenever anything imports the package and overwrites whatever
-      // the loader seam armed, with a string. Pointing the entry at the
-      // binding module removes that side effect; `biscuit.js` is only
-      // `export * from "./biscuit_bg.js"` plus that one line.
-      { find: /^@biscuit-auth\/biscuit-wasm$/, replacement: `${biscuit}biscuit_bg.js` },
-      { find: "#biscuit-binding", replacement: `${biscuit}biscuit_bg.js` },
-      { find: "#biscuit-snippet", replacement: `${biscuit}snippets/biscuit-auth-314ca57174ae0e6d/inline0.js` },
-      { find: "#biscuit-wasm-url", replacement: `${biscuit}biscuit_bg.wasm` },
-      ...alias,
-    ],
-  },
+  // No Biscuit aliases: the engine is pure TypeScript, so a page needs no
+  // loader seam, no `.wasm` asset and no optimizer exclusion.
+  resolve: { alias },
   test: {
     include: ["tests/**/*.test.ts"],
     browser: {

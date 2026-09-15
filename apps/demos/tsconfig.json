@@ -6,10 +6,7 @@
     "lib": ["ES2022", "DOM", "DOM.Iterable"],
     "types": ["node", "vite/client"],
     "rootDir": ".",
-    "noEmit": true,
-    "paths": {
-      "#biscuit-snippet": ["./src/shared/biscuit-snippet.d.ts"]
-    }
+    "noEmit": true
   },
   "include": ["src/**/*.ts", "*.ts"]
 }

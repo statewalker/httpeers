@@ -4,13 +4,14 @@
  * ITS OWN ENTRY POINT ON PURPOSE. This is what a rescue page loads when the
  * app will not start, so it must not depend on the app starting. Importing it
  * through `./browser` would drag in the session, the member lifecycle,
- * `httpeers-access` and finally `biscuit-wasm` -- a WebAssembly module that
- * needs its own initialisation -- to unregister a ServiceWorker. If that
- * initialisation is what broke, the rescue page breaks with it.
+ * `httpeers-access` and its Biscuit engine, crypto and transport code -- all to
+ * unregister a ServiceWorker. If any of that is what broke, the rescue page
+ * breaks with it.
  *
- * Measured, not assumed: importing `@statewalker/httpeers-member/browser` in a
- * browser fails outright until the wasm loader is wired, which is exactly the
- * situation someone reaching for a reset may be in.
+ * This was measured when the engine was WebAssembly: importing
+ * `@statewalker/httpeers-member/browser` failed outright until the wasm loader
+ * was wired. The engine is pure TypeScript now, but the rule stands for every
+ * other reason an app fails to start.
  *
  * So: zero imports. Everything here is a platform global.
  */

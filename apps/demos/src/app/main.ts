@@ -25,7 +25,6 @@ import type { MeshView, MeshViewAdvertisement } from "@statewalker/httpeers-core
 import { createMounts } from "@statewalker/httpeers-core";
 import type { PeerSession, SessionState } from "@statewalker/httpeers-member";
 import { createSession } from "@statewalker/httpeers-member/browser";
-import { ensureBiscuit } from "../shared/biscuit.js";
 import type { ImageInfo } from "../shared/images.js";
 import { EDGE_KEY, meshRules } from "../shared/policy.js";
 import { needsPermissiveGater, readRelayAddrs } from "../shared/relay.js";
@@ -208,7 +207,6 @@ function render(state: SessionState): void {
 }
 
 async function main(): Promise<void> {
-  await ensureBiscuit();
   const relayAddrs = await readRelayAddrs();
 
   session = createSession({

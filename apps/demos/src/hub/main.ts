@@ -20,7 +20,6 @@ import {
 } from "@statewalker/httpeers-member";
 import { idbBytesBackend } from "@statewalker/httpeers-member/browser";
 import { qrSvg } from "@statewalker/httpeers-qr";
-import { ensureBiscuit } from "../shared/biscuit.js";
 import { type HubHandle, type HubState, startHub } from "../shared/hub-runtime.js";
 import { EDGE_KEY, meshRules } from "../shared/policy.js";
 import { needsPermissiveGater, readRelayAddrs } from "../shared/relay.js";
@@ -164,10 +163,6 @@ async function removeMember(handle: HubHandle, peerId: string): Promise<void> {
 }
 
 async function main(): Promise<void> {
-  // BEFORE ANYTHING TOUCHES A TOKEN. Under a bundler biscuit-wasm's own entry
-  // cannot arm itself -- see `../shared/biscuit.ts`.
-  await ensureBiscuit();
-
   // Shown before the hub starts: this is the mesh's name, and it is readable
   // even if nothing below succeeds.
   const privateKey = await loadOrCreateIdentity({ backend: idbBytesBackend() });
