@@ -10,6 +10,12 @@ A peer-to-peer mesh where **everything is a `fetch()`**. Two halves live here:
   the circuit relay, the static-site host, and the ingress that fronts both.
   Live at `relay.httpeers.net`, `s3.httpeers.net` and `*.httpeers.net`.
 
+**Before building on it, read [`docs/security-model.md`](docs/security-model.md)** —
+the mesh mounts every peer's HTTP surface into your own origin and calls it with
+your identity automatically, so *data* crosses that boundary safely but *code*
+does not. That document defines the valid uses and the ones to avoid, and is the
+frame the packages below sit inside.
+
 Design and decisions live in the umbrella repository:
 `docs/superpowers/specs/2026-09-06-httpeers-relay-production-design.md`, the
 extraction's acceptance record at
