@@ -1,0 +1,153 @@
+# The LLM appliance: hub + LiteLLM + Postgres + Traefik, one bridge network.
+#
+# See README.md for setup. See compose.test.yml for the local smoke-test
+# overlay (a fake OpenAI upstream registered as model "fake") and
+# compose.host.yml for the optional Linux host-networking variant.
+#
+# NETWORK. "appliance" is a plain bridge, NOT internal: the hub fetches its
+# relay document from the public internet once at start and exits 1 if it
+# can't (global-constraints.md) — an `internal: true` network would make
+# every start fail. LiteLLM and Postgres simply have no `ports:`, so they are
+# unreachable from the host or the internet even though the network itself
+# can reach out.
+#
+# RESTARTS. `restart: unless-stopped` on every long-running service: the hub
+# in particular exits 1 on a relay-fetch failure at start (a transient
+# network blip must not leave the appliance down until an operator notices).
+networks:
+  appliance:
+
+services:
+  hub:
+    build:
+      context: ../..
+      dockerfile: apps/hub/Dockerfile
+    restart: unless-stopped
+    networks:
+      - appliance
+    # NEVER published: the local door is unauthenticated (it never goes
+    # through `withAccess` — apps/hub/src/local-door.ts). Traefik, on
+    # 127.0.0.1:8080 with basic auth, is its only way in from the host.
+    volumes:
+      - ./data/hub:/data/hub
+    environment:
+      - HUB_SERVICES=llm
+      - HUB_LLM_UPSTREAM=http://litellm:4000
+      - HUB_JOIN_PAGE_URL=${HUB_JOIN_PAGE_URL:-https://llm-chat.httpeers.net/mesh.html}
+      - LITELLM_MASTER_KEY=${LITELLM_MASTER_KEY}
+    healthcheck:
+      # Both halves of "the hub is up": its identity is written (`hub.env`,
+      # apps/hub/src/identity.ts) AND the local door answers — Node 24 has a
+      # global `fetch`, so no extra tooling is needed in the runtime image.
+      test:
+        - CMD
+        - node
+        - -e
+        - |
+          const fs = require("node:fs");
+          if (!fs.existsSync("/data/hub/hub.env")) process.exit(1);
+          fetch("http://127.0.0.1:8787/hub/api/mesh")
+            .then((r) => process.exit(r.ok ? 0 : 1))
+            .catch(() => process.exit(1));
+      interval: 5s
+      timeout: 5s
+      retries: 24
+      start_period: 10s
+
+  postgres:
+    image: postgres:16
+    restart: unless-stopped
+    networks:
+      - appliance
+    volumes:
+      - ./data/postgres:/var/lib/postgresql/data
+    environment:
+      - POSTGRES_USER=litellm
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
+      - POSTGRES_DB=litellm
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U litellm"]
+      interval: 3s
+      timeout: 3s
+      retries: 20
+
+  litellm:
+    image: ghcr.io/berriai/litellm:main-v1.83.14-stable
+    restart: unless-stopped
+    networks:
+      - appliance
+    depends_on:
+      postgres:
+        condition: service_healthy
+      # Not `service_healthy`: litellm-entrypoint.sh does its own wait for
+      # `hub.env` (up to 120s), which is written well before the hub's local
+      # door — and so its healthcheck — comes up.
+      hub:
+        condition: service_started
+    volumes:
+      - ./litellm/config.yaml:/app/config.yaml:ro
+      - ./litellm-entrypoint.sh:/litellm-entrypoint.sh:ro
+      # Read-only: this container only ever reads the hub's identity.
+      - ./data/hub:/data/hub:ro
+    environment:
+      - DATABASE_URL=postgresql://litellm:${POSTGRES_PASSWORD}@postgres:5432/litellm
+      - LITELLM_MASTER_KEY=${LITELLM_MASTER_KEY}
+      - LITELLM_SALT_KEY=${LITELLM_SALT_KEY}
+      - UI_USERNAME=${UI_USERNAME}
+      - UI_PASSWORD=${UI_PASSWORD}
+      - STORE_MODEL_IN_DB=True
+    entrypoint: ["/bin/sh", "/litellm-entrypoint.sh"]
+    healthcheck:
+      # The root-mounted path specifically (not the bare route both happen to
+      # answer, per the spike's Q1) — this is what proves SERVER_ROOT_PATH is
+      # actually wired end-to-end, not just that LiteLLM is up. The image has
+      # no curl/wget (Wolfi base — verified with `docker image inspect` +
+      # `which`), but does have python3.
+      test:
+        - CMD-SHELL
+        - >-
+          . /data/hub/hub.env &&
+          python3 -c "import urllib.request,sys;
+          urllib.request.urlopen(sys.argv[1], timeout=3)"
+          "http://127.0.0.1:4000/peers/$$HUB_PEER_ID/llm/health/readiness"
+      interval: 5s
+      timeout: 5s
+      retries: 30
+      start_period: 15s
+
+  traefik:
+    image: traefik:v3.6.4
+    restart: unless-stopped
+    networks:
+      - appliance
+    depends_on:
+      hub:
+        condition: service_healthy
+      litellm:
+        condition: service_healthy
+    ports:
+      - "127.0.0.1:8080:8080"
+    volumes:
+      - ./traefik/dynamic.yml:/etc/traefik/dynamic.yml:ro
+    environment:
+      - ADMIN_HTPASSWD=${ADMIN_HTPASSWD}
+    # Static config is these command flags (no static config file needed).
+    # The container's own entrypoint.sh is bypassed: ADMIN_HTPASSWD (an
+    # htpasswd line, containing literal "$" — bcrypt/MD5-crypt hash
+    # characters) is written to a usersfile INSIDE the container at start,
+    # never interpolated by compose itself, and referenced from dynamic.yml
+    # via `usersFile` rather than an inline `users:` list — the alternative
+    # ("mind $ escaping") would be embedding the hash directly in dynamic.yml
+    # and doubling every "$" as "$$" there instead; a mounted usersfile avoids
+    # that entirely for the dynamic config, at the cost of needing it here,
+    # in the one place ADMIN_HTPASSWD's literal value is written out — see
+    # README's "Traefik and the admin htpasswd" section.
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - >-
+        printf '%s\n' "$$ADMIN_HTPASSWD" > /etc/traefik/usersfile &&
+        exec traefik
+        --entrypoints.web.address=:8080
+        --providers.file.filename=/etc/traefik/dynamic.yml
+        --providers.file.watch=true
+        --log.level=INFO

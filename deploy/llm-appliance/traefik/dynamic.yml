@@ -1,0 +1,26 @@
+# Traefik's file-provider dynamic config (static config is on the command
+# line in compose.yml). No secrets here: the basic-auth users file is
+# generated at container start from $ADMIN_HTPASSWD (see compose.yml's
+# `traefik` entrypoint override) and mounted separately — see README's
+# "Traefik and the admin htpasswd" section for why.
+#
+# One router for everything: the hub's local door already does its own
+# routing (`/peers/<hubPeerId>/<service>/...`, `/hub/api/*`, `/` for the admin
+# UI — apps/hub/src/local-door.ts) and is the door's ONLY client (the local
+# door is never published to the host), so there is nothing to split here.
+http:
+  routers:
+    admin:
+      rule: "PathPrefix(`/`)"
+      entryPoints: ["web"]
+      service: hub
+      middlewares: ["admin-auth"]
+  middlewares:
+    admin-auth:
+      basicAuth:
+        usersFile: /etc/traefik/usersfile
+  services:
+    hub:
+      loadBalancer:
+        servers:
+          - url: "http://hub:8787"

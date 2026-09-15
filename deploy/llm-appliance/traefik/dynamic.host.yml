@@ -1,0 +1,21 @@
+# The compose.host.yml variant of dynamic.yml: swapped in because with the
+# hub on `network_mode: host`, "hub" is no longer a resolvable name on the
+# "appliance" bridge network. Traefik joins host networking too in that mode
+# (compose.host.yml), so it reaches the hub's local door over real loopback,
+# exactly like a same-host process would.
+http:
+  routers:
+    admin:
+      rule: "PathPrefix(`/`)"
+      entryPoints: ["web"]
+      service: hub
+      middlewares: ["admin-auth"]
+  middlewares:
+    admin-auth:
+      basicAuth:
+        usersFile: /etc/traefik/usersfile
+  services:
+    hub:
+      loadBalancer:
+        servers:
+          - url: "http://127.0.0.1:8787"

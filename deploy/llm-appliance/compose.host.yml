@@ -1,0 +1,44 @@
+# OPTIONAL, LINUX ONLY. Direct WebRTC instead of the relay-circuit fallback:
+#
+#   docker compose -f compose.yml -f compose.host.yml [-f compose.test.yml] up -d
+#
+# Moves the hub onto the host's own network namespace (`network_mode: host`)
+# so its WebRTC listener is reachable at the host's real address instead of a
+# bridge network's private one. Traefik moves to host networking too, so it
+# still reaches the hub's local door over real loopback (127.0.0.1:8787)
+# instead of the "appliance" bridge network's "hub" DNS name, which no longer
+# resolves once the hub leaves that network — that is also why Traefik's
+# dynamic config is swapped for traefik/dynamic.host.yml (targets
+# 127.0.0.1:8787, not http://hub:8787).
+#
+# Postgres and LiteLLM stay on the bridge network; the host-networked hub
+# reaches LiteLLM through a host-published loopback port instead of the
+# "litellm" DNS name (also no longer resolvable to it). LITELLM_HOST_PORT
+# defaults to 4180 — NOT 4000 or 8787, which the spike's still-running
+# `spike-llm-host` / `spike-hub-host` containers already hold on the host.
+#
+# NEEDS COMPOSE >= 2.24 (the `!reset` merge tag, which clears the base
+# file's `networks:`/`ports:` list instead of merging into it — required
+# because `network_mode` and `networks:` cannot both be set on a service).
+# NOT EXERCISED in this task's verification, which runs the default
+# bridge/relay-fallback compose.yml only — see README's "Host networking"
+# section before relying on this in anything but a quick local check.
+services:
+  hub:
+    network_mode: host
+    networks: !reset []
+    ports: !reset []
+    environment:
+      - HUB_LOCAL_DOOR_HOST=127.0.0.1
+      - HUB_LLM_UPSTREAM=http://127.0.0.1:${LITELLM_HOST_PORT:-4180}
+
+  litellm:
+    ports:
+      - "127.0.0.1:${LITELLM_HOST_PORT:-4180}:4000"
+
+  traefik:
+    network_mode: host
+    networks: !reset []
+    ports: !reset []
+    volumes: !reset
+      - ./traefik/dynamic.host.yml:/etc/traefik/dynamic.yml:ro
