@@ -197,6 +197,15 @@ describe("createAdminApi", () => {
       expect(res.status).toBe(404);
       expect((await res.json()) as { error: string }).toHaveProperty("error");
     });
+
+    it("DELETE with a malformed percent-escape in the peerId: 400, not a thrown exception", async () => {
+      const { api } = await setup();
+      // "%E0%A4%A" is a truncated escape sequence -- decodeURIComponent throws
+      // a URIError on it.
+      const res = await api(req("DELETE", "/hub/api/members/%E0%A4%A"));
+      expect(res.status).toBe(400);
+      expect((await res.json()) as { error: string }).toHaveProperty("error");
+    });
   });
 
   it("GET /hub/api/openapi.json: every route in the table", async () => {

@@ -9,7 +9,7 @@ import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { capabilityNames, roleNames, ruleSet } from "@statewalker/httpeers-access";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { CORE_POLICIES, DEFAULT_RULES, loadOrCreateRules } from "../src/rules.js";
 import type { ServiceModule } from "../src/service-module.js";
 
@@ -71,9 +71,14 @@ describe("loadOrCreateRules", () => {
 
   it("grants the admin API to std:mesh.admin without writing the core policy either", async () => {
     const dir = await tempDir();
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
     const rules = loadOrCreateRules(dir, []);
     expect(rules.policies.some((p) => p.includes("/hub/api"))).toBe(true);
     expect(await readFile(join(dir, "rules.dl"), "utf8")).not.toContain("/hub/api");
+    // The default rules derive std:mesh.admin, so the admin API IS reachable
+    // through the mesh -- nothing to warn about.
+    expect(warn).not.toHaveBeenCalled();
+    warn.mockRestore();
   });
 
   it("grants the admin API even to a rules.dl written before it existed", async () => {
@@ -93,7 +98,7 @@ describe("loadOrCreateRules", () => {
     expect(rules.policies.some((p) => p.includes("/hub/api"))).toBe(true);
   });
 
-  it("respects a file the operator edited", async () => {
+  it("respects a file the operator edited, and warns that the admin API is off the mesh", async () => {
     const dir = await tempDir();
     await writeFile(
       join(dir, "rules.dl"),
@@ -103,11 +108,17 @@ describe("loadOrCreateRules", () => {
         policies: ['allow if capability("std:mesh.read"), resource("/.well-known");'],
       }),
     );
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
     const rules = loadOrCreateRules(dir, [echo]);
     expect(rules.version).toBe(7);
     expect(roleNames(rules)).toContain("guest");
     expect(roleNames(rules)).not.toContain("admin");
     expect(rules.rules.at(-1)).toBe(ruleSet({ rules: echo.rules }).rules[0]);
+    // This file derives no std:mesh.admin capability at all -- the admin API
+    // is silently unreachable through the mesh unless this says so.
+    expect(warn).toHaveBeenCalledTimes(1);
+    expect(warn.mock.calls[0]?.[0]).toContain("std:mesh.admin");
+    warn.mockRestore();
   });
 
   it("refuses a file that is not the rules document rather than replacing it", async () => {

@@ -131,6 +131,17 @@ export function loadOrCreateRules(dir: string, modules: ServiceModule[]): RuleSe
     const canAdmin = capabilityNames(
       ruleSet({ version: doc.version, rules, policies: [] }),
     ).includes(ADMIN_CAPABILITY);
+    if (!canAdmin) {
+      // Fail-closed, not fail-silent: an operator whose custom rules dropped
+      // `std:mesh.admin` gets a hub that starts (see the module comment on
+      // why this must not refuse to start), but the admin API going dark on
+      // the mesh is exactly the kind of thing that must not happen quietly --
+      // it is still reachable on the local door, which needs no capability.
+      console.warn(
+        "hub: rules.dl derives no std:mesh.admin capability -- the admin API is NOT " +
+          "reachable through the mesh (local door only)",
+      );
+    }
     return ruleSet({
       version: doc.version,
       rules,

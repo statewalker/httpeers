@@ -143,7 +143,13 @@ export function createAdminApi(init: AdminApiInit): Handler {
     }
 
     if (pathname.startsWith("/hub/api/members/") && method === "DELETE") {
-      const peerId = decodeURIComponent(pathname.slice("/hub/api/members/".length));
+      const raw = pathname.slice("/hub/api/members/".length);
+      let peerId: string;
+      try {
+        peerId = decodeURIComponent(raw);
+      } catch {
+        return errorResponse(400, `malformed peerId in path: "${raw}"`);
+      }
       if (peerId !== "" && !peerId.includes("/")) return removeMember(peerId);
     }
 
