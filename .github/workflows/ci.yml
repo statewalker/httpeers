@@ -22,6 +22,11 @@ jobs:
 
       - run: pnpm run lint:check
 
+      # Before typecheck, not after: packages resolve each other through their
+      # `exports`, which point at dist/, so a package's typecheck can only see a
+      # dependency that has been built (httpeers-ghost -> httpeers-core).
+      - run: pnpm run build
+
       - run: pnpm run typecheck
 
       # These bind real ports and start real libp2p nodes, hence

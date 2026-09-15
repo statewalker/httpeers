@@ -20,15 +20,15 @@ const webrunUrl = new URL("../../../webrun-wire/packages/", import.meta.url);
 
 function aliasesIn(baseUrl: URL) {
   return readdirSync(fileURLToPath(baseUrl)).flatMap((name) => {
-  const srcUrl = new URL(`${name}/src/`, baseUrl);
-  if (!existsSync(new URL("index.ts", srcUrl))) return [];
-  const specifier = `@statewalker/${name}`.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-  const srcDir = fileURLToPath(srcUrl);
-  return [
-    // Subpath first: the more specific pattern has to win.
-    { find: new RegExp(`^${specifier}/(.+)$`), replacement: `${srcDir}$1.ts` },
-    { find: new RegExp(`^${specifier}$`), replacement: `${srcDir}index.ts` },
-  ];
+    const srcUrl = new URL(`${name}/src/`, baseUrl);
+    if (!existsSync(new URL("index.ts", srcUrl))) return [];
+    const specifier = `@statewalker/${name}`.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    const srcDir = fileURLToPath(srcUrl);
+    return [
+      // Subpath first: the more specific pattern has to win.
+      { find: new RegExp(`^${specifier}/(.+)$`), replacement: `${srcDir}$1.ts` },
+      { find: new RegExp(`^${specifier}$`), replacement: `${srcDir}index.ts` },
+    ];
   });
 }
 
