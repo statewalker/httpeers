@@ -121,6 +121,70 @@ importers:
         specifier: 'catalog:'
         version: 4.1.11(@types/node@26.4.1)(@vitest/browser-playwright@4.1.11)(vite@8.3.0(@types/node@26.4.1)(esbuild@0.28.2)(jiti@2.7.0)(terser@5.51.2)(tsx@4.23.13))
 
+  apps/hub:
+    dependencies:
+      '@chainsafe/libp2p-noise':
+        specifier: 17.0.0
+        version: 17.0.0
+      '@chainsafe/libp2p-yamux':
+        specifier: 8.0.1
+        version: 8.0.1
+      '@hono/node-server':
+        specifier: 2.1.1
+        version: 2.1.1(hono@4.13.7)
+      '@libp2p/circuit-relay-v2':
+        specifier: 4.2.11
+        version: 4.2.11
+      '@libp2p/identify':
+        specifier: 4.1.12
+        version: 4.1.12
+      '@libp2p/interface':
+        specifier: 3.2.5
+        version: 3.2.5
+      '@libp2p/webrtc':
+        specifier: 6.0.29
+        version: 6.0.29(react-native@0.87.1(@babel/core@7.29.7)(@types/react@19.3.0)(react@19.3.0))
+      '@libp2p/websockets':
+        specifier: 10.1.19
+        version: 10.1.19
+      '@statewalker/httpeers-access':
+        specifier: workspace:*
+        version: link:../../packages/httpeers-access
+      '@statewalker/httpeers-core':
+        specifier: workspace:*
+        version: link:../../packages/httpeers-core
+      '@statewalker/httpeers-hub':
+        specifier: workspace:*
+        version: link:../../packages/httpeers-hub
+      '@statewalker/httpeers-libp2p':
+        specifier: workspace:*
+        version: link:../../packages/httpeers-libp2p
+      libp2p:
+        specifier: 3.3.8
+        version: 3.3.8
+    devDependencies:
+      '@biomejs/biome':
+        specifier: 'catalog:'
+        version: 2.5.12
+      '@libp2p/crypto':
+        specifier: 5.1.22
+        version: 5.1.22
+      '@statewalker/httpeers-member':
+        specifier: workspace:*
+        version: link:../../packages/httpeers-member
+      '@statewalker/httpeers-relay':
+        specifier: workspace:*
+        version: link:../relay
+      '@types/node':
+        specifier: 'catalog:'
+        version: 26.4.1
+      typescript:
+        specifier: 'catalog:'
+        version: 7.0.2
+      vitest:
+        specifier: 'catalog:'
+        version: 4.1.11(@types/node@26.4.1)(@vitest/browser-playwright@4.1.11)(vite@8.3.0(@types/node@26.4.1)(esbuild@0.28.2)(jiti@2.7.0)(terser@5.51.2)(tsx@4.23.13))
+
   apps/llm-chat:
     dependencies:
       '@assistant-ui/react':
