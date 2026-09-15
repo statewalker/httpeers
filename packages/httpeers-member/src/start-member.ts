@@ -127,6 +127,11 @@ export type JoinMethod = "resumed" | "redeemed";
  * bridge network): a KEPT limited circuit through the public relay, over which
  * this member calls the hub and nothing else -- no reservation, so no other
  * member can reach it.
+ *
+ * FIXED FOR A RUN. It is decided once, at join; a relay-mode member re-links
+ * over a new circuit and never retries the upgrade (no automatic re-upgrade in
+ * v1), so it never becomes `"direct"` without direct mode's reservation. A new
+ * join (a reconnect) decides again.
  */
 export type HubLink = "direct" | "relay";
 
@@ -148,11 +153,7 @@ export interface MemberHandle {
   meshView(): MeshView | null;
   token(): string;
   connectionKind(peerId: string): ConnectionKind;
-  /**
-   * How this member reaches its hub right now -- see `HubLink`. Read at call
-   * time: a member that joined over the relay re-links the same way when its
-   * circuit drops, WebRTC first, so the answer can change.
-   */
+  /** How this member reaches its hub -- see `HubLink`. Constant for the life of this handle. */
   hubLink(): HubLink;
   /**
    * The libp2p node, as an escape hatch.
@@ -238,29 +239,27 @@ export async function startMember(init: StartMemberInit): Promise<MemberHandle> 
     });
     unwind.push(async () => await peer.stop());
 
-    // WEBRTC FIRST, ONCE, THEN THE RELAY CIRCUIT. Any failure of the upgrade
-    // counts: a hub that WebRTC cannot reach fails in more ways than one (no
-    // route, ICE timeout, no transport), and the fallback is the same for all.
-    const linkHub = async (): Promise<HubLink> => {
-      try {
-        await reachHub(node, relayAddr, hubPeerId);
-        return "direct";
-      } catch (upgradeErr) {
-        try {
-          await reachHubRelayed(node, relayAddr, hubPeerId);
-          return "relay";
-        } catch (relayErr) {
-          throw new Error(
-            `startMember: the hub (${hubPeerId}) could not be reached over WebRTC ` +
-              `(${String(upgradeErr)}) nor over a relay circuit (${String(relayErr)}).`,
-            { cause: relayErr },
-          );
-        }
-      }
-    };
-
+    // WEBRTC FIRST, ONCE PER JOIN, THEN THE RELAY CIRCUIT. Any failure of the
+    // upgrade counts: a hub that WebRTC cannot reach fails in more ways than
+    // one (no route, ICE timeout, no transport), and the fallback is the same
+    // for all.
     onState("dialing-hub");
-    let hubLink = await linkHub();
+    let hubLink: HubLink;
+    try {
+      await reachHub(node, relayAddr, hubPeerId);
+      hubLink = "direct";
+    } catch (upgradeErr) {
+      try {
+        await reachHubRelayed(node, relayAddr, hubPeerId);
+        hubLink = "relay";
+      } catch (relayErr) {
+        throw new Error(
+          `startMember: the hub (${hubPeerId}) could not be reached over WebRTC ` +
+            `(${String(upgradeErr)}) nor over a relay circuit (${String(relayErr)}).`,
+          { cause: relayErr },
+        );
+      }
+    }
 
     onState("resuming");
     const seq = nextInitialSeq();
@@ -341,13 +340,14 @@ export async function startMember(init: StartMemberInit): Promise<MemberHandle> 
       onPresenceRefused: init.onPresenceRefused,
       heartbeatIntervalMs: init.heartbeatIntervalMs,
       keepaliveIntervalMs: init.keepaliveIntervalMs,
-      // A member that joined over the relay re-links the way it joined: WebRTC
-      // first, then a new circuit. One that joined direct keeps `reachHub`,
-      // with the supervisor above restoring its reservation.
+      // A relay-mode member re-links over a NEW CIRCUIT ONLY, and stays in
+      // relay mode: retrying WebRTC here could land it "direct" with none of
+      // the reservation duties above. One that joined direct keeps `reachHub`,
+      // with the supervisor restoring its reservation.
       relinkHub:
         hubLink === "relay"
           ? async () => {
-              hubLink = await linkHub();
+              await reachHubRelayed(node, relayAddr, hubPeerId);
             }
           : undefined,
     });

@@ -44,7 +44,7 @@ import {
 } from "@statewalker/httpeers-libp2p";
 import { createLibp2p } from "libp2p";
 import { afterEach, describe, expect, it } from "vitest";
-import { type Mesh, startMesh } from "./mesh-harness.js";
+import { hubHoldsCircuitTo, type Mesh, startMesh } from "./mesh-harness.js";
 
 const CHUNKS = 20;
 
@@ -153,26 +153,6 @@ function connectionsTo(node: Libp2p, peerId: string): Connection[] {
   return node.getConnections().filter((c) => c.remotePeer.toString() === peerId);
 }
 
-/**
- * Wait until the HUB holds its end of the member's circuit.
- *
- * `reachHubRelayed` resolves when the member's end is up; the hub registers the
- * inbound end a moment later. Calling the member from the hub before then
- * fails with `NoValidAddressesError` (measured: every time, without this) --
- * which would make "the member refused" pass for the wrong reason.
- */
-async function hubHoldsCircuitTo(live: Mesh, node: Libp2p): Promise<Connection> {
-  const memberId = node.peerId.toString();
-  for (let attempt = 0; attempt < 100; attempt++) {
-    const held = connectionsTo(live.hubNode, memberId).find(
-      (c) => c.status === "open" && c.limits != null,
-    );
-    if (held != null) return held;
-    await new Promise((resolve) => setTimeout(resolve, 50));
-  }
-  throw new Error("the hub never registered its end of the member's circuit");
-}
-
 describe("a member reaches its hub over a kept relay circuit", () => {
   it("answers a request over the limited connection, and leaves it open and limited", async () => {
     const { live, node, peer, kept, dialled } = await relayedMember();
@@ -232,7 +212,7 @@ describe("a member reaches its hub over a kept relay circuit", () => {
 
   it("keeps the member's serving side closed to the circuit it calls over", async () => {
     const { live, node } = await relayedMember();
-    const hubEnd = await hubHoldsCircuitTo(live, node);
+    const hubEnd = await hubHoldsCircuitTo(live, node.peerId.toString());
 
     // The hub turns the same limited connection around and calls the member,
     // with the calling side opted in -- so only the MEMBER's serving flag stands
@@ -252,7 +232,7 @@ describe("a member reaches its hub over a kept relay circuit", () => {
 
   it("serves over the circuit only when the member opts in to serving (control for the case above)", async () => {
     const { live, node } = await relayedMember(() => ({ serveOnLimitedConnection: true }));
-    const hubEnd = await hubHoldsCircuitTo(live, node);
+    const hubEnd = await hubHoldsCircuitTo(live, node.peerId.toString());
 
     const fromHub = createRemote({ node: live.hubNode, callOnLimitedConnection: true });
     const response = await fromHub(

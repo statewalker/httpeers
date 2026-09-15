@@ -126,7 +126,7 @@ export interface SessionState {
   identity: string | null;
   /** Live only while `phase.kind === "live"`. */
   handle: MemberHandle | null;
-  /** How the live member reaches its hub (`MemberHandle.hubLink`), as of this state; `null` unless live. */
+  /** How the live member reaches its hub (`MemberHandle.hubLink`, fixed for the member's run); `null` unless live. */
   hubLink: HubLink | null;
   controls: SessionControls;
 }

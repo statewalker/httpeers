@@ -398,9 +398,9 @@ export interface JoinInit {
   keepaliveIntervalMs?: number;
   /**
    * How the keepalive restores a hub link it found gone. Defaults to
-   * `reachHub`. A member on the relay fallback passes its own -- WebRTC first,
-   * then a new kept circuit -- because `reachHub` alone would never bring the
-   * circuit back.
+   * `reachHub`. A member on the relay fallback passes its own -- a new kept
+   * circuit, and no WebRTC retry -- because `reachHub` would never bring the
+   * circuit back, and a retried upgrade would leave relay mode behind.
    */
   relinkHub?: () => Promise<void>;
   /** Fired after each successful heartbeat, whether or not any version moved -- for a caller that wants to observe liveness, not just react to a version bump. */
@@ -597,8 +597,8 @@ export function startJoin(init: JoinInit): JoinHandle {
   // circuit, which would otherwise break relaying THROUGH the hub (and so
   // restoring this page's reservation on it) -- see `../hub-link.ts`.
   const relinkHub = init.relinkHub ?? (() => reachHub(node, relayAddr, hubPeerId));
-  // One re-link at a time: the relay fallback tries WebRTC first and can
-  // outlast a tick, and two overlapping attempts would open two circuits.
+  // One re-link at a time: a dial can outlast a tick, and two overlapping
+  // attempts would open two connections.
   let relinking = false;
 
   // A KEPT LIMITED CIRCUIT COUNTS AS OPEN, so a member on the relay fallback is
