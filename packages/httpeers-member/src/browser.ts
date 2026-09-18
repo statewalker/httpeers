@@ -28,7 +28,13 @@ export {
   createBrowserNode,
   dialNeedsPermissiveGater,
 } from "./browser-profile.js";
-export { DEFAULT_SERVICE_WORKER_URL, type MountEdgeInit, mountEdge } from "./edge.js";
+export {
+  DEFAULT_CONTROL_TIMEOUT_MS,
+  DEFAULT_SERVICE_WORKER_URL,
+  type MountEdgeInit,
+  mountEdge,
+  UncontrolledPageError,
+} from "./edge.js";
 export {
   type WakeDocument,
   type WakeWindow,

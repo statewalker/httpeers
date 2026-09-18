@@ -67,6 +67,33 @@ does not fail to compile; it fails at runtime with `403 this peer does not
 relay for you`, from the **caller's own** router. That was a real defect here,
 found by standing up a live mesh.
 
+## `mountEdge` never waits for a controller that cannot come
+
+The edge is `webrun-http-browser`'s `SwHttpAdapter`, whose `start()` waits for
+`navigator.serviceWorker.controller` with no bound. A **hard reload**
+(Ctrl+Shift+R; Firefox's `location.reload(true)`) loads the page bypassing its
+ServiceWorker, while that worker is already active and claimed its clients long
+ago — so no `controllerchange` ever comes. llm-chat's `mesh.html` shipped
+sitting at "Joining… (mounting-edge)" for good after one.
+
+Before starting the adapter, `mountEdge` (`edge-control.ts`) checks:
+
+- controlled, or no active worker yet (a first visit, whose `activate` claims
+  the page) → carry on;
+- uncontrolled under an active worker → **reload once**. An ordinary reload
+  comes back controlled in Chromium and Firefox; the page cannot ask the stock
+  worker to claim it again. The guard is a timestamped `sessionStorage` flag,
+  so it cannot loop;
+- still uncontrolled with the guard spent, or no usable `sessionStorage` →
+  throw `UncontrolledPageError` ("close the tab and reopen it").
+
+And the whole wait is bounded (`controlTimeoutMs`, default
+`DEFAULT_CONTROL_TIMEOUT_MS` = 30 s), so a case nobody has thought of yet
+fails with a message instead of hanging. `tests/edge-control.test.ts` pins the
+decision; `httpeers-browser-conformance`'s `pnpm run test:reload` runs first
+visit, reload, hard reload, a second tab and a spent guard in real Chromium and
+Firefox.
+
 ## Direct or relay: how a member reaches its hub
 
 `MemberHandle.hubLink()` is `"direct"` or `"relay"`, decided once per join.
@@ -156,7 +183,8 @@ re-exporting `mountEdge` from `index.ts` and watching three named tests fail.
 
 ## Tests
 
-**111.** `tests/reservation-fallback.test.ts` pins which refused reservations
+**126.** `tests/edge-control.test.ts` pins how `mountEdge` handles an
+uncontrolled page. `tests/reservation-fallback.test.ts` pins which refused reservations
 drop a join to relay mode and which fail it. `tests/consumer.test.ts` compiles a real dependent against all three
 entry points under three tsconfig shapes — the `NodeNext` row is the only one
 that honours the `exports` map, and for a subpath there is no legacy `types`
