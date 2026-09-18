@@ -109,8 +109,8 @@ try {
   );
   console.log("images   : needs-invitation (correct: no hubPeerId is published)");
 
-  await imagesTab.fill("#invite", blob);
-  await imagesTab.click("#join");
+  await imagesTab.fill(".hp-join-input", blob);
+  await imagesTab.click(".hp-join-submit");
   await imagesTab.waitForFunction(
     () => {
       const s = document.querySelector("#state")?.textContent ?? "";
@@ -121,7 +121,7 @@ try {
 
   const state = (await imagesTab.textContent("#state"))?.trim();
   const peerId = (await imagesTab.textContent("#peer-id"))?.trim();
-  const status = (await imagesTab.textContent("#live-status"))?.trim();
+  const status = (await imagesTab.textContent(".hp-join-status"))?.trim();
   console.log(`images   : ${state} — ${peerId}`);
   if (status) console.log(`status   : ${status.slice(0, 200)}`);
 
@@ -152,8 +152,8 @@ try {
   // the app the one `images` had already redeemed, so its join was refused and
   // the page sat in `needs-invitation` until the wait timed out.
   const blob2 = await mint(hubTab, blob);
-  await appTab.fill("#invite", blob2);
-  await appTab.click("#join");
+  await appTab.fill(".hp-join-input", blob2);
+  await appTab.click(".hp-join-submit");
   await appTab
     .waitForFunction(
       () => {
@@ -270,8 +270,8 @@ try {
     { timeout: 60_000 },
   );
   const blob3 = await mint(hubTab, blob2);
-  await proxyTab.fill("#invite", blob3);
-  await proxyTab.click("#join");
+  await proxyTab.fill(".hp-join-input", blob3);
+  await proxyTab.click(".hp-join-submit");
   await proxyTab
     .waitForFunction(
       () => {

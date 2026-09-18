@@ -15,6 +15,7 @@
  */
 
 import type { Libp2p } from "@libp2p/interface";
+import { peerIdFromString } from "@libp2p/peer-id";
 import { multiaddr } from "@multiformats/multiaddr";
 import type { PeerConnection, PeerLink } from "@statewalker/httpeers-bridge";
 import type { PeerIdStr, ProvenPeer } from "@statewalker/httpeers-core";
@@ -33,7 +34,28 @@ export interface Libp2pLinkInit {
   drainTimeoutMs?: number;
   maxInboundStreams?: number;
   maxOutboundStreams?: number;
+  /**
+   * ACCEPT streams on LIMITED connections (a relay circuit). Off by default:
+   * libp2p refuses, and that refusal is what keeps application traffic off a
+   * relay's small budget. A hub reached over the public relay sets it; a member
+   * never does, so its hub's relay limits still bound member-to-member traffic.
+   */
+  serveOnLimitedConnection?: boolean;
+  /** OPEN streams on limited connections, to the peers this allows. See `CallOnLimitedConnection`. */
+  callOnLimitedConnection?: CallOnLimitedConnection;
 }
+
+/**
+ * Which peers a call may reach over a LIMITED connection: `true` for all of
+ * them, or a predicate evaluated per target when the call opens its stream.
+ *
+ * A PREDICATE, NOT A BOOLEAN, because the one caller that needs it -- a member
+ * whose hub is reachable only through the relay -- must say "the hub" and
+ * nothing wider: `(peerId) => peerId === hubPeerId`. Separate from
+ * `serveOnLimitedConnection` for the same reason: a member calls its hub over
+ * the circuit without opening its own serving side to circuits.
+ */
+export type CallOnLimitedConnection = boolean | ((peerId: PeerIdStr) => boolean);
 
 /** Wrap a running libp2p node as the one seam the bridge needs. */
 export function libp2pLink(init: Libp2pLinkInit): PeerLink {
@@ -43,6 +65,8 @@ export function libp2pLink(init: Libp2pLinkInit): PeerLink {
     drainTimeoutMs = DEFAULT_DRAIN_TIMEOUT_MS,
     maxInboundStreams = DEFAULT_MAX_STREAMS,
     maxOutboundStreams = DEFAULT_MAX_STREAMS,
+    serveOnLimitedConnection,
+    callOnLimitedConnection = false,
   } = init;
 
   return {
@@ -50,21 +74,70 @@ export function libp2pLink(init: Libp2pLinkInit): PeerLink {
       // A BARE `/p2p/<id>` dial, deliberately: a peer dialled once by full
       // multiaddr is dialable again by id alone, and composing an address here
       // would duplicate the routing decisions `reservation.ts` already made.
+      const limited =
+        typeof callOnLimitedConnection === "function"
+          ? callOnLimitedConnection(peerId)
+          : callOnLimitedConnection;
       const conn = await connect({
-        node,
+        node: limited ? keptCircuitFirst(node, peerId) : node,
         peer: multiaddr(`/p2p/${peerId}`),
         protocol,
         drainTimeoutMs,
         maxOutboundStreams,
+        ...(limited ? { runOnLimitedConnection: true } : {}),
       });
       return { call: conn.call as Duplex, close: async () => await conn.close() };
     },
 
     async serve(handlerFor: (peer: ProvenPeer) => Duplex): Promise<() => Promise<void>> {
       return serveConnections(
-        { node, protocol, drainTimeoutMs, maxInboundStreams, maxOutboundStreams },
+        {
+          node,
+          protocol,
+          drainTimeoutMs,
+          maxInboundStreams,
+          maxOutboundStreams,
+          runOnLimitedConnection: serveOnLimitedConnection,
+        },
         (context: ConnectionContext) => handlerFor(context.remotePeer.toString()) as never,
       );
     },
   };
+}
+
+/**
+ * `node`, except that a stream to `peerId` opens on the LIMITED connection
+ * already held to it when that is the only kind there is. Used only for a
+ * target `callOnLimitedConnection` allows.
+ *
+ * WHY THE FLAG ALONE IS NOT ENOUGH. libp2p 3.3.8 does not reuse a limited
+ * connection for a dial: `findExistingConnection`
+ * (`connection-manager/utils.js`) returns only connections with
+ * `limits == null`, so `dialProtocol` to a peer reachable only by a kept relay
+ * circuit dials AGAIN, from the peer store -- a second circuit per call, through
+ * whichever of the relay's addresses identify taught it. The
+ * relay-fallback conformance test measured exactly that (two new connections
+ * for two requests) before this existed. The kept connection is the one the
+ * caller chose; the stream goes there.
+ *
+ * An UNLIMITED connection still wins when there is one (a WebRTC upgrade that
+ * did come up): that case is left to libp2p's own dial, which reuses it.
+ *
+ * A NARROW STAND-IN, not a wrapper: `connect` (`webrun-streams-libp2p`) reads
+ * nothing from the node but `dialProtocol`, and giving that package a way to
+ * take a `Connection` would be a change in another repository for one caller.
+ */
+function keptCircuitFirst(node: Libp2p, peerId: PeerIdStr): Libp2p {
+  const dialer: Pick<Libp2p, "dialProtocol"> = {
+    dialProtocol: async (peer, protocols, options) => {
+      const open = node.getConnections(peerIdFromString(peerId)).filter((c) => c.status === "open");
+      const kept = open.some((c) => c.limits == null)
+        ? undefined
+        : open.find((c) => c.limits != null);
+      return kept != null
+        ? kept.newStream(protocols, options)
+        : node.dialProtocol(peer, protocols, options);
+    },
+  };
+  return dialer as Libp2p;
 }

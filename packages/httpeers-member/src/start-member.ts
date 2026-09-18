@@ -4,7 +4,7 @@
  * THIS IS `src/browser/peer-runtime.ts`'s `startBrowserPeer` WITH THREE
  * COUPLINGS LIFTED OUT, and nothing else changed. Every step of the join is
  * the proven one, imported from the stack rather than reimplemented:
- * `dialRelay`, `reachHub`, `createPeer`, `resumeMembership`,
+ * `dialRelay`, `reachHub`, `reachHubRelayed`, `createPeer`, `resumeMembership`,
  * `redeemInvitation`, `reserveOnHub`, `superviseHubReservation`,
  * `leaveRelay`, `startJoin`, `createRouteEnsurer`, `createEdgeDispatch`.
  * If this file had to re-implement any of them, the seam would be in the
@@ -42,8 +42,10 @@ import type { FetchHandler, MeshView, Mounts, PeerIdStr } from "@statewalker/htt
 import { ANONYMOUS, forwardLocalOnly, lookupPeer } from "@statewalker/httpeers-core";
 import {
   dialRelay,
+  HubReservationError,
   leaveRelay,
   reachHub,
+  reachHubRelayed,
   reserveOnHub,
   servePeer,
   superviseHubReservation,
@@ -119,6 +121,22 @@ export type MemberState =
 
 export type JoinMethod = "resumed" | "redeemed";
 
+/**
+ * How a member reaches its hub. `"direct"` is the WebRTC upgrade, with a
+ * reservation on the hub so other members can reach this one through it.
+ * `"relay"` is the fallback when that upgrade fails (a hub in Docker on a
+ * bridge network), or when it succeeds but the hub then refuses the
+ * reservation for want of capacity (see `fallsBackToRelay`): a KEPT limited
+ * circuit through the public relay, over which this member calls the hub and
+ * nothing else -- no reservation, so no other member can reach it.
+ *
+ * FIXED FOR A RUN. It is decided once, at join; a relay-mode member re-links
+ * over a new circuit and never retries the upgrade (no automatic re-upgrade in
+ * v1), so it never becomes `"direct"` without direct mode's reservation. A new
+ * join (a reconnect) decides again.
+ */
+export type HubLink = "direct" | "relay";
+
 export interface MemberHandle {
   peerId: PeerIdStr;
   hubPeerId: string;
@@ -137,6 +155,15 @@ export interface MemberHandle {
   meshView(): MeshView | null;
   token(): string;
   connectionKind(peerId: string): ConnectionKind;
+  /** How this member reaches its hub -- see `HubLink`. Constant for the life of this handle. */
+  hubLink(): HubLink;
+  /**
+   * Why this member is in relay mode although its WebRTC upgrade worked -- the
+   * hub refused it a reservation -- in words a page can show. Absent when
+   * there is nothing unexpected to say: a direct link, or a relay link because
+   * the upgrade itself failed (a known deployment shape, see `HubLink`).
+   */
+  hubLinkNote?: string;
   /**
    * The libp2p node, as an escape hatch.
    *
@@ -164,6 +191,36 @@ export class MemberJoinError extends Error {
     super(message, options);
     this.name = "MemberJoinError";
   }
+}
+
+/**
+ * Does a refused reservation on the hub leave the join standing, in relay
+ * mode? Only when the refusal says nothing about THIS member:
+ *
+ *   - `store-full` (`RESERVATION_REFUSED`) and `resource-limit`
+ *     (`RESOURCE_LIMIT_EXCEEDED`) -- the hub is out of capacity. This is the
+ *     production failure: a hub's relay grants a fixed number of
+ *     reservations, and once they were spent every direct-linked page failed
+ *     to join while relay-mode pages worked.
+ *   - `no-answer` -- a timeout or a dropped link; nothing was refused.
+ *
+ * The reservation only lets OTHER members reach this one; everything the
+ * member does itself works in relay mode, so failing the join over it is
+ * strictly worse than degrading.
+ *
+ * NOT for `not-a-member` (`PERMISSION_DENIED`): the hub has just accepted
+ * this peer, so a hub that now denies it membership contradicts itself (a
+ * revocation in between, a gater reading a different store) -- a real fault
+ * to report, not a condition to route around. NOT for `no-relay`: a hub
+ * deployed without its relay service is a configuration error that would put
+ * every member in relay mode silently. NOT for any other status, which is a
+ * protocol fault. And not for errors that are not refusals at all.
+ */
+export function fallsBackToRelay(err: unknown): boolean {
+  if (!(err instanceof HubReservationError)) return false;
+  return (
+    err.refusal === "store-full" || err.refusal === "resource-limit" || err.refusal === "no-answer"
+  );
 }
 
 export async function startMember(init: StartMemberInit): Promise<MemberHandle> {
@@ -202,6 +259,12 @@ export async function startMember(init: StartMemberInit): Promise<MemberHandle> 
       // call: 403 `this peer does not relay for you`, from the CALLER's own
       // router.
       allowForward: forwardLocalOnly,
+      // Calls TO THE HUB may ride a limited connection, and only those. Set
+      // before the link mode is known, and harmless when it turns out to be
+      // `"direct"`: the link prefers an unlimited connection whenever one is
+      // open. Serving stays closed to limited connections -- the hub's own
+      // relay limits are what protect member-to-member traffic.
+      callOnLimitedConnection: (peerId) => peerId === hubPeerId,
       access: withAccess({
         issuer: hubPeerId,
         rules: init.rules,
@@ -215,8 +278,28 @@ export async function startMember(init: StartMemberInit): Promise<MemberHandle> 
     });
     unwind.push(async () => await peer.stop());
 
+    // WEBRTC FIRST, ONCE PER JOIN, THEN THE RELAY CIRCUIT. Any failure of the
+    // upgrade counts: a hub that WebRTC cannot reach fails in more ways than
+    // one (no route, ICE timeout, no transport), and the fallback is the same
+    // for all.
     onState("dialing-hub");
-    await reachHub(node, relayAddr, hubPeerId);
+    let hubLink: HubLink;
+    let hubLinkNote: string | undefined;
+    try {
+      await reachHub(node, relayAddr, hubPeerId);
+      hubLink = "direct";
+    } catch (upgradeErr) {
+      try {
+        await reachHubRelayed(node, relayAddr, hubPeerId);
+        hubLink = "relay";
+      } catch (relayErr) {
+        throw new Error(
+          `startMember: the hub (${hubPeerId}) could not be reached over WebRTC ` +
+            `(${String(upgradeErr)}) nor over a relay circuit (${String(relayErr)}).`,
+          { cause: relayErr },
+        );
+      }
+    }
 
     onState("resuming");
     const seq = nextInitialSeq();
@@ -267,17 +350,52 @@ export async function startMember(init: StartMemberInit): Promise<MemberHandle> 
     // A MEMBER RESERVES ON ITS HUB, NOT ON THE PUBLIC RELAY, and only once
     // the hub has accepted it — `hub-relay.ts`'s membership gater refuses
     // everyone else. This is the ordering `feat/hub-relay` established.
-    onState("awaiting-reservation");
-    await reserveOnHub(node, hubPeerId);
+    //
+    // NOT OVER THE RELAY CIRCUIT. There is nothing to reserve over (the
+    // circuit carries only this member's calls), and `leaveRelay` would hang
+    // up the circuit itself, since it runs through the relay.
+    if (hubLink === "direct") {
+      onState("awaiting-reservation");
+      const refused = await reserveOnHub(node, hubPeerId).then(
+        () => null,
+        (err: unknown) => err,
+      );
+      if (refused != null && !fallsBackToRelay(refused)) throw refused;
+      if (refused != null) {
+        // DOWN TO RELAY MODE, INTO THE SAME STATE AS A MEMBER WHOSE UPGRADE
+        // FAILED: one kept circuit, no supervisor, no `leaveRelay`, the
+        // relay-mode re-link below. The WebRTC connection goes, too -- kept, it
+        // would make this a "direct" member with none of direct mode's
+        // reservation duties, and the hub would report it as direct while this
+        // handle says relay. The failed circuit listener stays behind, empty
+        // (`reserveOnHub`'s note).
+        await node.hangUp(peerIdFromString(hubPeerId)).catch(() => {});
+        try {
+          await reachHubRelayed(node, relayAddr, hubPeerId);
+        } catch (relayErr) {
+          throw new Error(
+            `startMember: the hub (${hubPeerId}) refused a reservation (${String(refused)}), ` +
+              `and the relay circuit to it could not be opened (${String(relayErr)}).`,
+            { cause: relayErr },
+          );
+        }
+        hubLink = "relay";
+        hubLinkNote =
+          "Connected through the relay only: the hub refused this member a reservation, so " +
+          "other members cannot reach it; its own calls are unaffected. Reconnecting tries the " +
+          `direct link again. (${(refused as Error).message})`;
+      }
+    }
+    if (hubLink === "direct") {
+      const supervisor = superviseHubReservation({ node, relayAddr, hubPeerId });
+      const unwatchWake = init.platform.watchWake?.(() => supervisor.poke()) ?? ((): void => {});
+      unwind.push(async () => {
+        unwatchWake();
+        supervisor.stop();
+      });
 
-    const supervisor = superviseHubReservation({ node, relayAddr, hubPeerId });
-    const unwatchWake = init.platform.watchWake?.(() => supervisor.poke()) ?? ((): void => {});
-    unwind.push(async () => {
-      unwatchWake();
-      supervisor.stop();
-    });
-
-    await leaveRelay(node, relayAddr).catch(() => {});
+      await leaveRelay(node, relayAddr).catch(() => {});
+    }
 
     const join = startJoin({
       peer,
@@ -291,6 +409,16 @@ export async function startMember(init: StartMemberInit): Promise<MemberHandle> 
       onPresenceRefused: init.onPresenceRefused,
       heartbeatIntervalMs: init.heartbeatIntervalMs,
       keepaliveIntervalMs: init.keepaliveIntervalMs,
+      // A relay-mode member re-links over a NEW CIRCUIT ONLY, and stays in
+      // relay mode: retrying WebRTC here could land it "direct" with none of
+      // the reservation duties above. One that joined direct keeps `reachHub`,
+      // with the supervisor restoring its reservation.
+      relinkHub:
+        hubLink === "relay"
+          ? async () => {
+              await reachHubRelayed(node, relayAddr, hubPeerId);
+            }
+          : undefined,
     });
     unwind.push(async () => join.stop());
 
@@ -322,6 +450,8 @@ export async function startMember(init: StartMemberInit): Promise<MemberHandle> 
       node,
       meshView: () => join.meshView(),
       token: () => join.token(),
+      hubLink: () => hubLink,
+      hubLinkNote,
       connectionKind(peerIdStr: string): ConnectionKind {
         try {
           return classifyConnection(

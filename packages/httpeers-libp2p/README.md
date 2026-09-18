@@ -69,8 +69,8 @@ that:
 | Module | What it does |
 |---|---|
 | `reservation` | `dialRelay`, `waitForCircuitReservation`, `circuitAddrs`, `superviseRelay` |
-| `hub-link` | `reachHub`, `reserveOnHub`, `leaveRelay`, `superviseHubReservation` |
-| `hub-relay` | `hubRelayService`, `membershipGater` — a hub relaying for **its own members and nobody else** |
+| `hub-link` | `reachHub`, `reachHubRelayed`, `reserveOnHub` (+ `HubReservationError`), `leaveRelay`, `superviseHubReservation` |
+| `hub-relay` | `hubRelayService`, `membershipGater`, `releaseReservation` — a hub relaying for **its own members and nobody else** |
 | `identity` | `generateKey`, `peerIdOf`, `signerOf`, the persisted `identityStore` |
 | `duplex` | the second altitude — see below |
 
@@ -80,9 +80,31 @@ the protocol; the `/webrtc`-suffixed one is the one to publish. `circuitAddrs`
 returns both, labelled, so nobody has to rediscover which is which by pasting
 the wrong one.
 
+**A refused reservation says which refusal it was.** libp2p reports every
+failed reservation alike ("Some configured addresses failed to be listened
+on"), with the relay's status only in the text. `reserveOnHub` reads it out and
+throws a `HubReservationError` with `status` (the circuit-relay status, or
+`null`) and `refusal`: `store-full` (`RESERVATION_REFUSED` — the hub's relay
+holds as many reservations as it grants), `resource-limit`
+(`RESOURCE_LIMIT_EXCEEDED`), `not-a-member` (`PERMISSION_DENIED`), `no-relay`
+(the hub runs no relay service), `no-answer` (a timeout or a dropped link) or
+`other`. It used to throw one message naming `PERMISSION_DENIED` whatever had
+happened, and a full store was diagnosed in production as a membership problem.
+
 **`membershipGater` takes a thunk, not a value.** A hub's node must exist
 before the member store that answers "is this a member" does, and the thunk is
 read at decision time, which is what closes that ordering cycle.
+
+**A hub's reservation store is sized for a mesh, not for a public relay.**
+libp2p's default holds 15 reservations for two hours each and keeps one after
+its holder hangs up; a hub on it refused every member with
+`RESERVATION_REFUSED` after fifteen distinct peers. `hubRelayService` sizes the
+store at `HUB_MAX_RESERVATIONS` (4096; `{ maxReservations }` overrides it),
+releases a reservation when its holder's last connection closes, and
+`releaseReservation(relay, peerId)` frees a revoked member's slot at once. None
+of this touches the per-circuit data limits (128 KiB, 2 min), which are what
+keep a hub a signalling channel: the store says how *many* members are
+reachable through the hub, not how *much* may cross it.
 
 ## `signerOf` — the bridge that stops a mesh naming nobody
 
@@ -110,8 +132,9 @@ than a flag.
 
 ## Tests
 
-**54, plus 4 skipped** (the platform-entry exemptions in the boundary test).
-`tests/serve-peer.test.ts` stands up two real nodes over a real Noise
+**68, plus 4 skipped** (the platform-entry exemptions in the boundary test).
+`tests/hub-link.test.ts` pins how `reserveOnHub` reads each refusal out of
+libp2p's error text. `tests/serve-peer.test.ts` stands up two real nodes over a real Noise
 handshake and checks that what arrives carries the identity the **transport**
 proved rather than anything the caller said.
 

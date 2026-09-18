@@ -30,6 +30,7 @@
     "@statewalker/httpeers-bridge": "workspace:*",
     "@statewalker/httpeers-core": "workspace:*",
     "@statewalker/httpeers-hub": "workspace:*",
+    "@statewalker/httpeers-join": "workspace:*",
     "@statewalker/httpeers-libp2p": "workspace:*",
     "@statewalker/httpeers-member": "workspace:*",
     "@statewalker/httpeers-qr": "workspace:*",

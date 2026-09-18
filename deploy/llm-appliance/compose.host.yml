@@ -1,0 +1,84 @@
+# EXPERIMENTAL -- NOT EXERCISED. Validated with `docker compose config` only;
+# never brought up (this machine's Compose, v2.3.3, cannot run it -- see
+# below). Do not rely on it without testing it yourself.
+#
+# OPTIONAL, LINUX ONLY. Direct WebRTC instead of the relay-circuit fallback:
+#
+#   docker compose -f compose.yml -f compose.host.yml [-f compose.test.yml] up -d
+#
+# Moves the hub onto the host's own network namespace (`network_mode: host`)
+# so its WebRTC listener is reachable at the host's real address instead of a
+# bridge network's private one. Traefik moves to host networking too, so it
+# still reaches the hub's local door over real loopback (127.0.0.1:8787)
+# instead of the "appliance" bridge network's "hub" DNS name, which no longer
+# resolves once the hub leaves that network -- that is also why Traefik's
+# dynamic config is swapped for traefik/dynamic.host.yml (targets
+# 127.0.0.1:8787, not http://hub:8787).
+#
+# THE DOOR here listens on host loopback, 127.0.0.1:8787, where every local
+# process and every browser on this machine can reach it. It is exactly as
+# gated as in compose.yml: `x-hub-door-secret` (set by Traefik after basic
+# auth), the Host allowlist, and the Origin check (apps/hub/src/local-door.ts).
+# HUB_DOOR_SECRET and HUB_DOOR_ALLOWED_HOSTS come from compose.yml's hub
+# environment, which this file extends.
+#
+# LITELLM IS NOT PUBLISHED ON THE HOST. Postgres and LiteLLM stay on the bridge
+# network; the host-networked hub reaches LiteLLM at a FIXED bridge address
+# (LITELLM_BRIDGE_IP on APPLIANCE_SUBNET) -- the host routes to bridge IPs,
+# which is the same reachability LiteLLM already has in compose.yml. It is not
+# private from local processes in either variant: LiteLLM's own auth (master
+# key, virtual keys, UI login) is what guards it there. Pick a subnet that does
+# not collide with your networks; changing it means recreating the network.
+#
+# NEEDS COMPOSE >= 2.24 (the `!reset` merge tag, which clears the base
+# file's `networks:`/`ports:` list instead of merging into it -- required
+# because `network_mode` and `networks:`/`ports:` cannot all be set on a
+# service at once). On Compose v2.3.3 `!reset` is silently ignored: `config`
+# renders, but the base `networks:`/`ports:` stay merged in and `up` refuses
+# the combination. Upgrade Compose to use this file for real.
+#
+# SECURITY: Traefik's entrypoint address below is `127.0.0.1:8080`, not the
+# base file's bare `:8080`. With `network_mode: host` there is no publish
+# step: Traefik binds directly to the host's interfaces, so a bare `:8080`
+# would put the admin door on every network this machine is on.
+networks:
+  appliance:
+    ipam:
+      config:
+        - subnet: ${APPLIANCE_SUBNET:-172.31.87.0/24}
+
+services:
+  hub:
+    network_mode: host
+    networks: !reset []
+    ports: !reset []
+    environment:
+      - HUB_LOCAL_DOOR_HOST=127.0.0.1
+      - HUB_LLM_UPSTREAM=http://${LITELLM_BRIDGE_IP:-172.31.87.40}:4000
+
+  litellm:
+    networks:
+      appliance:
+        ipv4_address: ${LITELLM_BRIDGE_IP:-172.31.87.40}
+
+  traefik:
+    network_mode: host
+    networks: !reset []
+    ports: !reset []
+    volumes: !reset
+      - ./traefik/dynamic.host.yml:/etc/traefik/dynamic/dynamic.yml:ro
+    # `entrypoint:` is inherited from the base file; this replaces only
+    # `command:` (a plain sequence, which DOES replace cleanly even on Compose
+    # v2.3.3). Identical to the base file's except the entrypoint ADDRESS (see
+    # SECURITY above).
+    command:
+      - >-
+        case "$$HUB_DOOR_SECRET" in ''|*[!A-Za-z0-9_-]*)
+        echo "traefik: HUB_DOOR_SECRET must be non-empty [A-Za-z0-9_-]" >&2; exit 1;; esac &&
+        printf '%s\n' "$$ADMIN_HTPASSWD" > /etc/traefik/usersfile &&
+        printf 'http:\n  middlewares:\n    door-secret:\n      headers:\n        customRequestHeaders:\n          X-Hub-Door-Secret: "%s"\n' "$$HUB_DOOR_SECRET" > /etc/traefik/dynamic/door-secret.yml &&
+        exec traefik
+        --entrypoints.web.address=127.0.0.1:8080
+        --providers.file.directory=/etc/traefik/dynamic
+        --providers.file.watch=true
+        --log.level=INFO

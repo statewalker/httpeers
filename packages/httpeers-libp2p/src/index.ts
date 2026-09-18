@@ -29,14 +29,25 @@ export {
   serveDuplex,
 } from "./duplex.js";
 export {
+  HubReservationError,
+  type HubReservationRefusal,
   hubRoute,
   leaveRelay,
   reachHub,
+  reachHubRelayed,
   reserveOnHub,
   type SuperviseHubReservationInit,
   superviseHubReservation,
 } from "./hub-link.js";
-export { hubRelayService, type IsMember, membershipGater } from "./hub-relay.js";
+export {
+  HUB_MAX_RESERVATIONS,
+  type HubRelayComponents,
+  type HubRelayServiceInit,
+  hubRelayService,
+  type IsMember,
+  membershipGater,
+  releaseReservation,
+} from "./hub-relay.js";
 export {
   type BytesStore,
   decodeKey,
@@ -50,6 +61,7 @@ export {
   type SignerLike,
   signerOf,
 } from "./identity.js";
+export type { CallOnLimitedConnection } from "./link.js";
 export { lastPeerIdOf } from "./multiaddr-parts.js";
 export {
   type CircuitAddrs,

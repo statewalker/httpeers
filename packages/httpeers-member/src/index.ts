@@ -83,6 +83,7 @@ export {
   type StartPeer,
 } from "./session.js";
 export {
+  type HubLink,
   type JoinMethod,
   type MemberEdge,
   type MemberHandle,

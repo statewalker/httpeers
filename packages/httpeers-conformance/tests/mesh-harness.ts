@@ -25,10 +25,10 @@
 
 import { noise } from "@chainsafe/libp2p-noise";
 import { yamux } from "@chainsafe/libp2p-yamux";
-import { circuitRelayTransport } from "@libp2p/circuit-relay-v2";
+import { circuitRelayServer, circuitRelayTransport } from "@libp2p/circuit-relay-v2";
 import { generateKeyPair } from "@libp2p/crypto/keys";
 import { identify } from "@libp2p/identify";
-import type { Ed25519PrivateKey, Libp2p } from "@libp2p/interface";
+import type { Connection, Ed25519PrivateKey, Libp2p } from "@libp2p/interface";
 import { tcp } from "@libp2p/tcp";
 import { webRTC } from "@libp2p/webrtc";
 import { webSockets } from "@libp2p/websockets";
@@ -39,7 +39,7 @@ import {
   withAccess,
 } from "@statewalker/httpeers-access";
 import { mintToken } from "@statewalker/httpeers-access/issuer";
-import { ANONYMOUS, lookupPeer, type Mounts } from "@statewalker/httpeers-core";
+import { ANONYMOUS, type FetchHandler, lookupPeer, type Mounts } from "@statewalker/httpeers-core";
 import {
   createHub,
   type Hub,
@@ -79,6 +79,8 @@ export const HEARTBEAT_INTERVAL_MS = 800;
 export interface Mesh {
   relayAddr: string;
   hubPeerId: string;
+  /** The hub's libp2p node, for a test that must act as the hub below `hubPeer`. */
+  hubNode: Libp2p;
   hub: Hub;
   hubPeer: Peer;
   /** Mint an invitation for `roles` and return its id. */
@@ -105,12 +107,25 @@ function transports() {
   return [webSockets(), circuitRelayTransport(), webRTC(), tcp()];
 }
 
-/** The hub's node: listens for circuits and WebRTC upgrades, and relays for its own members. */
-async function hubNode(privateKey: Ed25519PrivateKey, isMember: () => (id: string) => boolean) {
+/**
+ * The hub's node: listens for circuits and WebRTC upgrades, and relays for its own members.
+ * Without `webRTC`, it has no WebRTC transport at all, so it cannot answer the
+ * upgrade's signalling -- the in-process stand-in for a hub WebRTC cannot reach.
+ */
+async function hubNode(
+  privateKey: Ed25519PrivateKey,
+  isMember: () => (id: string) => boolean,
+  webRTCUpgrade: boolean,
+  maxRelayReservations: number | undefined,
+) {
   return createLibp2p({
     privateKey,
-    addresses: { listen: ["/ip4/127.0.0.1/tcp/0", "/p2p-circuit", "/webrtc"] },
-    transports: transports(),
+    addresses: {
+      listen: webRTCUpgrade
+        ? ["/ip4/127.0.0.1/tcp/0", "/p2p-circuit", "/webrtc"]
+        : ["/ip4/127.0.0.1/tcp/0", "/p2p-circuit"],
+    },
+    transports: webRTCUpgrade ? transports() : [webSockets(), circuitRelayTransport(), tcp()],
     connectionEncrypters: [noise()],
     streamMuxers: [yamux()],
     connectionGater: {
@@ -122,7 +137,17 @@ async function hubNode(privateKey: Ed25519PrivateKey, isMember: () => (id: strin
       // that ordering cycle.
       ...membershipGater(() => isMember()),
     },
-    services: { identify: identify(), relay: hubRelayService() },
+    services: {
+      identify: identify(),
+      // The hub's own relay service unless a test must fill its reservation
+      // store; then the same service with a smaller store.
+      relay:
+        maxRelayReservations == null
+          ? hubRelayService()
+          : circuitRelayServer({
+              reservations: { applyDefaultLimit: true, maxReservations: maxRelayReservations },
+            }),
+    },
   });
 }
 
@@ -135,7 +160,30 @@ async function quietly(step: () => void | Promise<void>): Promise<void> {
   }
 }
 
-export async function startMesh(): Promise<Mesh> {
+export interface StartMeshInit {
+  /**
+   * Serve the hub's protocol on LIMITED connections too -- what a hub that
+   * members may reach only over a relay circuit needs. Off by default, so
+   * every other suite keeps libp2p's refusal.
+   */
+  serveOnLimitedConnection?: boolean;
+  /** Extra hub mounts, behind the same access checks as the hub's own. */
+  extraMounts?: Record<string, FetchHandler>;
+  /**
+   * Whether a member's WebRTC upgrade to the hub can complete. Default `true`.
+   * `false` builds the hub with no WebRTC transport, so the upgrade fails at
+   * signalling -- fast, where a real unreachable hub fails on an ICE timeout.
+   */
+  webRTCUpgrade?: boolean;
+  /**
+   * How many reservations the hub's relay grants before it answers
+   * `RESERVATION_REFUSED`. Default: the hub's own (`hubRelayService`). A small
+   * number stands in for a production hub whose store has filled up.
+   */
+  maxRelayReservations?: number;
+}
+
+export async function startMesh(init: StartMeshInit = {}): Promise<Mesh> {
   const relayKey = await generateKeyPair("Ed25519");
   const relay = await startRelay({ privateKey: relayKey, port: 0 });
 
@@ -153,7 +201,12 @@ export async function startMesh(): Promise<Mesh> {
   // The member store is built below and read through this box — see the thunk
   // note in `hubNode`.
   let memberCheck: (id: string) => boolean = () => false;
-  const node = await hubNode(hubKey, () => memberCheck);
+  const node = await hubNode(
+    hubKey,
+    () => memberCheck,
+    init.webRTCUpgrade ?? true,
+    init.maxRelayReservations,
+  );
   const hubPeerId = node.peerId.toString();
 
   // THE HUB RESERVES ON THE PUBLIC RELAY BEFORE ANY MEMBER JOINS, which is
@@ -174,6 +227,7 @@ export async function startMesh(): Promise<Mesh> {
     storage: memoryStorage(),
     presenceTtlMs: PRESENCE_TTL_MS,
     mintToken: async (sub, roles) => mintToken({ signer, sub, roles, ttlMs: 60_000 }),
+    extraMounts: init.extraMounts,
   });
   memberCheck = (id) => hub.isMember(id);
 
@@ -191,11 +245,13 @@ export async function startMesh(): Promise<Mesh> {
       // request with no proven peer is refused 401 regardless.
       bootstrap: usesTransportIdentity(),
     }),
+    serveOnLimitedConnection: init.serveOnLimitedConnection,
   });
 
   return {
     relayAddr,
     hubPeerId,
+    hubNode: node,
     hub,
     hubPeer,
     async invite(roles = ["member"]) {
@@ -212,6 +268,25 @@ export async function startMesh(): Promise<Mesh> {
       await quietly(() => relay.stop());
     },
   };
+}
+
+/**
+ * Wait until the HUB holds its end of a member's limited circuit.
+ *
+ * A member's end of a circuit comes up first; the hub registers the inbound end
+ * a moment later. Calling the member from the hub before then fails with
+ * `NoValidAddressesError` (measured: every time, without this) -- which would
+ * make "the member refused" pass for the wrong reason.
+ */
+export async function hubHoldsCircuitTo(live: Mesh, memberId: string): Promise<Connection> {
+  for (let attempt = 0; attempt < 100; attempt++) {
+    const held = live.hubNode
+      .getConnections()
+      .find((c) => c.remotePeer.toString() === memberId && c.status === "open" && c.limits != null);
+    if (held != null) return held;
+    await new Promise((resolve) => setTimeout(resolve, 50));
+  }
+  throw new Error("the hub never registered its end of the member's circuit");
 }
 
 /** A member's node, built the way `nodePlatform` builds one but with a loopback TCP listener too. */

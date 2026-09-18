@@ -97,6 +97,12 @@ export interface RouteEnsurerInit {
  * fallback rather than the rule because a peer that reserved on a different
  * relay is reachable only at the address it reported.
  *
+ * THE HUB ITSELF IS NEVER DIALED HERE. `hubRoute(hub, hub)` routes the hub
+ * through itself, which cannot work; and a member on the relay fallback holds
+ * only a limited circuit to the hub, so without this every edge call to the
+ * hub would pay a doomed dial -- up to libp2p's dial timeout -- first. The
+ * hub link is `startMember`'s and the keepalive's to keep.
+ *
  * AN EXISTING UNLIMITED CONNECTION SHORT-CIRCUITS. This runs on every
  * outbound mesh call, including every `<img src>` in a gallery; re-dialing
  * a peer that is already connected would add a round trip per image.
@@ -105,7 +111,7 @@ export function createRouteEnsurer(init: RouteEnsurerInit): (peerId: PeerIdStr) 
   const { node, relayAddr, selfPeerId } = init;
 
   return async function ensureRoute(peerId: PeerIdStr): Promise<void> {
-    if (peerId === selfPeerId) return;
+    if (peerId === selfPeerId || peerId === init.hubPeerId) return;
 
     let target: PeerId;
     try {
@@ -390,6 +396,13 @@ export interface JoinInit {
   advertisements?: () => AdvertisementInput[];
   heartbeatIntervalMs?: number;
   keepaliveIntervalMs?: number;
+  /**
+   * How the keepalive restores a hub link it found gone. Defaults to
+   * `reachHub`. A member on the relay fallback passes its own -- a new kept
+   * circuit, and no WebRTC retry -- because `reachHub` would never bring the
+   * circuit back, and a retried upgrade would leave relay mode behind.
+   */
+  relinkHub?: () => Promise<void>;
   /** Fired after each successful heartbeat, whether or not any version moved -- for a caller that wants to observe liveness, not just react to a version bump. */
   onHeartbeat?: (versions: HeartbeatVersions) => void;
   /**
@@ -580,18 +593,31 @@ export function startJoin(init: JoinInit): JoinHandle {
     hubPeerIdObj = undefined; // malformed hubPeerId -- the keepalive timer below simply never finds a match and keeps re-predialling, which is the correct degraded behaviour.
   }
 
+  // `reachHub`, not a bare pre-dial: it also closes the limited signalling
+  // circuit, which would otherwise break relaying THROUGH the hub (and so
+  // restoring this page's reservation on it) -- see `../hub-link.ts`.
+  const relinkHub = init.relinkHub ?? (() => reachHub(node, relayAddr, hubPeerId));
+  // One re-link at a time: a dial can outlast a tick, and two overlapping
+  // attempts would open two connections.
+  let relinking = false;
+
+  // A KEPT LIMITED CIRCUIT COUNTS AS OPEN, so a member on the relay fallback is
+  // left alone for as long as its circuit lives -- nothing here closes or
+  // replaces it -- and re-links only once it has gone.
   const keepaliveTimer = setInterval(() => {
     const stillOpen =
       hubPeerIdObj != null && node.getConnections(hubPeerIdObj).some((c) => c.status === "open");
-    if (stillOpen) return;
-    // `reachHub`, not a bare pre-dial: it also closes the limited signalling
-    // circuit, which would otherwise break relaying THROUGH the hub (and so
-    // restoring this page's reservation on it) -- see `../hub-link.ts`.
-    void reachHub(node, relayAddr, hubPeerId).catch(() => {
-      // Best-effort -- the next tick retries, and a heartbeat that keeps
-      // failing on its own schedule surfaces the same underlying
-      // unreachability independently.
-    });
+    if (stillOpen || relinking) return;
+    relinking = true;
+    void relinkHub()
+      .catch(() => {
+        // Best-effort -- the next tick retries, and a heartbeat that keeps
+        // failing on its own schedule surfaces the same underlying
+        // unreachability independently.
+      })
+      .finally(() => {
+        relinking = false;
+      });
   }, keepaliveIntervalMs);
 
   return {

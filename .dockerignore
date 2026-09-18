@@ -1,0 +1,30 @@
+# Keeps the hub image's build context (the repo root, see
+# `apps/hub/Dockerfile`'s header comment) from including build artifacts,
+# node_modules and secrets — mirrors `.gitignore`.
+#
+# `**/` PREFIXES ARE LOAD-BEARING, NOT DECORATIVE: Docker's ignore-file
+# matching (unlike `.gitignore`'s) only matches a bare pattern like
+# `node_modules/` at the CONTEXT ROOT, not at every depth — VERIFIED: without
+# `**/`, `packages/httpeers-qr/node_modules` (a real, already-populated
+# directory in this checkout — this repo lives nested inside a multirepo
+# assembly, worktrees/<name>/workspaces/httpeers, so its checked-out
+# node_modules holds symlinks computed relative to the ASSEMBLY's root, two
+# levels further up than this repo's own) got copied into the build context
+# anyway, `pnpm install --frozen-lockfile` left its stale, now-wrongly-deep
+# symlinks untouched, and `tsc` failed on packages/httpeers-qr with "Cannot
+# find module 'html5-qrcode'" — a broken symlink pointing above the
+# filesystem root once relocated into the image. `**/node_modules/` (etc.)
+# excludes every depth and forces every `node_modules` inside the image to
+# come from THIS build's own `pnpm install`, at the right depth.
+**/node_modules/
+**/dist/
+**/dist-ui/
+**/.turbo/
+**/*.tsbuildinfo
+.git/
+# Secrets at ANY depth (see the `**/` note above): deploy/llm-appliance/.env
+# is not at the context root.
+**/.env
+**/*.key
+data/
+deploy/llm-appliance/data/

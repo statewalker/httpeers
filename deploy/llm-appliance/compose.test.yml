@@ -1,0 +1,54 @@
+# Test-only overlay: `docker compose -f compose.yml -f compose.test.yml up -d`.
+# Adds a fake OpenAI upstream and registers it with LiteLLM as model "fake",
+# so the whole appliance can be smoke-tested (through Traefik, minting a key,
+# streaming a chat completion) without any real provider credentials.
+#
+# Neither service is part of the appliance proper — do not use this file in
+# a real deployment.
+services:
+  fake-llm:
+    image: node:24-bookworm-slim
+    restart: unless-stopped
+    networks:
+      - appliance
+    volumes:
+      - ./test/fake-llm.mjs:/fake-llm.mjs:ro
+    command: ["node", "/fake-llm.mjs"]
+    healthcheck:
+      test:
+        - CMD
+        - node
+        - -e
+        - 'fetch("http://127.0.0.1:4000/v1/models").then((r) => process.exit(r.ok ? 0 : 1)).catch(() => process.exit(1))'
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  # A one-shot: registers "fake" with LiteLLM via the master key, through the
+  # hub's own passthrough (`/peers/<id>/llm/model/new`) rather than straight
+  # to litellm:4000, so this also exercises the passthrough + root-path
+  # rewrite path the mesh actually uses. Body shape and endpoint are spec
+  # §4.3's compose table, verified against the running image's own
+  # `/peers/<id>/llm/openapi.full.json` in the task report.
+  register-model:
+    image: node:24-bookworm-slim
+    networks:
+      - appliance
+    depends_on:
+      hub:
+        condition: service_healthy
+      litellm:
+        condition: service_healthy
+      fake-llm:
+        condition: service_healthy
+    volumes:
+      - ${APPLIANCE_DATA_DIR:-./data}/hub:/data/hub:ro
+      - ./test/register-model.mjs:/register-model.mjs:ro
+    environment:
+      - LITELLM_MASTER_KEY=${LITELLM_MASTER_KEY:?set LITELLM_MASTER_KEY in .env}
+      # It calls the hub's door directly, so it presents what Traefik would:
+      # the door secret and an allowed Host.
+      - HUB_DOOR_SECRET=${HUB_DOOR_SECRET:?set HUB_DOOR_SECRET in .env}
+      - HUB_DOOR_ALLOWED_HOSTS=${HUB_DOOR_ALLOWED_HOSTS:-127.0.0.1:8080,localhost:8080}
+    command: ["node", "/register-model.mjs"]
+    restart: "no"

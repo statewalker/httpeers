@@ -1,0 +1,47 @@
+{
+  "name": "@statewalker/httpeers-join",
+  "version": "0.1.0",
+  "type": "module",
+  "description": "The join-the-mesh widget: paste or scan an invitation, see the link to the hub, disconnect, reconnect or leave. Plain DOM, no framework.",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+ssh://git@github.com/statewalker/httpeers.git",
+    "directory": "packages/httpeers-join"
+  },
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist",
+    "src"
+  ],
+  "sideEffects": false,
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json",
+    "test": "pnpm run build && pnpm run typecheck && vitest run",
+    "typecheck": "tsc --noEmit",
+    "lint": "biome check src tests",
+    "lint:check": "biome check src tests"
+  },
+  "dependencies": {
+    "@statewalker/httpeers-member": "workspace:*",
+    "@statewalker/httpeers-qr": "workspace:*",
+    "html5-qrcode": "^2.3.8"
+  },
+  "devDependencies": {
+    "@biomejs/biome": "catalog:",
+    "@types/node": "catalog:",
+    "happy-dom": "^20.14.5",
+    "typescript": "catalog:",
+    "vitest": "catalog:"
+  },
+  "publishConfig": {
+    "access": "public"
+  }
+}

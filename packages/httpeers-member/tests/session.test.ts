@@ -89,8 +89,14 @@ function fakeMeshMemory(initial: MeshConfig | null): MeshMemory & { current(): M
 /** The node is never touched by the session, so a marker object is honest. */
 const FAKE_NODE = { marker: "not a real libp2p node" } as unknown as Libp2p;
 
-function fakeHandle(config: MeshConfig, joinedBy: "resumed" | "redeemed"): MemberHandle {
+function fakeHandle(
+  config: MeshConfig,
+  joinedBy: "resumed" | "redeemed",
+  hubLink: "direct" | "relay" = "direct",
+  hubLinkNote?: string,
+): MemberHandle {
   return {
+    hubLinkNote,
     peerId: PEER_ID,
     hubPeerId: config.hubPeerId,
     relayAddr: config.relayAddrs[0] as string,
@@ -99,6 +105,7 @@ function fakeHandle(config: MeshConfig, joinedBy: "resumed" | "redeemed"): Membe
     meshView: () => null,
     token: () => "TOKEN",
     connectionKind: () => "none",
+    hubLink: () => hubLink,
     node: FAKE_NODE,
     stop: async () => {},
   };
@@ -227,6 +234,53 @@ describe("createPeerSession -- which mesh is tried", () => {
     // The lifecycle was never entered: `startMember` requires a config and
     // there was none to give it.
     expect(h.calls).toHaveLength(0);
+  });
+});
+
+describe("createPeerSession -- the hub link", () => {
+  it("is null until live, then says how the member reached its hub", async () => {
+    const h = harness({
+      savedKey: KEY,
+      remembered: REMEMBERED,
+      startPeer: async (peerInit) => fakeHandle(peerInit.config, "resumed", "relay"),
+    });
+    await h.session.start();
+
+    const beforeLive = h.states.filter((s) => s.phase.kind !== "live");
+    expect(beforeLive.length).toBeGreaterThan(0);
+    expect(beforeLive.map((s) => s.hubLink)).toEqual(beforeLive.map(() => null));
+    expect(h.session.state().phase.kind).toBe("live");
+    expect(h.session.state().hubLink).toBe("relay");
+
+    await h.session.disconnect();
+    expect(h.session.state().hubLink).toBeNull();
+  });
+});
+
+describe("createPeerSession -- a member that landed in relay mode for a reason", () => {
+  const WHY = "Relay mode: the hub refused this member a reservation (RESERVATION_REFUSED).";
+
+  it("shows the member's own note on the live phase", async () => {
+    const h = harness({
+      savedKey: KEY,
+      remembered: REMEMBERED,
+      startPeer: async (peerInit) => fakeHandle(peerInit.config, "resumed", "relay", WHY),
+    });
+    await h.session.start();
+    const { phase } = h.session.state();
+    expect(phase.kind === "live" && phase.note).toBe(WHY);
+    expect(h.session.state().hubLink).toBe("relay");
+  });
+
+  it("has no note when the member has nothing to say", async () => {
+    const h = harness({
+      savedKey: KEY,
+      remembered: REMEMBERED,
+      startPeer: async (peerInit) => fakeHandle(peerInit.config, "resumed", "relay"),
+    });
+    await h.session.start();
+    const { phase } = h.session.state();
+    expect(phase.kind === "live" && phase.note).toBeNull();
   });
 });
 

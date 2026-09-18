@@ -112,7 +112,8 @@ import { json, PeerCallError, stripPeerBinding } from "@statewalker/httpeers-cor
  * happened: this peer, acting as the page's gateway onto the mesh, gave up
  * waiting for the peer behind it. Everything else is a 502 (`Bad Gateway`):
  * the upstream peer could not be reached, does not speak the protocol, reset
- * the stream, or blew a relay limit -- all of them "the gateway could not
+ * the stream, blew a relay limit, or offered only a limited connection the
+ * call did not opt in to -- all of them "the gateway could not
  * get an answer from upstream", none of them a fault in the request the page
  * made. Deliberately never a 5xx that would blame the page's own request
  * (a 400-family status), and never a 500: a 500 here is reserved for a
@@ -124,6 +125,7 @@ export const PEER_ERROR_STATUS: Readonly<Record<PeerErrorKind, number>> = {
   "protocol-unsupported": 502,
   "stream-reset": 502,
   "relay-limit-exceeded": 502,
+  "limited-connection": 502,
   unknown: 502,
 };
 

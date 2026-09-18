@@ -1,0 +1,28 @@
+# The compose.host.yml variant of dynamic.yml: swapped in because with the
+# hub on `network_mode: host`, "hub" is no longer a resolvable name on the
+# "appliance" bridge network. Traefik joins host networking too in that mode
+# (compose.host.yml), so it reaches the hub's local door over real loopback,
+# exactly like a same-host process would.
+http:
+  routers:
+    admin:
+      rule: "PathPrefix(`/`)"
+      entryPoints: ["web"]
+      service: hub
+      # Order matters: basic auth first, so only an authenticated request is
+      # forwarded with the door secret. `door-secret` is defined in
+      # door-secret.yml, generated at container start from $HUB_DOOR_SECRET
+      # (compose.yml's traefik command) -- never written to this repo.
+      middlewares: ["admin-auth", "door-secret"]
+  middlewares:
+    admin-auth:
+      basicAuth:
+        usersFile: /etc/traefik/usersfile
+  services:
+    hub:
+      loadBalancer:
+        # The client's Host goes through unchanged (Traefik's default, stated
+        # here because the hub's HUB_DOOR_ALLOWED_HOSTS check depends on it).
+        passHostHeader: true
+        servers:
+          - url: "http://127.0.0.1:8787"

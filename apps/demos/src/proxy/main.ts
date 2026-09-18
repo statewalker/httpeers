@@ -26,6 +26,7 @@
  */
 
 import { createMounts, PEER_ID_HEADER } from "@statewalker/httpeers-core";
+import { type JoinWidget, mountJoinWidget } from "@statewalker/httpeers-join";
 import type { PeerSession, SessionState } from "@statewalker/httpeers-member";
 import { createSession } from "@statewalker/httpeers-member/browser";
 import { MARKER, type Upstream, urlUpstream } from "@statewalker/webrun-http-proxy";
@@ -49,6 +50,8 @@ let router: (request: Request) => Promise<Response> = async () =>
 const secrets = new Map<string, { name: string; value: string }>();
 
 let session: PeerSession | undefined;
+/** Paste or scan an invitation, see the link, disconnect or leave. Mounted once the session exists. */
+let joinWidget: JoinWidget | undefined;
 
 /** One stored route as a live upstream, carrying whatever secret was typed this session. */
 function upstreamFor(route: StoredRoute): Upstream {
@@ -228,19 +231,8 @@ function render(state: SessionState): void {
   el("state").textContent = state.phase.kind;
   el("peer-id").textContent = state.identity ?? "…";
 
-  el("join-form").hidden = !state.controls.join;
-  el("session-controls").hidden = !(state.controls.disconnect || state.controls.reconnect);
-  el<HTMLButtonElement>("reconnect").hidden = !state.controls.reconnect;
-  el<HTMLButtonElement>("disconnect").hidden = !state.controls.disconnect;
-
-  const phase = state.phase;
-  if (phase.kind === "needs-invitation") {
-    el("session-status").textContent = phase.message;
-  } else if (phase.kind === "disconnected" || phase.kind === "blocked" || phase.kind === "failed") {
-    el("live-status").textContent = phase.message;
-  } else if (phase.kind === "live") {
-    el("live-status").textContent = phase.note ?? `Joined by ${phase.joinedBy}. Proxying.`;
-  }
+  // The join form, the phase and its message, and the session controls.
+  joinWidget?.update(state);
 }
 
 async function main(): Promise<void> {
@@ -263,12 +255,7 @@ async function main(): Promise<void> {
     readDeploymentConfig: async () => null,
   });
 
-  el<HTMLButtonElement>("join").addEventListener("click", () => {
-    const text = el<HTMLInputElement>("invite").value.trim();
-    if (text !== "") void session?.join(text);
-  });
-  el<HTMLButtonElement>("disconnect").addEventListener("click", () => void session?.disconnect());
-  el<HTMLButtonElement>("reconnect").addEventListener("click", () => void session?.reconnect());
+  joinWidget = mountJoinWidget(el("mesh-join"), { session, state: session.state() });
   el<HTMLFormElement>("add-route-form").addEventListener("submit", (e) => void addRoute(e));
   el<HTMLFormElement>("console-form").addEventListener("submit", (e) => void sendConsole(e));
 

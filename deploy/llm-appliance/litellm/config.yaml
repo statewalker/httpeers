@@ -1,0 +1,18 @@
+# No secrets here — everything per-deployment lives in .env (compose
+# environment). Models are added at runtime, through the LiteLLM dashboard or
+# `POST /peers/<id>/llm/model/new` (compose.test.yml's `register-model` does
+# the latter for the fake model) — `STORE_MODEL_IN_DB=True` (compose.yml) is
+# what makes an added model survive a restart without editing this file.
+model_list: []
+
+general_settings:
+  master_key: os.environ/LITELLM_MASTER_KEY
+  # MEASURED (docs/research/2026-09-15-llm-appliance-spikes/litellm-ui-through-mesh.md,
+  # Q3): without this, the dashboard's own credential header and the mesh
+  # edge's biscuit token both want the `Authorization` header, and the mesh
+  # edge never overwrites a caller-set one — so LiteLLM would get a mesh
+  # token instead of a key, and 401. This retargets LiteLLM's own key
+  # extraction (server-side) and the dashboard JS (client-side, via the
+  # login response's `auth_header_name`) to `x-litellm-api-key`, freeing
+  # `Authorization` for the mesh.
+  litellm_key_header_name: x-litellm-api-key

@@ -57,6 +57,7 @@ import { readJoinInputFromSearch, readJoinInputFromText } from "./join-blob.js";
 import { parseMeshConfig } from "./mesh-config.js";
 import type { MeshMemory } from "./mesh-memory.js";
 import type {
+  HubLink,
   JoinMethod,
   MemberHandle,
   MemberPlatform,
@@ -125,6 +126,8 @@ export interface SessionState {
   identity: string | null;
   /** Live only while `phase.kind === "live"`. */
   handle: MemberHandle | null;
+  /** How the live member reaches its hub (`MemberHandle.hubLink`, fixed for the member's run); `null` unless live. */
+  hubLink: HubLink | null;
   controls: SessionControls;
 }
 
@@ -292,7 +295,13 @@ export function createPeerSession(init: PeerSessionInit): PeerSession {
   /** One attempt at a time. Two concurrent `startBrowserPeer` calls would build two libp2p nodes on ONE identity -- the very duplicate this session refuses when someone else does it. */
   let busy = false;
 
-  const state = (): SessionState => ({ phase, identity, handle, controls: controlsFor(phase) });
+  const state = (): SessionState => ({
+    phase,
+    identity,
+    handle,
+    hubLink: phase.kind === "live" ? (handle?.hubLink() ?? null) : null,
+    controls: controlsFor(phase),
+  });
 
   const set = (next: SessionPhase): void => {
     phase = next;
@@ -373,11 +382,17 @@ export function createPeerSession(init: PeerSessionInit): PeerSession {
         kind: "live",
         joinedBy: joined.joinedBy,
         note:
-          joined.joinedBy === "resumed" && input != null
-            ? "This page was already a member of this mesh, so it resumed instead of " +
-              "redeeming -- the invitation you supplied was not used and is still unspent. " +
-              "Reset this page's identity if you meant to join as a new peer."
-            : null,
+          [
+            joined.joinedBy === "resumed" && input != null
+              ? "This page was already a member of this mesh, so it resumed instead of " +
+                "redeeming -- the invitation you supplied was not used and is still unspent. " +
+                "Reset this page's identity if you meant to join as a new peer."
+              : null,
+            // Why the link is `relay` when it could have been direct -- see `MemberHandle.hubLinkNote`.
+            joined.hubLinkNote ?? null,
+          ]
+            .filter((line) => line != null)
+            .join(" ") || null,
       });
     } catch (err) {
       handle = null;

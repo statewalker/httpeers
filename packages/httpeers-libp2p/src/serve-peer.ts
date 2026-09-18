@@ -26,6 +26,7 @@
 import type { Libp2p } from "@libp2p/interface";
 import type { FetchHandler, Mounts, PeerIdStr } from "@statewalker/httpeers-core";
 import { createPeerRouter } from "@statewalker/httpeers-core";
+import type { CallOnLimitedConnection } from "./link.js";
 import { createRemote, PROTOCOL, serveTransport } from "./transport.js";
 
 export interface ServePeerInit {
@@ -65,6 +66,20 @@ export interface ServePeerInit {
   maxInboundStreams?: number;
   maxOutboundStreams?: number;
   drainTimeoutMs?: number;
+  /**
+   * Accept streams on limited connections (relay circuits) -- SERVING ONLY. A
+   * HUB sets it, so members that can reach it only through the public relay
+   * are served; a member never does, so the hub's relay limits still bound
+   * member-to-member traffic.
+   */
+  serveOnLimitedConnection?: boolean;
+  /**
+   * Open streams on limited connections to the peers this allows -- CALLING
+   * ONLY, and it covers every outbound path of this peer (`call`, and the
+   * router's forwarding behind `dispatch`). A member in relay mode passes
+   * `(peerId) => peerId === hubPeerId`. See `CallOnLimitedConnection`.
+   */
+  callOnLimitedConnection?: CallOnLimitedConnection;
 }
 
 export interface Peer {
@@ -88,6 +103,7 @@ export async function servePeer(init: ServePeerInit): Promise<Peer> {
     node: init.node,
     protocol,
     maxOutboundStreams: init.maxOutboundStreams,
+    callOnLimitedConnection: init.callOnLimitedConnection,
   });
 
   const dispatch = createPeerRouter({
@@ -105,6 +121,7 @@ export async function servePeer(init: ServePeerInit): Promise<Peer> {
     maxInboundStreams: init.maxInboundStreams,
     maxOutboundStreams: init.maxOutboundStreams,
     drainTimeoutMs: init.drainTimeoutMs,
+    runOnLimitedConnection: init.serveOnLimitedConnection,
   });
 
   let stopped = false;

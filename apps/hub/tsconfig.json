@@ -1,0 +1,13 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    // ES2022 and not "DOM", as in `packages/httpeers-hub`: this is a Node
+    // process, and the WinterCG globals it uses (Request, Response, Headers,
+    // URL) come from @types/node.
+    "lib": ["ES2022"],
+    "types": ["node"],
+    "rootDir": ".",
+    "noEmit": true
+  },
+  "include": ["src/**/*.ts", "tests/**/*.ts"]
+}

@@ -2,7 +2,7 @@
 
 A peer-to-peer mesh where **everything is a `fetch()`**. Two halves live here:
 
-- **`packages/`** — eight libraries a page or a process builds a mesh out of,
+- **`packages/`** — nine libraries a page or a process builds a mesh out of,
   plus a private conformance suite that holds them to it. The reverse proxy
   moved to [`@statewalker/webrun-http-proxy`](https://github.com/statewalker/webrun-wire),
   where nothing about it is mesh-specific.
@@ -25,12 +25,16 @@ mesh's own vocabulary in `docs/httpeers/CONTEXT.md`.
 ## Layout
 
 ```
-packages/          the libraries -- see below
-apps/relay/        the circuit relay, and its image
-apps/sites/        the static-site host -- one site per storage prefix
-deploy/            the compose stack, the Caddyfile, the ingress image
-tools/publish/     shell toolkit: publish a site by editing a folder
-.github/workflows/ ci, and one image-publishing workflow per deployable
+packages/              the libraries -- see below
+apps/relay/            the circuit relay, and its image
+apps/sites/            the static-site host -- one site per storage prefix
+apps/hub/              the Node hub daemon (identity, rules, service modules, admin UI), and its image
+apps/llm-chat/         the chat page: standalone (index.html) or over the mesh (mesh.html)
+apps/demos/            the demo sites: hub, app, images, proxy
+deploy/                the compose stack, the Caddyfile, the ingress image
+deploy/llm-appliance/  hub + LiteLLM + Postgres + Traefik, locally or on the server via CI
+tools/publish/         shell toolkit: publish a site by editing a folder
+.github/workflows/     ci, and one image-publishing workflow per deployable
 ```
 
 ## The libraries
@@ -50,6 +54,7 @@ what libp2p is.
 | [`httpeers-member`](packages/httpeers-member) | Everything a participant does: `startMember`, the session, the edge, the gateway. |
 | [`httpeers-ghost`](packages/httpeers-ghost) | A remote peer's app rendered as a page that can reach only that peer. |
 | [`httpeers-qr`](packages/httpeers-qr) | Invitations as QR: pure encode/decode, plus a browser entry that scans from the camera. |
+| [`httpeers-join`](packages/httpeers-join) | The join-the-mesh widget every page shares: paste or scan an invitation, the link to the hub, disconnect, reconnect, leave, and for a mesh admin, invite others as members or admins. Plain DOM. |
 | [`httpeers-conformance`](packages/httpeers-conformance) | Private. Every prototype rebuilt on the published API, every entry point imported, and one real mesh. |
 
 ### Two rules the packages are built on
@@ -84,7 +89,7 @@ pnpm turbo build
 pnpm turbo test          # 506 tests in packages/, 663 with the two apps
 ```
 
-**None of the nine is on npm yet** — all are at `0.1.0`, and `npm view` returns
+**None of the ten is on npm yet** — all are at `0.1.0`, and `npm view` returns
 404 for every one. They are consumed here through the workspace.
 
 > **One install note that bites silently.** `@libp2p/webrtc` needs

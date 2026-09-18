@@ -18,7 +18,8 @@ x Cyclic dependency detected:
 | @statewalker/httpeers-member#build, ... @statewalker/httpeers-core#build
 ```
 
-A check that depends on everything has to be a **leaf**. Here it is one: it devDepends on all eight
+A check that depends on everything has to be a **leaf**. Here it is one: it devDepends on every
+published package (the eight above, plus `httpeers-ghost` and the join widget `httpeers-join`)
 and nothing depends on it, so the graph is acyclic and `turbo test` works again.
 
 **To reverse:** move `tests/` back under `httpeers-core`, restore the seven `workspace:*`
@@ -44,7 +45,12 @@ exclusion excluded something.
 Circuit Relay v2 server, a hub that reserves through it and relays for its own
 members, and members that redeem invitations and call each other. It is the
 extraction's acceptance at runtime, and it found two defects in its first hour
-that every compile check had passed.
+that every compile check had passed. The same harness runs the relay-mode
+suites: `relay-fallback.test.ts` (a call over a kept circuit),
+`member-relay-fallback.test.ts` (a member whose WebRTC upgrade fails) and
+`member-reservation-fallback.test.ts` (a member whose hub has no reservation
+slot left — `startMesh({ maxRelayReservations })` — which failed the whole join
+in production).
 
 ## The lesson these four encode
 

@@ -1,0 +1,13 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    // A BROWSER app, so the DOM lib is correct here. core/ stays DOM-free by the boundary test,
+    // not by the compiler.
+    "lib": ["ES2022", "DOM", "DOM.Iterable"],
+    "types": ["node", "vite/client"],
+    "jsx": "react-jsx",
+    "rootDir": ".",
+    "noEmit": true
+  },
+  "include": ["src", "tests", "*.ts"]
+}

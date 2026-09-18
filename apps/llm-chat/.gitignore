@@ -1,0 +1,4 @@
+smoke-failure.png
+mesh-smoke-failure-*.png
+# Copied by scripts/copy-assets.mjs, never committed.
+public/sw.js

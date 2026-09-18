@@ -16,6 +16,7 @@ export { createMonotonicClock } from "./clock.js";
 export {
   PeerCallError,
   type PeerErrorKind,
+  PeerLimitedConnectionError,
   PeerProtocolUnsupportedError,
   PeerRelayLimitExceededError,
   PeerRequestTimeoutError,
