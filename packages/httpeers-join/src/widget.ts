@@ -167,7 +167,7 @@ export function mountJoinWidget(container: HTMLElement, options: JoinWidgetOptio
   const peer = make("code", "hp-join-peer");
   // The compact line leaves the peer id to a tooltip: a header has no room for it.
   if (compact) status.append(phaseText);
-  else status.append(phaseText, peer);
+  else status.append(phaseText, " ", peer);
 
   const message = make("p", "hp-join-message");
   const error = make("p", "hp-join-error");
