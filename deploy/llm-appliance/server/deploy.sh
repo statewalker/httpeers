@@ -69,7 +69,10 @@ up_and_verify() {
   before=$(hub_peer_id)
   (cd "$dir" && docker compose up -d --remove-orphans --wait --wait-timeout 900) || {
     say "compose up --wait failed"
-    (cd "$dir" && docker compose ps -a && docker compose logs --tail=30 hub litellm) || true
+    # Status only, never container logs: this output lands in the Actions log of a PUBLIC
+    # repository, and the hub's or LiteLLM's logs may name invitations, keys or request bodies.
+    (cd "$dir" && docker compose ps -a --format 'table {{.Service}}\t{{.Status}}') || true
+    say "logs: on the server, cd $ROOT/$dir && docker compose logs hub litellm"
     return 1
   }
   after=$(hub_peer_id)
