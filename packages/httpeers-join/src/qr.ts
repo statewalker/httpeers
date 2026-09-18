@@ -69,7 +69,68 @@ export function defaultQrScanner(): QrScanner {
     async scanFile(file) {
       const { scanFile } = await import("@statewalker/httpeers-qr/browser");
       const found = await scanFile(file, { accept: invitationFromQrText });
-      return found.ok ? { ok: true, invitation: found.value } : { ok: false, reason: found.reason };
+      if (found.ok) return { ok: true, invitation: found.value };
+      // A QR was read and it was not an invitation: a second decoder would
+      // only read the same wrong code.
+      if (found.reason === "not-accepted") return { ok: false, reason: "not-accepted" };
+      const text = await decodePicture(file);
+      if (text == null) return { ok: false, reason: "no-qr" };
+      const invitation = invitationFromQrText(text);
+      return invitation != null ? { ok: true, invitation } : { ok: false, reason: "not-accepted" };
     },
   };
+}
+
+/**
+ * The longest sides a picture is decoded at, largest first, when
+ * html5-qrcode found nothing.
+ */
+const FALLBACK_SIDES = [1600, 800, 400];
+
+/**
+ * A second decoder for a picture: `decodeQr` (jsQR) from
+ * `@statewalker/httpeers-qr`, over the picture drawn at a few sizes.
+ *
+ * WHY THIS EXISTS. Measured on the demos hub page's own invitation QR (a
+ * 310-character join blob), html5-qrcode's `scanFile` found nothing in a
+ * clean 684x684 screenshot, nor at 600 or 480 pixels, and read it at 400
+ * and 300. A phone screenshot or photo is far larger than that. jsQR read the
+ * same 684-pixel picture at once. The two decoders fail on different
+ * pictures (the package's rung 03 measured 9/12 and 8/12 over twelve
+ * degradations, differing on heavy blur), so trying both costs a second only
+ * when the first has already failed.
+ *
+ * The sizes go DOWN from the picture's own size, capped at 1600: jsQR is
+ * slow on a 12-megapixel photo, and a code that fills a phone photo is still
+ * many pixels per module at 1600.
+ */
+async function decodePicture(file: Blob): Promise<string | null> {
+  let bitmap: ImageBitmap;
+  try {
+    bitmap = await createImageBitmap(file);
+  } catch {
+    return null; // not a picture the browser can open
+  }
+  try {
+    const { decodeQr } = await import("@statewalker/httpeers-qr");
+    const longest = Math.max(bitmap.width, bitmap.height);
+    const sides = [Math.min(longest, FALLBACK_SIDES[0] as number)];
+    for (const side of FALLBACK_SIDES) if (side < (sides[0] as number)) sides.push(side);
+    for (const side of sides) {
+      const scale = side / longest;
+      const width = Math.max(1, Math.round(bitmap.width * scale));
+      const height = Math.max(1, Math.round(bitmap.height * scale));
+      const canvas = document.createElement("canvas");
+      canvas.width = width;
+      canvas.height = height;
+      const context = canvas.getContext("2d", { willReadFrequently: true });
+      if (context == null) return null;
+      context.drawImage(bitmap, 0, 0, width, height);
+      const text = decodeQr(context.getImageData(0, 0, width, height));
+      if (text != null) return text;
+    }
+    return null;
+  } finally {
+    bitmap.close();
+  }
 }

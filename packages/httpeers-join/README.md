@@ -66,6 +66,16 @@ is reported when the button is pressed, with a pointer to the picture button. A 
 QR code that is not an invitation keeps scanning (camera) or says so (picture). A bare invitation
 id is not accepted from a QR code: nothing tells it apart from any other short string.
 
+**A picture gets two decoders.** html5-qrcode's `scanFile` could not read the demos hub's own
+invitation QR (a 310-character join blob) from a clean 684 px screenshot, nor at 600 or 480 px.
+It read the same picture at 400 px and below. Phone screenshots and photos are larger than that.
+When html5-qrcode finds nothing, `defaultQrScanner` therefore draws the picture to a canvas at
+its own size (capped at 1600 px), then at 800 and 400 px, and runs `decodeQr` (jsQR, from the
+`@statewalker/httpeers-qr` root, also loaded lazily) on each. Measured in Chromium with the
+built demos app, every size from 300 to 3000 px decodes, as does a blurred, tilted and darkened
+3000 px copy. The same run, scanning the hub page's real QR code, joined its mesh live. The
+camera path is html5-qrcode alone. It gets many frames and the person aims it.
+
 **Accessibility.** The status line is `role="status"`. The phase message is `role="alert"` when it
 reports trouble (a hub that does not know this peer, a refused invitation, `blocked`, `failed`) and
 `role="status"` when it gives instructions (a first run, `disconnected`, a live note). A rejected
