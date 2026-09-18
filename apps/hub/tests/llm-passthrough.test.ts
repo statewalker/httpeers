@@ -113,13 +113,19 @@ beforeAll(async () => {
       return;
     }
 
-    // The default: echo the path and headers, so path-construction and
-    // header-hygiene tests can inspect exactly what arrived.
+    // The default: echo the path, headers and any body, so path-construction
+    // and header-hygiene tests can inspect exactly what arrived.
     const headers: Record<string, string> = {};
     for (const [name, value] of Object.entries(req.headers)) {
       if (typeof value === "string") headers[name] = value;
     }
-    json(res, 200, { path: url, headers, method: req.method });
+    const received = await readBody(req);
+    json(res, 200, {
+      path: url,
+      headers,
+      method: req.method,
+      ...(received !== "" ? { body: received } : {}),
+    });
   });
   server.listen(0, "127.0.0.1");
   await once(server, "listening");
@@ -169,6 +175,61 @@ describe("createPassthrough", () => {
     );
     const noAuthBody = (await noAuthCase.json()) as { headers: Record<string, string> };
     expect(noAuthBody.headers.authorization).toBeUndefined();
+  });
+
+  // LiteLLM's dashboard sends its key as `Authorization: Bearer sk-...` until
+  // it has read `litellm_key_header_name` from /get/ui_settings, and as
+  // `x-litellm-api-key` afterwards. Measured live: after a reload,
+  // /model_group/info and /v2/model/info went out with `Authorization` and got
+  // 401 "Malformed API Key", which left the Add Model form without data.
+  it("rule 2: moves a LiteLLM key sent as Authorization into x-litellm-api-key", async () => {
+    const passthrough = createPassthrough({ upstream });
+    const response = await passthrough(
+      new Request("http://mesh.local/llm/model_group/info", {
+        headers: { authorization: "Bearer sk-dashboard-token" },
+      }),
+      HUB_PEER_ID,
+    );
+    const body = (await response.json()) as { headers: Record<string, string> };
+    expect(body.headers.authorization).toBeUndefined();
+    expect(body.headers["x-litellm-api-key"]).toBe("Bearer sk-dashboard-token");
+  });
+
+  it("rule 2: a moved key keeps a POST body (the dashboard's Test Connect)", async () => {
+    const passthrough = createPassthrough({ upstream });
+    const response = await passthrough(
+      new Request("http://mesh.local/llm/health/test_connection", {
+        method: "POST",
+        headers: { authorization: "Bearer sk-dashboard-token", "content-type": "application/json" },
+        body: JSON.stringify({ litellm_params: { model: "openrouter/x" } }),
+      }),
+      HUB_PEER_ID,
+    );
+    const body = (await response.json()) as { headers: Record<string, string>; body?: string };
+    expect(body.headers["x-litellm-api-key"]).toBe("Bearer sk-dashboard-token");
+    expect(body.body).toBe(JSON.stringify({ litellm_params: { model: "openrouter/x" } }));
+  });
+
+  it("rule 2: never moves a mesh token, and an explicit x-litellm-api-key wins", async () => {
+    const passthrough = createPassthrough({ upstream });
+    const meshToken = await passthrough(
+      new Request("http://mesh.local/llm/v1/models", {
+        headers: { authorization: "Bearer EnQKCgoIbWVzaC10b2tlbg" },
+      }),
+      HUB_PEER_ID,
+    );
+    const meshBody = (await meshToken.json()) as { headers: Record<string, string> };
+    expect(meshBody.headers.authorization).toBeUndefined();
+    expect(meshBody.headers["x-litellm-api-key"]).toBeUndefined();
+
+    const both = await passthrough(
+      new Request("http://mesh.local/llm/v1/models", {
+        headers: { authorization: "Bearer sk-other", "x-litellm-api-key": "Bearer sk-explicit" },
+      }),
+      HUB_PEER_ID,
+    );
+    const bothBody = (await both.json()) as { headers: Record<string, string> };
+    expect(bothBody.headers["x-litellm-api-key"]).toBe("Bearer sk-explicit");
   });
 
   it("rule 3: rewrites a Location at the upstream origin to root-relative", async () => {

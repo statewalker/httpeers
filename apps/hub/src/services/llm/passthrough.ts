@@ -10,7 +10,9 @@
  * `hubPeerId` is a per-REQUEST value here (`ServiceContext`), not a
  * construction-time one — cheap, since it is just a closure.
  *
- * HEADERS (rule 2). `urlUpstream` already drops `authorization` and
+ * HEADERS (rule 2). `urlUpstream` already drops `authorization` (a LiteLLM
+ * key the dashboard put there is moved to `x-litellm-api-key` first -- see
+ * `moveDashboardKey`) and
  * hop-by-hop headers; `stripRequestHeaders: [PEER_ID_HEADER]` drops the
  * proven-peer header too. No `headers` or `credential` is configured here, so
  * the master key is never added — it belongs to `keys.ts` alone.
@@ -56,6 +58,28 @@ const MARKER_ERROR_TEXT: Record<string, string> = {
   "upstream-unreachable": "llm: upstream unreachable",
 };
 
+/** A LiteLLM key: `sk-` then key characters. A mesh token (base64url) never starts with `sk-`. */
+const LITELLM_BEARER = /^Bearer sk-\S+$/;
+
+/**
+ * LiteLLM's dashboard sends its key as `Authorization: Bearer sk-...` until it
+ * has read `litellm_key_header_name` from `/get/ui_settings`, and as
+ * `x-litellm-api-key` after that. Every call it makes before that point would
+ * lose its key with the dropped `authorization` (rule 2) and get a 401, so a
+ * LiteLLM-shaped bearer is moved to `x-litellm-api-key` when that header is
+ * absent. Anything else in `authorization` -- the mesh's own token -- is still
+ * dropped, never forwarded.
+ */
+function moveDashboardKey(request: Request): Request {
+  const authorization = request.headers.get("authorization");
+  if (authorization == null || request.headers.has("x-litellm-api-key")) return request;
+  if (!LITELLM_BEARER.test(authorization)) return request;
+  const headers = new Headers(request.headers);
+  headers.set("x-litellm-api-key", authorization);
+  headers.delete("authorization");
+  return new Request(request, { headers });
+}
+
 /**
  * Build the passthrough handler — see the module comment for the rules it
  * implements. `init.upstream` is expected already normalized (no trailing
@@ -65,7 +89,8 @@ export function createPassthrough(init: PassthroughInit): Passthrough {
   const upstreamOrigin = new URL(init.upstream).origin;
   const origins: readonly string[] = [upstreamOrigin, ...SENTINEL_ORIGINS];
 
-  return async (request, hubPeerId) => {
+  return async (incoming, hubPeerId) => {
+    const request = moveDashboardKey(incoming);
     const forward = urlUpstream({
       base: `${init.upstream}/peers/${hubPeerId}`,
       stripRequestHeaders: [PEER_ID_HEADER],
