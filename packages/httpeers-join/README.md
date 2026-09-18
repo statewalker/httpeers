@@ -14,8 +14,10 @@ an httpeers hub shows the same way.
 - **Leave**: Disconnect (keeps membership), Reconnect, and "Leave this mesh…"
   (`session.resetIdentity()`, which forgets the identity), behind a confirmation.
 
-Every button is shown only when `SessionState.controls` allows it. The widget decides nothing
-about the session: `PeerSession` already decides it, and the widget shows the result.
+Every button is shown only when `SessionState.controls` allows it. There is one addition: "Leave"
+is hidden while there is no identity (a first run has nothing to forget). The widget decides
+nothing else about the session: `PeerSession` already decides it, and the widget shows the
+result.
 
 ```ts
 import { mountJoinWidget } from "@statewalker/httpeers-join";
@@ -96,7 +98,8 @@ function JoinWidgetView({ session, state, compact }: Props) {
 }
 ```
 
-`apps/llm-chat/src/ui/JoinWidgetView.tsx` is this wrapper.
+`apps/llm-chat/src/mesh/join-widget.tsx` is this wrapper. It lives in `mesh/` because the
+boundary test keeps httpeers out of everything the standalone page reaches.
 
 ## Design
 

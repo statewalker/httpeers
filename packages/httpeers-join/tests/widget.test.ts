@@ -238,6 +238,21 @@ describe("buttons follow state.controls", () => {
   });
 });
 
+describe("leaving needs something to leave", () => {
+  it("hides Leave on a first run, when there is no identity to forget", () => {
+    const w = mount({ session: fakeSession() });
+    w.update(
+      stateOf(
+        { kind: "needs-invitation", reason: "no-identity", message: "m" },
+        { identity: null },
+      ),
+    );
+    expect(shown(".hp-join-reset")).toBe(false);
+    expect(shown(".hp-join-controls")).toBe(false);
+    expect(shown(".hp-join-submit")).toBe(true);
+  });
+});
+
 describe("actions call the session", () => {
   it("join sends the trimmed pasted text, and is disabled while empty", async () => {
     const session = fakeSession();

@@ -299,8 +299,12 @@ export function mountJoinWidget(container: HTMLElement, options: JoinWidgetOptio
     };
     disconnectButton.hidden = !allowed.disconnect;
     reconnectButton.hidden = !allowed.reconnect;
-    resetButton.hidden = !allowed.reset;
-    controls.hidden = !(allowed.disconnect || allowed.reconnect || allowed.reset);
+    // The session offers a reset in every settled phase, but with no identity
+    // yet -- a first run -- there is nothing to forget, and "Leave this mesh"
+    // on a page that never joined one would only confuse.
+    const reset = allowed.reset && id != null;
+    resetButton.hidden = !reset;
+    controls.hidden = !(allowed.disconnect || allowed.reconnect || reset);
     for (const b of [disconnectButton, reconnectButton, resetButton]) b.disabled = pending.has(b);
 
     form.hidden = compact || !allowed.join;
