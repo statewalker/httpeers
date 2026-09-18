@@ -5,14 +5,34 @@
 # `traefik` entrypoint override), never stored in this directory — see README's
 # "Traefik and the admin htpasswd" section for why.
 #
-# One router for everything: the hub's local door already does its own
-# routing (`/peers/<hubPeerId>/<service>/...`, `/hub/api/*`, `/` for the admin
-# UI — apps/hub/src/local-door.ts) and is the door's ONLY client (the local
-# door is never published to the host), so there is nothing to split here.
+# Two routers, both to the hub's local door (it does its own routing:
+# `/peers/<hubPeerId>/<service>/...`, `/hub/api/*`, `/` for the admin UI --
+# apps/hub/src/local-door.ts). `litellm` passes LiteLLM's paths without basic
+# auth; `admin` puts basic auth in front of everything else.
 http:
   routers:
+    # LiteLLM itself: NO basic auth, only its own authentication (the
+    # dashboard's UI_USERNAME/UI_PASSWORD login, and a virtual key or the
+    # master key on its API). The hub's passthrough never adds a credential
+    # (apps/hub/src/services/llm/passthrough.ts), so nothing here is open.
+    # The door secret stays: it is what lets Traefik, and only Traefik, talk
+    # to the hub's door.
+    #
+    # EXCEPT `/llm/keys`. That route is the HUB's, not LiteLLM's: it mints a
+    # key with the master key and authenticates nobody itself (on the mesh,
+    # `app:llm.admin` gates it). Without basic auth anything able to reach
+    # 127.0.0.1:8080 could mint keys, so it stays on the `admin` router.
+    litellm:
+      rule: "PathRegexp(`^/peers/[^/]+/llm(/|$)`) && !PathRegexp(`^/peers/[^/]+/llm/keys/?$`)"
+      priority: 100
+      entryPoints: ["web"]
+      service: hub
+      middlewares: ["door-secret"]
+    # Everything else -- the admin UI, the admin REST API, `/llm/keys` --
+    # behind basic auth.
     admin:
       rule: "PathPrefix(`/`)"
+      priority: 1
       entryPoints: ["web"]
       service: hub
       # Order matters: basic auth first, so only an authenticated request is
