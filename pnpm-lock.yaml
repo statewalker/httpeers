@@ -93,8 +93,8 @@ importers:
         specifier: 'catalog:'
         version: 0.9.0
       '@statewalker/webrun-http-browser':
-        specifier: ^0.4.2
-        version: 0.4.2
+        specifier: ^0.5.0
+        version: 0.5.0
       '@statewalker/webrun-http-proxy':
         specifier: ^0.1.0
         version: 0.1.0
@@ -218,8 +218,8 @@ importers:
         specifier: workspace:*
         version: link:../../packages/httpeers-member
       '@statewalker/webrun-http-browser':
-        specifier: ^0.4.2
-        version: 0.4.2
+        specifier: ^0.5.0
+        version: 0.5.0
       react:
         specifier: 19.3.0
         version: 19.3.0
@@ -433,8 +433,8 @@ importers:
         specifier: workspace:*
         version: link:../httpeers-member
       '@statewalker/webrun-http-browser':
-        specifier: ^0.4.2
-        version: 0.4.2
+        specifier: ^0.5.0
+        version: 0.5.0
       '@types/node':
         specifier: 'catalog:'
         version: 26.4.1
@@ -738,8 +738,8 @@ importers:
         specifier: 10.1.19
         version: 10.1.19
       '@statewalker/webrun-http-browser':
-        specifier: ^0.4.2
-        version: 0.4.2
+        specifier: ^0.5.0
+        version: 0.5.0
       '@types/node':
         specifier: 'catalog:'
         version: 26.4.1
@@ -2475,8 +2475,8 @@ packages:
   '@statewalker/webrun-files@0.9.0':
     resolution: {integrity: sha512-4ZyYJKo3W7nzwa0HCymeZonsQwuhY+Dv06vC59R0ytmIrAqOeytwCxTFTwv2DfACDe/dB9sSG+q6ffOBbajRyQ==}
 
-  '@statewalker/webrun-http-browser@0.4.2':
-    resolution: {integrity: sha512-6DLcvNpr9hFeiqPMfno84nGZrbYmvYiYFQB1WGX1R7wyp0+PzGUFZowpAEZaDYUq1TJ2o7p/c4s6WO6un7QzOQ==}
+  '@statewalker/webrun-http-browser@0.5.0':
+    resolution: {integrity: sha512-4C08sst4ZhpUbgJvzk76sja8rJ51rYVOC0z80PsvfjXisD91TWkg6WDtGfz7mKyF4TrVftbMJo80c9GgXS1lnQ==}
 
   '@statewalker/webrun-http-proxy@0.1.0':
     resolution: {integrity: sha512-MewhN0h+UuW/PoL7hY6Ud38JOP54sYwb0/ONONRFnGjJqVkBEvHu1GMlBP4K7/+LHBvK1i7P4XSml/R5ey/VeQ==}
@@ -6732,7 +6732,7 @@ snapshots:
 
   '@statewalker/webrun-files@0.9.0': {}
 
-  '@statewalker/webrun-http-browser@0.4.2':
+  '@statewalker/webrun-http-browser@0.5.0':
     dependencies:
       '@statewalker/webrun-http-streams': 0.2.2
       '@statewalker/webrun-rpc': 0.4.0

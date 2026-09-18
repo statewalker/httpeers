@@ -14,7 +14,9 @@
  * spec: the page is uncontrolled while the worker is already active (and
  * claimed long ago), so no `controllerchange` ever comes, and `mountEdge`
  * waited forever inside `SwHttpAdapter.start()`. llm-chat's mesh.html shipped
- * with that ("Joining… (mounting-edge)" for good). See
+ * with that ("Joining… (mounting-edge)" for good). Since webrun-http-browser
+ * 0.5 the adapter asks the worker to claim the page (`CLAIM`), so a hard reload
+ * must now recover IN PLACE: one load, one navigation, no reload. See
  * `httpeers-member/src/edge-control.ts`.
  *
  * WHAT A HARD RELOAD IS HERE. Chromium: CDP `Page.reload({ ignoreCache: true })`,
@@ -24,9 +26,12 @@
  * press the browser's own Ctrl+Shift+R (it types into the page; measured: no
  * reload happens), and Playwright's Firefox has no ignore-cache reload.
  *
- * Scenarios, per browser: first visit, normal reload, hard reload, a second
- * tab, and a hard reload with the reload guard already spent -- which must
- * FAIL LOUDLY with the "close the tab and reopen it" error, not hang.
+ * Scenarios, per browser, against the stock `sw-worker` (which answers
+ * `CLAIM`): first visit, normal reload, hard reload (no navigation), a second
+ * tab. Then, on a second origin, against a worker that IGNORES `CLAIM` -- what
+ * a returning visitor's pre-0.5 `/sw.js` does: a hard reload falls back to the
+ * one guarded reload (two loads), and with that guard already spent it must
+ * FAIL LOUDLY with the "close the tab and reopen it" error, not hang or loop.
  *
  * Nothing is bundled: the page imports `httpeers-member`'s `dist/edge.js`
  * through an import map, and that file's only bare import,
@@ -47,6 +52,27 @@ const SW_WORKER = resolveFile("@statewalker/webrun-http-browser/sw-worker");
 /** Generous: a hang is what is being tested for, and a hang does not finish early. */
 const SETTLE_MS = 20_000;
 
+/**
+ * `controlTimeoutMs` for the pages on the origin whose worker ignores `CLAIM`:
+ * the claim is waited for this long before the fallback reload. Short so the
+ * run is quick; well under SETTLE_MS so a hang still shows as one.
+ */
+const NO_CLAIM_TIMEOUT_MS = 3_000;
+
+/** The key webrun-http-browser's one-shot reload guard uses, per worker scope. */
+const reloadGuardKey = (origin) => `webrun-http-browser:reloaded-uncontrolled:${origin}/`;
+
+/**
+ * A worker that swallows the page's `CLAIM` call before the stock worker's own
+ * listener sees it -- listeners run in registration order -- and is otherwise
+ * the stock worker.
+ */
+const NO_CLAIM_WORKER = `self.addEventListener("message", (event) => {
+  if (event.data && event.data.type === "CLAIM") event.stopImmediatePropagation();
+});
+importScripts("/sw-worker.js");
+`;
+
 const PAGE = `<!doctype html>
 <meta charset="utf-8">
 <title>edge reload</title>
@@ -60,9 +86,11 @@ const PAGE = `<!doctype html>
   window.__controlledAtLoad = navigator.serviceWorker.controller != null;
   try {
     const { mountEdge } = await import("/member/edge.js");
+    const timeout = new URL(location.href).searchParams.get("timeout");
     const edge = await mountEdge({
       key: "reload-test",
       dispatch: async () => new Response("pong"),
+      ...(timeout ? { controlTimeoutMs: Number(timeout) } : {}),
     });
     const res = await fetch(new URL("ping", edge.baseUrl));
     window.__edge = { state: "ok", body: await res.text() };
@@ -72,7 +100,7 @@ const PAGE = `<!doctype html>
 </script>
 <p>edge reload test</p>`;
 
-async function serve() {
+async function serve({ answersClaim }) {
   const server = createServer(async (req, res) => {
     const path = new URL(req.url, "http://x").pathname;
     try {
@@ -81,7 +109,9 @@ async function serve() {
       if (path === "/" || path === "/index.html") {
         body = PAGE;
         type = "text/html";
-      } else if (path === "/sw.js") body = await readFile(SW_WORKER);
+      } else if (path === "/sw.js")
+        body = answersClaim ? await readFile(SW_WORKER) : NO_CLAIM_WORKER;
+      else if (path === "/sw-worker.js") body = await readFile(SW_WORKER);
       else if (path === "/lib/webrun-sw.js") body = await readFile(EDGE_SW_MODULE);
       else if (/^\/member\/[\w-]+\.js$/.test(path)) {
         body = await readFile(join(MEMBER_DIST, path.slice("/member/".length)));
@@ -94,7 +124,8 @@ async function serve() {
     }
   });
   await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
-  return { url: `http://localhost:${server.address().port}/`, close: () => server.close() };
+  const origin = `http://localhost:${server.address().port}`;
+  return { origin, url: `${origin}/`, close: () => server.close() };
 }
 
 /**
@@ -130,10 +161,20 @@ async function hardReload(name, context, page) {
   }
 }
 
-const site = await serve();
+/** Counts `page`'s main-frame navigations: a recovery in place adds none. */
+function countNavigations(page) {
+  const counter = { count: 0 };
+  page.on("framenavigated", (frame) => {
+    if (frame === page.mainFrame()) counter.count++;
+  });
+  return counter;
+}
+
+const site = await serve({ answersClaim: true });
+const noClaimSite = await serve({ answersClaim: false });
 const failures = [];
 const report = (browser, scenario, ok, detail) => {
-  console.log(`${ok ? "ok  " : "FAIL"} ${browser.padEnd(8)} ${scenario.padEnd(34)} ${detail}`);
+  console.log(`${ok ? "ok  " : "FAIL"} ${browser.padEnd(8)} ${scenario.padEnd(40)} ${detail}`);
   if (!ok) failures.push(`${browser}: ${scenario}: ${detail}`);
 };
 const describe = (v) =>
@@ -160,16 +201,19 @@ try {
       v = await verdict(page, 2);
       report(name, "normal reload", pong(v) && v.controlledAtLoad, describe(v));
 
-      // THE REGRESSION: uncontrolled at load, so the edge must reload once itself --
-      // two loads for one hard reload, the second controlled and answering.
+      // THE REGRESSION: uncontrolled at load, and the worker must claim the page
+      // in place -- no reload: one load and one navigation for one hard reload.
+      const nav = countNavigations(page);
       const before = v.loads;
       await hardReload(name, context, page);
       v = await verdict(page, before + 1);
+      await page.waitForTimeout(1_000); // a reload the edge started would show by now
+      v = await verdict(page, before + 1);
       report(
         name,
-        "hard reload",
-        pong(v) && v.controlledAtLoad && v.loads === before + 2,
-        describe(v),
+        "hard reload (recovers in place)",
+        pong(v) && !v.controlledAtLoad && v.loads === before + 1 && nav.count === 1,
+        `${describe(v)} navigations=${nav.count}`,
       );
 
       const second = await context.newPage();
@@ -179,18 +223,42 @@ try {
       const first = await verdict(page);
       report(name, "first tab, after the second opened", pong(first), describe(first));
       await second.close();
+      await context.close();
+
+      // A WORKER THAT IGNORES `CLAIM` (a pre-0.5 /sw.js still installed): the
+      // claim times out and the edge falls back to its one guarded reload.
+      const legacy = await browser.newContext();
+      const lpage = await legacy.newPage();
+      const lurl = `${noClaimSite.url}?timeout=${NO_CLAIM_TIMEOUT_MS}`;
+      await lpage.goto(lurl);
+      v = await verdict(lpage);
+      report(name, "no-CLAIM worker: first visit", pong(v) && v.loads === 1, describe(v));
+
+      const lnav = countNavigations(lpage);
+      const lbefore = v.loads;
+      await hardReload(name, legacy, lpage);
+      v = await verdict(lpage, lbefore + 2);
+      report(
+        name,
+        "no-CLAIM worker: hard reload",
+        pong(v) && v.controlledAtLoad && v.loads === lbefore + 2 && lnav.count === 2,
+        `${describe(v)} navigations=${lnav.count}`,
+      );
 
       // The guard already spent (as if the edge's own reload came back uncontrolled
       // too): the page must say what to do, and neither hang nor reload again.
-      await page.evaluate(() =>
-        sessionStorage.setItem("httpeers:edge:control-reload", String(Date.now())),
+      await lpage.evaluate(
+        (key) => sessionStorage.setItem(key, "1"),
+        reloadGuardKey(noClaimSite.origin),
       );
-      const beforeSpent = (await verdict(page)).loads;
-      await hardReload(name, context, page);
-      v = await verdict(page, beforeSpent + 1);
+      const beforeSpent = (await verdict(lpage)).loads;
+      await hardReload(name, legacy, lpage);
+      v = await verdict(lpage, beforeSpent + 1);
+      await lpage.waitForTimeout(1_000);
+      v = await verdict(lpage, beforeSpent + 1);
       report(
         name,
-        "hard reload, guard already spent",
+        "no-CLAIM worker: guard already spent",
         v.edge.state === "error" &&
           /close the tab and reopen it/.test(v.edge.message) &&
           v.loads === beforeSpent + 1,
@@ -198,15 +266,16 @@ try {
       );
 
       // And the next reload recovers normally.
-      await page.reload();
-      v = await verdict(page, beforeSpent + 2);
-      report(name, "normal reload after that", pong(v), describe(v));
+      await lpage.reload();
+      v = await verdict(lpage, beforeSpent + 2);
+      report(name, "no-CLAIM worker: normal reload after", pong(v), describe(v));
     } finally {
       await browser.close();
     }
   }
 } finally {
   site.close();
+  noClaimSite.close();
 }
 
 if (failures.length > 0) {
