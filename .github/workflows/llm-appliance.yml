@@ -1,0 +1,115 @@
+name: llm-appliance
+
+# Publishes the hub image (which also carries the appliance's compose files, see
+# apps/hub/Dockerfile), then deploys it to the httpeers.net server.
+#
+# Same shape as relay.yml -- publish, then a SEPARATE deploy job, so "built but not deployed"
+# and "deployed and broken" are different red marks -- with one difference in the deploy: the
+# SSH key is a FORCED-COMMAND key. It can run only /opt/httpeers-llm/bin/deploy.sh on the server,
+# and all it can pass is a commit sha; the server pulls that sha's image from GHCR, takes the
+# appliance files out of it, brings the stack up, verifies it (hub peerId unchanged, the door
+# answers, LiteLLM lists models) and rolls back on failure. See
+# deploy/llm-appliance/server/deploy.sh for why, and deploy/llm-appliance/README.md
+# ("Server deployment") for the one-time setup.
+#
+# Pull requests build the image without pushing it: a Dockerfile that no longer builds shows on
+# the PR, not after the merge.
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "apps/hub/**"
+      - "apps/relay/package.json"
+      - "packages/**"
+      - "deploy/llm-appliance/**"
+      - "package.json"
+      - "pnpm-lock.yaml"
+      - "pnpm-workspace.yaml"
+      - "tsconfig.base.json"
+      - ".github/workflows/llm-appliance.yml"
+  pull_request:
+    paths:
+      - "apps/hub/**"
+      - "packages/**"
+      - "deploy/llm-appliance/**"
+      - "pnpm-lock.yaml"
+      - ".github/workflows/llm-appliance.yml"
+  workflow_dispatch:
+
+env:
+  IMAGE: ghcr.io/${{ github.repository_owner }}/httpeers-hub
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    concurrency:
+      group: llm-appliance-publish-${{ github.ref }}
+      cancel-in-progress: true
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: docker/setup-buildx-action@v3
+
+      - if: github.event_name != 'pull_request'
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.IMAGE }}
+          tags: |
+            type=raw,value=latest,enable={{is_default_branch}}
+            type=sha,format=long
+
+      - uses: docker/build-push-action@v6
+        with:
+          # The repository root: the hub needs the workspace packages, and the image carries
+          # deploy/llm-appliance/.
+          context: .
+          file: apps/hub/Dockerfile
+          platforms: linux/amd64
+          push: ${{ github.event_name != 'pull_request' }}
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha,scope=hub
+          cache-to: type=gha,mode=max,scope=hub
+
+  deploy:
+    needs: publish
+    runs-on: ubuntu-latest
+    environment: production
+    # NOT cancel-in-progress: cancelling would cut the SSH session in the middle of a
+    # `compose up` on the server. GitHub keeps at most one PENDING run per group and replaces it
+    # with a newer one, so a burst of pushes still deploys only the latest after the running one.
+    concurrency:
+      group: llm-appliance-deploy
+      cancel-in-progress: false
+    # Main only, and only while the switch is on:
+    #   gh variable set LLM_DEPLOY_ENABLED --body true    (anything else: publish, don't deploy)
+    if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request' && vars.LLM_DEPLOY_ENABLED == 'true'
+    steps:
+      - name: Deploy this commit on the server
+        env:
+          SSH_KEY: ${{ secrets.LLM_DEPLOY_SSH_KEY }}
+          # The server's host keys (`ssh-keyscan -t ed25519 <host>`), pinned: without them the
+          # first connection would trust whatever answers.
+          KNOWN_HOSTS: ${{ vars.DEPLOY_KNOWN_HOSTS }}
+          TARGET_HOST: ${{ secrets.DEPLOY_HOST }}
+          TARGET_USER: ${{ secrets.DEPLOY_USER }}
+        run: |
+          set -euo pipefail
+          install -m 700 -d ~/.ssh
+          printf '%s\n' "$SSH_KEY" > ~/.ssh/llm_deploy
+          chmod 600 ~/.ssh/llm_deploy
+          printf '%s\n' "$KNOWN_HOSTS" > ~/.ssh/known_hosts
+          # The server runs deploy.sh whatever is sent; this line only chooses the sha.
+          ssh -i ~/.ssh/llm_deploy -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes \
+            -o ServerAliveInterval=30 "$TARGET_USER@$TARGET_HOST" "deploy $GITHUB_SHA"

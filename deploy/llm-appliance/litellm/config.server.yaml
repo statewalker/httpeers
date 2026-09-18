@@ -1,0 +1,30 @@
+# LiteLLM's config on the httpeers.net server (compose.server.yml mounts it in place of
+# config.yaml). No secrets here: the OpenRouter key is read from the environment.
+#
+# The model names on the left are what members see in `GET /v1/models` and pick in the chat.
+# Checked against https://openrouter.ai/api/v1/models on 2026-09-18. Change the list here, not
+# in the dashboard, so the deployed set is reviewable; a dashboard-added model also works
+# (STORE_MODEL_IN_DB) but lives only in Postgres.
+model_list:
+  - model_name: gpt-4o-mini
+    litellm_params:
+      model: openrouter/openai/gpt-4o-mini
+      api_key: os.environ/OPENROUTER_API_KEY
+  - model_name: claude-haiku-4.5
+    litellm_params:
+      model: openrouter/anthropic/claude-haiku-4.5
+      api_key: os.environ/OPENROUTER_API_KEY
+  - model_name: gemini-2.5-flash
+    litellm_params:
+      model: openrouter/google/gemini-2.5-flash
+      api_key: os.environ/OPENROUTER_API_KEY
+  - model_name: llama-3.3-70b
+    litellm_params:
+      model: openrouter/meta-llama/llama-3.3-70b-instruct
+      api_key: os.environ/OPENROUTER_API_KEY
+
+general_settings:
+  master_key: os.environ/LITELLM_MASTER_KEY
+  # Same as config.yaml -- see the comment there. Without it the mesh token and LiteLLM's key
+  # both want `Authorization` and every member call is a 401.
+  litellm_key_header_name: x-litellm-api-key

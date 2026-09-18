@@ -65,5 +65,18 @@ FROM node:24-bookworm-slim
 ENV NODE_ENV=production
 WORKDIR /app
 COPY --from=build /out ./
+
+# The appliance's deployment files, carried by the image they deploy. The server's deploy script
+# (deploy/llm-appliance/server/deploy.sh) extracts /appliance from the `sha-<commit>` image it
+# pulls, so the compose files, the LiteLLM and Traefik configs and the health check that run on
+# the server are exactly the ones of the commit whose hub runs -- one artefact, one sha, and the
+# CI key never has to ship files. Named file by file: no `.env`, no `data/`, no test fixtures.
+COPY deploy/llm-appliance/compose.yml deploy/llm-appliance/compose.server.yml \
+     deploy/llm-appliance/litellm-entrypoint.sh /appliance/
+COPY deploy/llm-appliance/litellm /appliance/litellm
+COPY deploy/llm-appliance/traefik /appliance/traefik
+COPY deploy/llm-appliance/scripts /appliance/scripts
+COPY deploy/llm-appliance/server /appliance/server
+
 VOLUME /data
 CMD ["node", "dist/main.js"]
