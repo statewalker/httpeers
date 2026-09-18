@@ -142,6 +142,14 @@ export const JOIN_WIDGET_CSS = `
 .hp-invite-tag-admin { color: var(--hp-join-danger); border-color: var(--hp-join-danger); }
 .hp-invite-when { color: var(--hp-join-muted); }
 @media (max-width: 30rem) {
+  /* On a phone the header's menu may sit mid-row; anchored to its button it
+     would run off the screen's left edge. It becomes a sheet along the bottom
+     instead, short enough to leave the header -- and the toggle that closes
+     it -- in view. */
+  .hp-join-menu-panel {
+    position: fixed; left: .5rem; right: .5rem; top: auto; bottom: .5rem; width: auto;
+    max-width: none; max-height: 70vh; box-shadow: 0 -4px 24px rgb(0 0 0 / .18);
+  }
   .hp-join-button, .hp-invite-expiry { min-height: 2.5rem; }
   .hp-invite-share, .hp-invite-copy, .hp-invite-create { flex: 1 1 auto; }
 }
