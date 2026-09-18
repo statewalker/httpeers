@@ -28,6 +28,35 @@ npm run join-smoke       # all four, served on four local ports, LIVE relay
 so each gets its own origin, then drives a real join over a real WebRTC
 circuit. It depends on `relay.httpeers.net` being up.
 
+The pages bundle their workspace packages from `dist/` (no `source` export
+condition, no `resolve.conditions`), so after changing a package run
+`pnpm turbo build` from the repository root, or build that package first, and
+check that the page's `index-<hash>.js` changed. An unchanged hash means the
+change is not in the bundle.
+
+## Joining a mesh
+
+`app`, `images` and `proxy` each have a `#mesh-join` section, and the join
+widget from [`@statewalker/httpeers-join`](../../packages/httpeers-join)
+mounts into it. llm-chat's `mesh.html` uses the same widget. It offers:
+
+- a field for a join link, a join blob or an invitation id;
+- **Scan a QR code** (the live rear camera; hidden where the browser has no
+  camera API, such as on an insecure origin) and **Scan a QR picture** (a
+  screenshot or photo of the hub's QR code);
+- the link to the hub (`Connected (direct)` or `Connected (relay)`), this
+  page's short peer id, and the session's own message when something is wrong;
+- **Disconnect** (membership kept), **Reconnect**, and **Leave this mesh…**,
+  which forgets this origin's identity after a confirmation. Joining again
+  then needs a new invitation.
+
+Each page's `render()` feeds the widget every `SessionState` and keeps its own
+fields (`#state`, `#peer-id`, the mesh view). The smokes fill `.hp-join-input`
+and press `.hp-join-submit`.
+
+The hub page has no join form. It mints invitations, and shows each one as a
+QR code the widget can scan.
+
 ## Adding your own picture
 
 The images page has two file inputs, and the split is deliberate.
@@ -36,7 +65,8 @@ adding `capture="environment"` goes straight to the rear camera and **removes**
 the ability to pick an existing file. Either one alone is half the feature, so
 there are two.
 
-Neither asks for `getUserMedia`: a file input with `capture` gets the same
+Neither asks for `getUserMedia` (only the join widget's live QR scanner
+does): a file input with `capture` gets the same
 photograph with no permission prompt to manage, no video element to tear down,
 and no camera left running when the tab is backgrounded.
 

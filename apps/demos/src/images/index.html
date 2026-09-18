@@ -34,20 +34,9 @@
 
 <div id="error" class="err" hidden></div>
 
-<section id="join-form" hidden>
-  <h2>Join a mesh</h2>
-  <p class="note" id="session-status"></p>
-  <p><input type="text" id="invite" placeholder="paste a join link, a join blob, or an invitation id" /></p>
-  <p><button type="button" id="join">Join</button></p>
-</section>
-
-<section id="session-controls" hidden>
-  <h2>Session</h2>
-  <p class="muted" id="live-status"></p>
-  <p>
-    <button type="button" id="disconnect">Disconnect</button>
-    <button type="button" id="reconnect" hidden>Reconnect</button>
-  </p>
+<!-- The join form, the link status and the leaving controls: `@statewalker/httpeers-join`. -->
+<section id="mesh-join" aria-label="Join a mesh">
+  <h2>Mesh</h2>
 </section>
 
 <h2>Gallery <span class="muted" id="gallery-source"></span></h2>

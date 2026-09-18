@@ -82,8 +82,8 @@ async function open(name, states, timeout = 90_000) {
 }
 
 const joined = async (tab, blob) => {
-  await tab.fill("#invite", blob);
-  await tab.click("#join");
+  await tab.fill(".hp-join-input", blob);
+  await tab.click(".hp-join-submit");
   await tab
     .waitForFunction(
       () =>

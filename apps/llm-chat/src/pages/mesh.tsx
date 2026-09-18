@@ -2,21 +2,24 @@
  * `mesh.html`: join an httpeers mesh, find the hub's LLM service, and open the same chat the
  * standalone page uses (spec §7).
  *
- *   1. Session: resume, or join from `?join=` or a pasted link/blob; the phases are shown.
+ *   1. Session: resume, or join from `?join=`, a pasted link/blob or a scanned QR code. The join
+ *      form, the phases and the leaving controls are `@statewalker/httpeers-join`'s widget, shared
+ *      with the demo pages (`../mesh/join-widget.tsx`).
  *   2. Live: find the HUB's advert `{ id: "llm", kind: "openapi-service" }` in the mesh view. The
  *      same advert from any other peer is ignored: a member could advertise it to collect keys.
  *   3. Read the hub's `openapi.json`: the base URL and the key header (`discoverLlm`, which refuses
  *      any URL outside `<edge><hubPeerId>/llm/`).
  *   4. Store them in the "mesh" config, keeping a key stored earlier for the same endpoint only.
  *   5. No key yet: paste one, or request one from the hub (admins only; a member sees the 403).
- *   6. The chat, with the link mode and, for an admin, the LiteLLM dashboard link in its header.
+ *   6. The chat, with the link mode (the widget's compact mode, whose menu holds Disconnect and
+ *      Leave) and, for an admin, the LiteLLM dashboard link in its header.
  *
  * THE ONE PAGE THAT REACHES HTTPEERS. Everything mesh-specific is here and in `../mesh/`; the chat
  * itself is `ChatApp` unchanged, handed a different config store.
  */
 
 import type { PeerSession, SessionState } from "@statewalker/httpeers-member";
-import { type FormEvent, useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { createRoot } from "react-dom/client";
 import type { ChatConfig } from "../core/config.js";
 import { idbConfigStore, idbSessionStore } from "../core/idb.js";
@@ -30,6 +33,7 @@ import {
   meshConfig,
   mintKey,
 } from "../mesh/discover.js";
+import { JoinWidgetView } from "../mesh/join-widget.js";
 import { startMeshSession } from "../mesh/session.js";
 import { ChatApp } from "../ui/ChatApp.js";
 import { buttonClass, inputClass, primaryButtonClass } from "../ui/Modal.js";
@@ -53,81 +57,6 @@ type Stage =
   | { kind: "chat"; service: LlmService };
 
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
-
-function describeStarting(state: SessionState): string {
-  const { phase } = state;
-  if (phase.kind === "starting") return phase.peerState;
-  return phase.kind;
-}
-
-function SessionPanel({
-  state,
-  session,
-}: {
-  state: SessionState | null;
-  session: PeerSession | null;
-}) {
-  const [invitation, setInvitation] = useState("");
-  const phase = state?.phase;
-  const joining = phase == null || phase.kind === "checking" || phase.kind === "starting";
-  const message =
-    phase != null && "message" in phase && typeof phase.message === "string" ? phase.message : null;
-
-  const join = (event: FormEvent) => {
-    event.preventDefault();
-    const text = invitation.trim();
-    if (text !== "") void session?.join(text);
-  };
-
-  return (
-    <div className="flex flex-col gap-3">
-      {joining && (
-        <p role="status" className="text-sm text-gray-700">
-          Joining…{" "}
-          {state != null && <span className="text-gray-500">({describeStarting(state)})</span>}
-        </p>
-      )}
-      {message != null && (
-        <p
-          role={phase?.kind === "needs-invitation" ? "note" : "alert"}
-          className="text-sm text-gray-700"
-        >
-          {message}
-        </p>
-      )}
-      {state?.controls.join && (
-        <form className="flex flex-col gap-2" onSubmit={join}>
-          <label className="flex flex-col gap-1 text-sm">
-            Paste an invitation
-            <textarea
-              className={inputClass}
-              rows={3}
-              placeholder="a join link, a join blob, or an invitation id"
-              value={invitation}
-              onChange={(event) => setInvitation(event.target.value)}
-            />
-          </label>
-          <div className="flex justify-end">
-            <button
-              type="submit"
-              className={primaryButtonClass}
-              disabled={invitation.trim() === ""}
-            >
-              Join
-            </button>
-          </div>
-        </form>
-      )}
-      {state?.controls.reconnect && (
-        <div className="flex justify-end">
-          <button type="button" className={buttonClass} onClick={() => void session?.reconnect()}>
-            Reconnect
-          </button>
-        </div>
-      )}
-    </div>
-  );
-}
 
 function KeyStep({
   stage,
@@ -201,15 +130,6 @@ function KeyStep({
         </button>
       </div>
     </form>
-  );
-}
-
-function LinkStatus({ state }: { state: SessionState | null }) {
-  if (state?.phase.kind !== "live" || state.hubLink == null) return null;
-  return (
-    <span role="status" className="text-xs text-gray-600">
-      {state.hubLink === "relay" ? "Connected (relay)" : "Connected (direct)"}
-    </span>
   );
 }
 
@@ -321,6 +241,12 @@ function MeshPage() {
   }, [phaseKind, handle, state, discover]);
 
   const admin = mintOutcome ?? isMeshAdmin(handle?.meshView() ?? null);
+  const session = sessionRef.current;
+  // The header's link status, with Disconnect and Leave in its menu, while the page is past joining.
+  const linkStatus =
+    session != null && phaseKind === "live" ? (
+      <JoinWidgetView session={session} state={state} compact />
+    ) : null;
   const dashboard =
     admin && (stage.kind === "chat" || stage.kind === "key") ? (
       <DashboardLink href={stage.service.dashboardUrl} />
@@ -334,7 +260,7 @@ function MeshPage() {
         title="LLM chat"
         headerExtra={
           <>
-            <LinkStatus state={state} />
+            {linkStatus}
             {dashboard}
           </>
         }
@@ -347,7 +273,7 @@ function MeshPage() {
       <main className="mt-12 flex w-full max-w-md flex-col gap-4 rounded-lg bg-white p-5 shadow">
         <header className="flex items-center gap-3">
           <h1 className="flex-1 text-lg font-semibold">LLM chat on the mesh</h1>
-          <LinkStatus state={state} />
+          {linkStatus}
           {dashboard}
         </header>
         {fatal != null && (
@@ -355,7 +281,14 @@ function MeshPage() {
             {fatal}
           </p>
         )}
-        {stage.kind === "session" && <SessionPanel state={state} session={sessionRef.current} />}
+        {stage.kind === "session" &&
+          (session != null ? (
+            <JoinWidgetView session={session} state={state} />
+          ) : (
+            <p role="status" className="text-sm text-gray-700">
+              Starting…
+            </p>
+          ))}
         {stage.kind === "finding" && (
           <p role="status" className="text-sm text-gray-700">
             Finding the LLM service…
