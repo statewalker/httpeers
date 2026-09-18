@@ -390,7 +390,11 @@ LiteLLM's own tables aren't keyed by `HUB_PEER_ID`.
   expected direct WebRTC.** On a host behind NAT that is the default and
   correct behavior of the plain `compose.yml` (bridge network) — see "Host
   networking" above. It is also the correct fallback for any member whose own
-  network blocks WebRTC, regardless of the hub's networking. (On the
+  network blocks WebRTC, regardless of the hub's networking. A third cause:
+  the WebRTC link worked but the hub's relay had no reservation slot left
+  (`RESERVATION_REFUSED`). The page then shows `Connected (relay)` with a note
+  saying the hub refused it a reservation; it works, but other members cannot
+  reach it until it reconnects to a hub with a free slot. (On the
   httpeers.net server, with a public address, members measured `direct`.)
 - **`docker compose up` hangs with `litellm` unhealthy.** Check
   `docker compose logs litellm` for `litellm-entrypoint: timed out ... waiting

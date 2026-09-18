@@ -45,7 +45,12 @@ exclusion excluded something.
 Circuit Relay v2 server, a hub that reserves through it and relays for its own
 members, and members that redeem invitations and call each other. It is the
 extraction's acceptance at runtime, and it found two defects in its first hour
-that every compile check had passed.
+that every compile check had passed. The same harness runs the relay-mode
+suites: `relay-fallback.test.ts` (a call over a kept circuit),
+`member-relay-fallback.test.ts` (a member whose WebRTC upgrade fails) and
+`member-reservation-fallback.test.ts` (a member whose hub has no reservation
+slot left — `startMesh({ maxRelayReservations })` — which failed the whole join
+in production).
 
 ## The lesson these four encode
 

@@ -382,11 +382,17 @@ export function createPeerSession(init: PeerSessionInit): PeerSession {
         kind: "live",
         joinedBy: joined.joinedBy,
         note:
-          joined.joinedBy === "resumed" && input != null
-            ? "This page was already a member of this mesh, so it resumed instead of " +
-              "redeeming -- the invitation you supplied was not used and is still unspent. " +
-              "Reset this page's identity if you meant to join as a new peer."
-            : null,
+          [
+            joined.joinedBy === "resumed" && input != null
+              ? "This page was already a member of this mesh, so it resumed instead of " +
+                "redeeming -- the invitation you supplied was not used and is still unspent. " +
+                "Reset this page's identity if you meant to join as a new peer."
+              : null,
+            // Why the link is `relay` when it could have been direct -- see `MemberHandle.hubLinkNote`.
+            joined.hubLinkNote ?? null,
+          ]
+            .filter((line) => line != null)
+            .join(" ") || null,
       });
     } catch (err) {
       handle = null;
