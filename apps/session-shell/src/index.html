@@ -1,0 +1,34 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="robots" content="noindex" />
+    <title>httpeers session</title>
+    <style>
+      body { font: 15px/1.6 system-ui, sans-serif; margin: 0 auto; max-width: 40rem; padding: 2rem 1rem; color: #27272a; }
+      h1 { font-size: 1.2rem; }
+      code { font-family: ui-monospace, monospace; font-size: .9em; }
+      .muted { color: #52525b; }
+    </style>
+  </head>
+  <body>
+    <!--
+      THE FALLBACK. With a session connected, the worker answers every path --
+      this one included -- from the app. The network only sees this page when
+      no worker is installed on this origin: a visit that did not come through
+      a ghost app, or a browser that has not yet opened this session.
+      The sites app also serves it, with 404, for every unknown path
+      (.site/config.json "notFound").
+    -->
+    <h1>An empty httpeers session</h1>
+    <p>
+      This address is a session origin: it shows an app only while the app that
+      opened it is running, inside that app's page. Nothing is connected here now.
+    </p>
+    <p class="muted">
+      Every <code>*.p.httpeers.net</code> name serves this same page. The name is
+      just an origin to keep one session's storage apart from another's.
+    </p>
+  </body>
+</html>

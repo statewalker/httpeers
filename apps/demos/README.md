@@ -5,9 +5,9 @@ libraries.
 
 | Page | Domain | What it is |
 |---|---|---|
-| `hub` | hub.httpeers.net | Creates the mesh and mints invitations |
+| `hub` | hub.httpeers.net | Creates the mesh and mints invitations; serves search and a small app (`/spa`) |
 | `images` | images.httpeers.net | A provider: serves a gallery to the mesh — photographs fetched from a public stock, plus any picture you choose or take |
-| `app` | app.httpeers.net | A consumer: finds providers and calls them with a bare `fetch()` |
+| `app` | app.httpeers.net | A consumer: finds providers and calls them with a bare `fetch()`; opens a peer's app in a session origin of its own |
 | `proxy` | proxy.httpeers.net | Exposes an outside origin to the mesh |
 
 Each page is its own Vite build with its own entry, because each must be its
@@ -22,11 +22,34 @@ npm run build            # all four into dist/<page>/
 npm run dev:hub          # or dev:images, dev:app, dev:proxy
 npm run smoke            # one page, headless
 npm run join-smoke       # all four, served on four local ports, LIVE relay
+npm run session-smoke    # hub + app on the REAL domains: a mesh app in two session origins
 ```
 
 `join-smoke` is the one that matters: it serves the BUILT pages from four ports
 so each gets its own origin, then drives a real join over a real WebRTC
 circuit. It depends on `relay.httpeers.net` being up.
+
+## A mesh app in its own origin
+
+The hub serves a small single-page app at `/spa` (`src/shared/demo-spa.ts`) and
+advertises it as `kind: "app"`. The app page's **Open in a new session** button opens it
+in a fresh `<random>.p.httpeers.net` origin (`src/shared/session-frame.ts`):
+
+1. `openSession` from `apps/session-shell` frames that origin's `relay.html` and hands it
+   a `MessagePort` — `webrun-http-browser`'s relay mode;
+2. the port's handler is `httpeers-ghost`'s `pinnedPeer`, so every request the app makes
+   reaches **the hub and nothing else**, through this page's member;
+3. an iframe shows `https://<random>.p.httpeers.net/`, and the session's worker answers
+   `index.html`, `app.js` and a root-absolute `/api/hello` from the hub, over the mesh.
+
+This replaces the same-origin ghost iframe. That frame shared the viewer's origin, and a
+hostile app in it read the viewer's storage and identity key and rewrote its DOM
+(measured 2026-09-15). A session is a different origin: its storage, cookies and worker
+are its own, it cannot read the app page's DOM, and the sandbox attribute keeps it from
+navigating the app page away. Every click is a new session, so opening the app twice
+shows two origins that share nothing.
+
+`npm run session-smoke` checks all of that on the real domains, in Chromium and Firefox.
 
 ## Adding your own picture
 
@@ -70,6 +93,11 @@ deletes outside `assets/`.
 It DOES empty `assets/`, because those filenames are content-hashed: a new
 bundle never overwrites the old one, it accumulates beside it. The first real
 deploy cleared 6–12 orphaned bundles per site.
+
+`session-smoke.mjs` is the session check above; it needs the hub and app pages published
+from a build that has the `/spa` mount, and the session shell published by
+`apps/session-shell/scripts/deploy.mjs` (a separate prefix, `p.httpeers.net`, which this
+script never touches).
 
 `live-smoke.mjs` is `join-smoke.mjs` pointed at the real domains. Keeping the
 two the same shape is the point — if one fails where the other passed, the

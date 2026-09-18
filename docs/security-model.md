@@ -152,6 +152,16 @@ make it acceptable, and §4 dictates their mechanics.
    authority on its own origin (fine — isolated from yours). Needs origin
    provisioning (DNS/TLS or partitioned origin).
 
+   **Session origins are the provisioned form of this, and they keep `fetch()`.**
+   `apps/session-shell` serves every `<name>.p.httpeers.net` as an empty origin
+   with its own ServiceWorker; the shell (the ghost app) hands it a `MessagePort`,
+   and that worker answers every request the app makes — `index.html` included —
+   over the port. So the app gets plain `fetch()` and root-absolute URLs, *and*
+   its own storage, cookies and worker; the port's handler is the broker, and
+   holds the pin (`pinnedPeer`) and whatever policy the shell applies. The app
+   has no mount on the shell's origin and no identity of its own. The name is
+   not a secret; authority is the port, never the name.
+
 ## 7. Valid use cases
 
 | Use case | Why it is safe |
@@ -161,6 +171,7 @@ make it acceptable, and §4 dictates their mechanics.
 | **Member-to-member API calls**, request/response | Data crosses; the *target's* policy is the boundary; identity strengthens it |
 | **Installed, consented bundles** (VS Code *extension* model) | Trust decided once, at install, with provenance |
 | **Untrusted code behind a broker** (VS Code *webview* model) | Isolated off-origin; reaches the mesh only through a mediator, with no ambient authority |
+| **A peer's app in a session origin** (`<name>.p.httpeers.net`) | Its own origin, storage and worker; every request lands in the shell's pinned handler |
 | **`fetch()`-as-the-API ergonomics** for trusted code | The whole point of the design; keep it there |
 
 ## 8. Use cases to avoid
@@ -205,16 +216,33 @@ This model is grounded in a browser measurement, not opinion.
 - ServiceWorker takeover fails robustly: a registration script fetch bypasses the
   controller, so a host peer cannot install a worker on the viewer's origin.
 
+**Measured for session origins (2026-09-18, Chromium and Firefox, the real
+`*.p.httpeers.net` domain, a mesh app served by the hub through `pinnedPeer`;
+`apps/demos/scripts/session-smoke.mjs`):** two sessions opened by the same
+viewer have different origins and separate workers; a `localStorage` marker, a
+cookie and an IndexedDB database written in one are invisible to the other and
+to the viewer; the viewer's `localStorage` is invisible to both; reading
+`parent.document` and navigating `top` from a session both throw
+`SecurityError`; a session opened top-level with no referrer is refused by its
+worker; another session cannot hand a session's relay its port
+(`apps/session-shell/scripts/live-check.mjs`).
+
 **Not yet verified (each a distinct future probe):** CSP relaxation across a
 redirect; whether a hostile ghost app can reach the viewer's *own* edge when both
-mounts share one origin; top-navigation / popups; `appPath` injection; the
-currently unsigned landing.
+mounts share one origin; top-navigation / popups from a *same-origin* ghost
+frame; `appPath` injection; the currently unsigned landing; cookie tossing from
+a session onto `.httpeers.net` (sessions share the registrable domain with
+every other site — see `apps/session-shell/README.md`).
 
-**Known blocking gap for any live "run a foreign app" feature:** `MemberHandle`
+**Known gap for any live "run a foreign app" feature:** `MemberHandle`
 exposes `fetch` but no addressed `call(peerId, request)` / `ensureRoute`.
 Building a broker's `remote` from `member.fetch` reintroduces the
-path-derived-peer hazard the pin exists to close — so an addressed call on the
-member handle is a prerequisite.
+path-derived-peer hazard the pin exists to close *if the peer is read from the
+request*. The session demo (`apps/demos/src/shared/session-frame.ts`) builds
+the edge URL from the pinned peer id alone — `/<edge key>/<pinned peer>/<app
+path>/...` — so the first segment the edge routes on is never the app's to
+choose. An addressed call on the member handle would still be the cleaner
+primitive.
 
 ## 11. Guidance by role
 
