@@ -60,7 +60,9 @@ export async function reachHub(node: Libp2p, relayAddr: string, hubPeerId: strin
  * RETURNED AS LIBP2P RETURNS IT, and not always limited: if an unlimited
  * connection to the hub already exists (a WebRTC upgrade that did come up),
  * `dial` hands that back instead of opening a circuit. Check `limits` if it
- * matters; the intended caller only gets here after `reachHub` failed.
+ * matters; the intended caller only gets here after `reachHub` failed, or
+ * after it succeeded but the hub refused a reservation -- and then hangs up
+ * the WebRTC connection first (`startMember`).
  *
  * NOT CLOSED, unlike `reachHub`'s circuit, because it is the data path. Two
  * consequences for the caller: `reserveOnHub` has nothing to reserve over, so

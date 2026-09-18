@@ -67,6 +67,28 @@ does not fail to compile; it fails at runtime with `403 this peer does not
 relay for you`, from the **caller's own** router. That was a real defect here,
 found by standing up a live mesh.
 
+## Direct or relay: how a member reaches its hub
+
+`MemberHandle.hubLink()` is `"direct"` or `"relay"`, decided once per join.
+**Direct** is a WebRTC upgrade to the hub plus a reservation on it, which is
+what lets other members reach this one. **Relay** is a kept, limited circuit
+through the public relay: the member calls the hub over it and nothing else
+can reach the member. A member lands in relay mode when
+
+- the WebRTC upgrade fails (a hub in Docker on a bridge network), or
+- the upgrade works but the hub **refuses the reservation for want of capacity**
+  (`RESERVATION_REFUSED`, `RESOURCE_LIMIT_EXCEEDED`) or does not answer. The
+  WebRTC link is then closed and the member continues exactly as in the first
+  case. `MemberHandle.hubLinkNote` says why, and the session shows it as the
+  live phase's note (the join widget: `Connected (relay)` plus the reason).
+
+Before this, a full reservation store on the hub failed the whole join while a
+relay-mode member worked. Any other refusal — `PERMISSION_DENIED` from a hub
+that has just accepted this peer, a hub with no relay service — still fails the
+join: those are faults to report, not conditions to route around
+(`fallsBackToRelay` in `start-member.ts`). Relay mode does not retry the
+upgrade; a reconnect decides again.
+
 ## `createGateway` — the mesh as ordinary HTTP
 
 ```ts
@@ -134,7 +156,8 @@ re-exporting `mountEdge` from `index.ts` and watching three named tests fail.
 
 ## Tests
 
-**94.** `tests/consumer.test.ts` compiles a real dependent against all three
+**111.** `tests/reservation-fallback.test.ts` pins which refused reservations
+drop a join to relay mode and which fail it. `tests/consumer.test.ts` compiles a real dependent against all three
 entry points under three tsconfig shapes — the `NodeNext` row is the only one
 that honours the `exports` map, and for a subpath there is no legacy `types`
 field to fall back to.
@@ -142,4 +165,7 @@ field to fall back to.
 A member is also exercised for real in `@statewalker/httpeers-conformance`:
 two live members redeem invitations from a live hub over a relay, call each
 other, and the far side reports back a subject read out of a verified Biscuit
-that matches the peer its handshake proved.
+that matches the peer its handshake proved. `member-relay-fallback.test.ts` and
+`member-reservation-fallback.test.ts` there run the two ways into relay mode
+against a live hub: an upgrade that fails, and a hub whose reservation store is
+full.
