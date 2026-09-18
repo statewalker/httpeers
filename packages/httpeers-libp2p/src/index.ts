@@ -37,7 +37,15 @@ export {
   type SuperviseHubReservationInit,
   superviseHubReservation,
 } from "./hub-link.js";
-export { hubRelayService, type IsMember, membershipGater } from "./hub-relay.js";
+export {
+  HUB_MAX_RESERVATIONS,
+  type HubRelayComponents,
+  type HubRelayServiceInit,
+  hubRelayService,
+  type IsMember,
+  membershipGater,
+  releaseReservation,
+} from "./hub-relay.js";
 export {
   type BytesStore,
   decodeKey,
