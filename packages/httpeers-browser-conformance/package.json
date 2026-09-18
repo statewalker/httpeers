@@ -19,7 +19,7 @@
     "@statewalker/httpeers-access": "workspace:*",
     "@statewalker/httpeers-core": "workspace:*",
     "@statewalker/httpeers-member": "workspace:*",
-    "@statewalker/webrun-http-browser": "^0.4.2",
+    "@statewalker/webrun-http-browser": "^0.5.0",
     "@types/node": "catalog:",
     "@vitest/browser-playwright": "^4.1.11",
     "playwright": "^1.63.0",
