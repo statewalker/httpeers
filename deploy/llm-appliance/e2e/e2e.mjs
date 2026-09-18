@@ -31,7 +31,11 @@
  *   APPLIANCE_ENV      path of the appliance `.env` (default: ../.env next to this directory)
  *   HUB_DOOR_URL       the Traefik door (default http://127.0.0.1:8080)
  *   MESH_PAGE_URL      the published mesh page (default https://llm-chat.httpeers.net/mesh.html)
- *   HUB_CONTAINER      the hub container, for the isolation control (default llm-appliance-hub-1)
+ *   HUB_CONTAINER      the hub container, for the isolation control (default llm-appliance-hub-1);
+ *                      "remote" when the hub runs on another host (the httpeers.net server, reached
+ *                      through an SSH tunnel as HUB_DOOR_URL) -- there is then no local container to
+ *                      probe, the browsers are on a different network by construction, and the
+ *                      control only checks that the isolated container reaches the page
  *   E2E_NETWORK        isolated network name (default llm-e2e-isolated)
  *   E2E_PW_CONTAINER   run-server container name (default llm-e2e-playwright)
  *   E2E_PW_PORT        host port for run-server, bound to 127.0.0.1 (default 3100)
@@ -224,6 +228,11 @@ async function stopIsolatedBrowserServer() {
 
 /** From inside the isolated container: the hub must be unreachable, the internet reachable. */
 async function isolationControl() {
+  if (HUB_CONTAINER === "remote") {
+    const internet = await pageFromInside();
+    check(internet === "200", `the isolated container cannot load ${PAGE_URL}: ${internet}`);
+    return `control: hub on a remote host (door ${DOOR}); ${PAGE_URL} from inside: HTTP ${internet}`;
+  }
   const { stdout } = await docker(
     "inspect",
     "-f",
@@ -253,7 +262,14 @@ async function isolationControl() {
     outcomes.push(`${ip}:8787 ${reached}`);
     check(!reached.startsWith("reached"), `the isolated container reached the hub at ${ip}`);
   }
-  const internet = await docker(
+  const internet = await pageFromInside();
+  check(internet === "200", `the isolated container cannot load ${PAGE_URL}: ${internet}`);
+  return `control: hub ${outcomes.join(", ")}; ${PAGE_URL} from inside: HTTP ${internet}`;
+}
+
+/** The page's HTTP status as the isolated container sees it. */
+function pageFromInside() {
+  return docker(
     "exec",
     PW_CONTAINER,
     "curl",
@@ -269,8 +285,6 @@ async function isolationControl() {
     ({ stdout }) => stdout,
     (error) => `curl exit ${error.code}`,
   );
-  check(internet === "200", `the isolated container cannot load ${PAGE_URL}: ${internet}`);
-  return `control: hub ${outcomes.join(", ")}; ${PAGE_URL} from inside: HTTP ${internet}`;
 }
 
 // ---------------------------------------------------------------------------------------------
