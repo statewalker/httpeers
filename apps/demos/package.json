@@ -3,7 +3,7 @@
   "version": "0.1.0",
   "private": true,
   "type": "module",
-  "description": "The four demo sites — hub, app, images and proxy — built on the extracted libraries.",
+  "description": "The four demo sites \u2014 hub, app, images and proxy \u2014 built on the extracted libraries.",
   "scripts": {
     "build": "pnpm run build:hub && pnpm run build:images && pnpm run build:app && pnpm run build:proxy",
     "build:hub": "node scripts/copy-assets.mjs && vite build --config vite.hub.config.ts",
@@ -22,17 +22,20 @@
     "dev:proxy": "node scripts/copy-assets.mjs && vite --config vite.proxy.config.ts",
     "deploy": "node scripts/deploy.mjs",
     "live-smoke": "node scripts/live-smoke.mjs",
-    "join-smoke": "node scripts/join-smoke.mjs"
+    "join-smoke": "node scripts/join-smoke.mjs",
+    "session-smoke": "node scripts/session-smoke.mjs"
   },
   "dependencies": {
     "@libp2p/interface": "3.2.5",
     "@statewalker/httpeers-access": "workspace:*",
     "@statewalker/httpeers-bridge": "workspace:*",
     "@statewalker/httpeers-core": "workspace:*",
+    "@statewalker/httpeers-ghost": "workspace:*",
     "@statewalker/httpeers-hub": "workspace:*",
     "@statewalker/httpeers-libp2p": "workspace:*",
     "@statewalker/httpeers-member": "workspace:*",
     "@statewalker/httpeers-qr": "workspace:*",
+    "@statewalker/httpeers-session-shell": "workspace:*",
     "@statewalker/webrun-files": "catalog:",
     "@statewalker/webrun-files-mem": "catalog:",
     "@statewalker/webrun-http-browser": "^0.4.2",

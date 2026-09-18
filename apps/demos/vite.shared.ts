@@ -7,10 +7,37 @@
  */
 
 import { join } from "node:path";
-import type { UserConfig } from "vite";
+import type { Plugin, UserConfig } from "vite";
+
+/**
+ * Drop emitted files that nothing in the output refers to.
+ *
+ * `webrun-http-browser`'s `dist/index.js` has default arguments of the form
+ * `new URL("../public-relay/", import.meta.url)`. Vite resolves those at
+ * TRANSFORM time, before tree-shaking removes the functions holding them, and
+ * emits a copy of the library's whole 91 KB `index.js` that no page loads.
+ * The app page imports the library's relay client (`session-frame.ts`), so it
+ * would ship that copy. The same plugin guards `apps/session-shell`.
+ */
+function dropUnreferencedAssets(): Plugin {
+  return {
+    name: "demos:drop-unreferenced-assets",
+    generateBundle(_options, bundle) {
+      const texts = Object.values(bundle).map((file) =>
+        file.type === "chunk" ? file.code : typeof file.source === "string" ? file.source : "",
+      );
+      for (const [name, file] of Object.entries(bundle)) {
+        if (file.type !== "asset" || name.endsWith(".html")) continue;
+        const base = name.slice(name.lastIndexOf("/") + 1);
+        if (!texts.some((text) => text.includes(base))) delete bundle[name];
+      }
+    },
+  };
+}
 
 export function demoConfig(page: string): UserConfig {
   return {
+    plugins: [dropUnreferencedAssets()],
     root: join("src", page),
     publicDir: join(process.cwd(), "public"),
     build: {
