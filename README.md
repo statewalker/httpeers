@@ -7,8 +7,9 @@ A peer-to-peer mesh where **everything is a `fetch()`**. Two halves live here:
   moved to [`@statewalker/webrun-http-proxy`](https://github.com/statewalker/webrun-wire),
   where nothing about it is mesh-specific.
 - **`apps/` and `deploy/`** — the deployable services the mesh needs to exist:
-  the circuit relay, the static-site host, and the ingress that fronts both.
-  Live at `relay.httpeers.net`, `s3.httpeers.net` and `*.httpeers.net`.
+  the circuit relay, the static-site host, the session shell, and the ingress
+  that fronts them. Live at `relay.httpeers.net`, `s3.httpeers.net`,
+  `*.httpeers.net` and `*.p.httpeers.net`. Also the demo pages that run on them.
 
 **Before building on it, read [`docs/security-model.md`](docs/security-model.md)** —
 the mesh mounts every peer's HTTP surface into your own origin and calls it with
@@ -28,6 +29,8 @@ mesh's own vocabulary in `docs/httpeers/CONTEXT.md`.
 packages/          the libraries -- see below
 apps/relay/        the circuit relay, and its image
 apps/sites/        the static-site host -- one site per storage prefix
+apps/session-shell/ the empty session every <name>.p.httpeers.net serves
+apps/demos/        the demo pages: hub, app, images, proxy
 deploy/            the compose stack, the Caddyfile, the ingress image
 tools/publish/     shell toolkit: publish a site by editing a folder
 .github/workflows/ ci, and one image-publishing workflow per deployable
@@ -118,7 +121,10 @@ RELAY_REQUIRE_ANNOUNCE=false pnpm --filter @statewalker/httpeers-relay dev
 
 See [`deploy/README.md`](deploy/README.md). In short: a wildcard A record and a
 wildcard certificate, after which **publishing a new subdomain changes nothing
-here** — no Caddyfile edit, no DNS record, no reload.
+here** — no Caddyfile edit, no DNS record, no reload. Session origins
+(`*.p.httpeers.net`) are the one exception: one more wildcard, set up once —
+an `A *.p` record, a Caddy block with its own certificate, and the shell
+published to the `p.httpeers.net` prefix.
 
 ## What the relay is, and is not
 
@@ -286,6 +292,17 @@ Two behaviours worth knowing, both easy to get wrong:
 
 Storage is chosen by environment (`s3` | `node` | `mem`) in `apps/sites/src/store.ts`,
 which is the only module that knows which backend is in use.
+
+## What a session origin is
+
+`<name>.p.httpeers.net`, for any name: a separate **origin** — its own storage,
+cookies and ServiceWorker — that serves the same static shell as every other
+name, and shows whatever the page that opened it sends over a `MessagePort`.
+It is how a page runs another peer's app without letting it touch its own
+origin (see `docs/security-model.md` §6). The shell, its refusals and its
+tests are in [`apps/session-shell`](apps/session-shell/README.md); the demo
+that uses it is the app page's **Open in a new session**
+([`apps/demos`](apps/demos/README.md)).
 
 ## Two things that are easy to get wrong
 
