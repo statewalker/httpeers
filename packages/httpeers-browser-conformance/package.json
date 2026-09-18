@@ -9,9 +9,10 @@
     "build": "echo \"no build: this package only runs tests\"",
     "test": "echo \"browser-only: run pnpm test:browser\"",
     "test:browser": "vitest run --config vitest.browser.config.ts",
+    "test:reload": "node scripts/edge-reload.mjs",
     "typecheck": "tsc --noEmit",
-    "lint": "biome check tests",
-    "lint:check": "biome check tests"
+    "lint": "biome check tests scripts",
+    "lint:check": "biome check tests scripts"
   },
   "devDependencies": {
     "@biomejs/biome": "catalog:",
