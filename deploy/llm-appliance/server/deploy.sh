@@ -67,7 +67,7 @@ current_sha() {
 up_and_verify() {
   dir=$1
   before=$(hub_peer_id)
-  (cd "$dir" && docker compose up -d --remove-orphans --wait --wait-timeout 300) || {
+  (cd "$dir" && docker compose up -d --remove-orphans --wait --wait-timeout 900) || {
     say "compose up --wait failed"
     (cd "$dir" && docker compose ps -a && docker compose logs --tail=30 hub litellm) || true
     return 1

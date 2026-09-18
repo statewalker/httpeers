@@ -24,5 +24,13 @@ services:
     volumes:
       # Same target as compose.yml's mount, so this replaces it rather than adding a second one.
       - ./litellm/config.server.yaml:/app/config.yaml:ro
+    # MEASURED on the server, 2026-09-18: LiteLLM's FIRST start against an empty Postgres runs
+    # every Prisma migration plus a schema-diff pass and took about 2.5 min before the readiness
+    # check answered -- past compose.yml's 15 s start_period + 30 x 5 s retries, so the first CI
+    # deploy failed on an "unhealthy" LiteLLM that was healthy a minute later. Failures inside
+    # start_period do not count, and the container turns healthy on its first pass, so a long
+    # start_period costs a normal (warm) start nothing.
+    healthcheck:
+      start_period: 600s
     environment:
       - OPENROUTER_API_KEY=${OPENROUTER_API_KEY:?set OPENROUTER_API_KEY in the server .env}
