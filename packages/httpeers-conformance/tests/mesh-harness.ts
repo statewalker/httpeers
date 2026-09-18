@@ -25,7 +25,7 @@
 
 import { noise } from "@chainsafe/libp2p-noise";
 import { yamux } from "@chainsafe/libp2p-yamux";
-import { circuitRelayTransport } from "@libp2p/circuit-relay-v2";
+import { circuitRelayServer, circuitRelayTransport } from "@libp2p/circuit-relay-v2";
 import { generateKeyPair } from "@libp2p/crypto/keys";
 import { identify } from "@libp2p/identify";
 import type { Connection, Ed25519PrivateKey, Libp2p } from "@libp2p/interface";
@@ -116,6 +116,7 @@ async function hubNode(
   privateKey: Ed25519PrivateKey,
   isMember: () => (id: string) => boolean,
   webRTCUpgrade: boolean,
+  maxRelayReservations: number | undefined,
 ) {
   return createLibp2p({
     privateKey,
@@ -136,7 +137,17 @@ async function hubNode(
       // that ordering cycle.
       ...membershipGater(() => isMember()),
     },
-    services: { identify: identify(), relay: hubRelayService() },
+    services: {
+      identify: identify(),
+      // The hub's own relay service unless a test must fill its reservation
+      // store; then the same service with a smaller store.
+      relay:
+        maxRelayReservations == null
+          ? hubRelayService()
+          : circuitRelayServer({
+              reservations: { applyDefaultLimit: true, maxReservations: maxRelayReservations },
+            }),
+    },
   });
 }
 
@@ -164,6 +175,12 @@ export interface StartMeshInit {
    * signalling -- fast, where a real unreachable hub fails on an ICE timeout.
    */
   webRTCUpgrade?: boolean;
+  /**
+   * How many reservations the hub's relay grants before it answers
+   * `RESERVATION_REFUSED`. Default: the hub's own (`hubRelayService`). A small
+   * number stands in for a production hub whose store has filled up.
+   */
+  maxRelayReservations?: number;
 }
 
 export async function startMesh(init: StartMeshInit = {}): Promise<Mesh> {
@@ -184,7 +201,12 @@ export async function startMesh(init: StartMeshInit = {}): Promise<Mesh> {
   // The member store is built below and read through this box — see the thunk
   // note in `hubNode`.
   let memberCheck: (id: string) => boolean = () => false;
-  const node = await hubNode(hubKey, () => memberCheck, init.webRTCUpgrade ?? true);
+  const node = await hubNode(
+    hubKey,
+    () => memberCheck,
+    init.webRTCUpgrade ?? true,
+    init.maxRelayReservations,
+  );
   const hubPeerId = node.peerId.toString();
 
   // THE HUB RESERVES ON THE PUBLIC RELAY BEFORE ANY MEMBER JOINS, which is
