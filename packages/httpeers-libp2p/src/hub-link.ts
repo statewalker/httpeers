@@ -76,28 +76,141 @@ export async function reachHubRelayed(
 }
 
 /**
+ * Why a hub did not grant a reservation, as far as libp2p lets us tell.
+ *
+ *   - `"store-full"` -- `RESERVATION_REFUSED`: the hub's relay already holds
+ *     as many reservations as it grants (libp2p's `maxReservations`). A
+ *     capacity condition on the hub; nothing about this peer.
+ *   - `"resource-limit"` -- `RESOURCE_LIMIT_EXCEEDED`: the same kind of thing,
+ *     from a relay that meters resources rather than counting reservations.
+ *   - `"not-a-member"` -- `PERMISSION_DENIED`: the hub's `membershipGater`
+ *     does not count this peer as a member. (libp2p also answers it to a
+ *     reservation asked for over a relayed connection, which `reserveOnHub`
+ *     never does: it runs over `reachHub`'s WebRTC connection.)
+ *   - `"no-relay"` -- the hub does not speak the relay protocol at all
+ *     (`UnsupportedProtocolError`): a hub deployed without `hubRelayService`.
+ *   - `"no-answer"` -- no status came back: a timeout, a link that dropped
+ *     mid-request. Nothing was refused; nothing was granted either.
+ *   - `"other"` -- any other status, named verbatim in the message.
+ */
+export type HubReservationRefusal =
+  | "store-full"
+  | "resource-limit"
+  | "not-a-member"
+  | "no-relay"
+  | "no-answer"
+  | "other";
+
+/** `reserveOnHub`'s failure: which refusal, the relay's own status when it sent one, and libp2p's error as `cause`. */
+export class HubReservationError extends Error {
+  constructor(
+    readonly hubPeerId: string,
+    /** The circuit-relay v2 status the hub answered (`"RESERVATION_REFUSED"`, ...), or `null` when it answered none. */
+    readonly status: string | null,
+    readonly refusal: HubReservationRefusal,
+    options: { cause: unknown },
+  ) {
+    super(describeRefusal(hubPeerId, status, refusal, options.cause), options);
+    this.name = "HubReservationError";
+  }
+}
+
+/**
+ * Read the refusal out of libp2p's error.
+ *
+ * FROM THE TEXT, BECAUSE THAT IS ALL THERE IS. The transport manager wraps
+ * every failed listen in one `UnsupportedListenAddressesError` whose message
+ * embeds the inner error's stack -- `reservation failed with status <STATUS>`
+ * from the reservation store, or `UnsupportedProtocolError: ...` from protocol
+ * negotiation -- and keeps no reference to the inner error itself. The
+ * patterns are pinned against a real hub by the conformance suite's
+ * `member-reservation-fallback.test.ts`.
+ */
+function classify(err: unknown): { status: string | null; refusal: HubReservationRefusal } {
+  const text =
+    err instanceof Error ? `${err.name}: ${err.message}\n${err.stack ?? ""}` : String(err);
+  const status = /reservation failed with status (\w+)/.exec(text)?.[1] ?? null;
+  switch (status) {
+    case "RESERVATION_REFUSED":
+      return { status, refusal: "store-full" };
+    case "RESOURCE_LIMIT_EXCEEDED":
+      return { status, refusal: "resource-limit" };
+    case "PERMISSION_DENIED":
+      return { status, refusal: "not-a-member" };
+    case null:
+      return {
+        status,
+        refusal: /UnsupportedProtocolError|could not negotiate/.test(text)
+          ? "no-relay"
+          : "no-answer",
+      };
+    default:
+      return { status, refusal: "other" };
+  }
+}
+
+function describeRefusal(
+  hubPeerId: string,
+  status: string | null,
+  refusal: HubReservationRefusal,
+  cause: unknown,
+): string {
+  const hub = `hub-link: the hub (${hubPeerId})`;
+  switch (refusal) {
+    case "store-full":
+      return (
+        `${hub} refused a reservation with RESERVATION_REFUSED: the hub's reservation store is ` +
+        "full (it grants a fixed number, each held until it expires). Nothing is wrong with this " +
+        "peer; the hub has no slot for it."
+      );
+    case "resource-limit":
+      return `${hub} refused a reservation with RESOURCE_LIMIT_EXCEEDED: the hub's relay is at a resource limit.`;
+    case "not-a-member":
+      return (
+        `${hub} refused a reservation with PERMISSION_DENIED: this peer is not a member as far ` +
+        "as the hub is concerned (a hub grants reservations to its members only)."
+      );
+    case "no-relay":
+      return `${hub} does not relay at all -- it has no circuit-relay service (UnsupportedProtocolError).`;
+    case "no-answer":
+      return `${hub} gave no answer to a reservation request. Cause: ${firstLine(cause)}`;
+    case "other":
+      return `${hub} refused a reservation with ${status}.`;
+  }
+}
+
+/** The inner error libp2p quotes, or the error itself -- without the stack. */
+function firstLine(err: unknown): string {
+  const text = err instanceof Error ? err.message : String(err);
+  const lines = text.split("\n").map((line) => line.trim());
+  // libp2p's wrapper: a header line, then `<addr>: <inner error>` per address.
+  const inner = lines.find((line) => line.startsWith("/") && line.includes(": "));
+  return inner != null ? inner.slice(inner.indexOf(": ") + 2) : (lines[0] ?? "");
+}
+
+/**
  * Reserve on the hub, over the WebRTC connection `reachHub` left open.
  * Returns the reserved address. Only a member is granted one -- call this
  * after the hub has accepted this peer, not before.
  *
+ * A REFUSAL IS A `HubReservationError` that names the relay's own status --
+ * see `HubReservationRefusal`. libp2p reports every refusal alike, as "Some
+ * configured addresses failed to be listened on"; a full store and a
+ * non-member used to read the same, and in production a full store was
+ * diagnosed as a membership problem.
+ *
  * A CONFIGURED RELAY, NOT A DISCOVERED ONE: libp2p will not restore it on
  * its own if the link to the hub drops, which is `superviseHubReservation`'s
- * job, below. Each call adds a listener; after a lost link the
- * old one sits empty. That is one small object per reconnection, accepted
- * rather than reaching into libp2p's internals to reuse it.
+ * job, below. Each call adds a listener; after a lost link -- or a refused
+ * reservation -- the old one sits empty. That is one small object per
+ * attempt, accepted rather than reaching into libp2p's internals to reuse it.
  */
 export async function reserveOnHub(node: Libp2p, hubPeerId: string): Promise<string> {
   try {
     await transportManagerOf(node).listen([multiaddr(`/p2p/${hubPeerId}/p2p-circuit`)]);
   } catch (err) {
-    // libp2p reports a refused reservation as "Some configured addresses
-    // failed to be listened on", which names neither the hub nor the reason.
-    throw new Error(
-      `hub-link: the hub (${hubPeerId}) did not grant a reservation. A hub grants one only to ` +
-        "its members (PERMISSION_DENIED: this peer is not one, or not yet), and only if it " +
-        `relays at all (UnsupportedProtocolError: it does not). Cause: ${String(err)}`,
-      { cause: err },
-    );
+    const { status, refusal } = classify(err);
+    throw new HubReservationError(hubPeerId, status, refusal, { cause: err });
   }
   const reserved = node
     .getMultiaddrs()

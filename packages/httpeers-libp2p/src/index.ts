@@ -29,6 +29,8 @@ export {
   serveDuplex,
 } from "./duplex.js";
 export {
+  HubReservationError,
+  type HubReservationRefusal,
   hubRoute,
   leaveRelay,
   reachHub,
