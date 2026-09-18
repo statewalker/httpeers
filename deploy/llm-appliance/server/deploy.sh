@@ -86,6 +86,17 @@ up_and_verify() {
     say "the hub's peerId CHANGED: $before -> $after (was data/hub lost?)"
     return 1
   fi
+  # Traefik has no healthcheck, so `--wait` returns as soon as it RUNS -- before its file
+  # provider has loaded the router, while every path is a 404. MEASURED 2026-09-18: a deploy
+  # (and its rollback) failed health.sh on exactly that, with the door answering 200 seconds
+  # later. Wait for the door itself, up to 60 s, before judging the release.
+  i=0
+  until (cd "$dir" && set -a && . ./.env && set +a &&
+    curl -fsS -o /dev/null -m 5 -u "$ADMIN_USER:$ADMIN_PASSWORD" http://127.0.0.1:8080/hub/api/mesh); do
+    i=$((i + 1))
+    [ "$i" -lt 30 ] || break
+    sleep 2
+  done
   (cd "$dir" && sh ./scripts/health.sh) || return 1
   # The models LiteLLM serves, through the same door (master key; nothing printed but names).
   models=$(
