@@ -3,7 +3,8 @@
 A self-contained mesh hub with an LLM service: `hub` (this repo's `apps/hub`,
 built locally), `litellm` (LiteLLM, proxying to whatever model you configure),
 `postgres` (LiteLLM's own state — keys, spend, models added through its UI),
-and `traefik` (the only way in from the host, with basic auth).
+and `traefik` (the only way in from the host; basic auth on everything except
+LiteLLM's own paths, which rely on LiteLLM's authentication).
 
 Members reach the hub over the public httpeers mesh (WebRTC, or the
 relay-circuit fallback when WebRTC is unavailable). On a Docker host behind a
@@ -88,15 +89,25 @@ was confirmed byte-for-byte correct (`docker compose run --rm traefik sh -c
 
 ### The admin door
 
-Traefik on `127.0.0.1:8080` (basic auth) is the only way in to the hub's
-local door — the admin UI, `/hub/api/*`, and `/peers/<hubPeerId>/llm/*` with
-the master key. Not publishing the hub's port is **not** enough by itself: a
+Traefik on `127.0.0.1:8080` is the only way in to the hub's local door. It
+has two routers (`traefik/dynamic.yml`):
+
+- **`litellm`** — `/peers/<hubPeerId>/llm/*`, **no basic auth**. LiteLLM's own
+  authentication is the only gate: the dashboard's `UI_USERNAME` /
+  `UI_PASSWORD` login, and a virtual key or the master key on its API. The
+  hub's passthrough never adds a credential (`passthrough.ts`).
+- **`admin`** — everything else, **behind basic auth**: the admin UI,
+  `/hub/api/*`, and **`/peers/<hubPeerId>/llm/keys`**. That last one is the
+  hub's own route, not LiteLLM's: it mints a key with the master key and
+  checks no caller itself, so without basic auth anything able to reach
+  `127.0.0.1:8080` could mint keys. Traefik cleans the path first (`./`,
+  `../`, `%2e`, `%6b`, `//`), so those spellings land on `admin` too. Not publishing the hub's port is **not** enough by itself: a
 Linux host routes to container bridge IPs, so every local process could
 otherwise reach `http://<hub-container-ip>:8787` unauthenticated, and a web
 page could through DNS rebinding. So the door checks every request:
 
 1. **`x-hub-door-secret`** must equal `HUB_DOOR_SECRET`, or **401**. Traefik
-   adds it after basic auth (the `door-secret` middleware, generated at
+   adds it on both routers, after basic auth on `admin` (the `door-secret` middleware, generated at
    Traefik's start from `.env`), replacing any value a client sent. The hub
    refuses to start without the secret.
 2. **`Host`** must be in `HUB_DOOR_ALLOWED_HOSTS` (default
@@ -130,8 +141,8 @@ long-running service `healthy` once it's ready.
   currently has to it (`direct`, `relay`, or not connected) — with revoke, and
   links to the LiteLLM dashboard.
 - **LiteLLM dashboard**: `http://127.0.0.1:8080/peers/<hubPeerId>/llm/ui/login/`
-  (note the trailing slash — see "Rough edges" below), login with
-  `UI_USERNAME` / `UI_PASSWORD`. `<hubPeerId>` is in `./data/hub/hub.env` and
+  (note the trailing slash — see "Rough edges" below), no basic auth: log in
+  with LiteLLM's own `UI_USERNAME` / `UI_PASSWORD`. `<hubPeerId>` is in `./data/hub/hub.env` and
   on the admin UI's own page.
 - **Adding a real model**: in the LiteLLM dashboard, "Add Model" — pick a
   provider, paste its API key, save. It's stored in Postgres
@@ -254,7 +265,7 @@ the LLM backend is OpenRouter.
 | Service | Reachable from | Notes |
 | --- | --- | --- |
 | `hub` | the mesh; its door only from Traefik | `ghcr.io/statewalker/httpeers-hub:sha-<commit>` |
-| `traefik` | **`127.0.0.1:8080` on the server only** | basic auth, then the door secret. Admin UI via SSH tunnel |
+| `traefik` | **`127.0.0.1:8080` on the server only** | basic auth (except LiteLLM's paths), then the door secret. Admin UI via SSH tunnel |
 | `litellm` | the appliance network only | models from `litellm/config.server.yaml` (OpenRouter) |
 | `postgres` | the appliance network only | LiteLLM's keys and spend |
 
@@ -430,6 +441,6 @@ LiteLLM's own tables aren't keyed by `HUB_PEER_ID`.
 | `.env.example` | Secrets template — copy to `.env` |
 | `litellm/config.yaml` | LiteLLM's config (the key-header fix; no secrets) |
 | `litellm-entrypoint.sh` | Waits for the hub's identity, sets `SERVER_ROOT_PATH`/`PROXY_BASE_URL`, execs LiteLLM |
-| `traefik/dynamic.yml`, `traefik/dynamic.host.yml` | Traefik's file-provider dynamic config (router, basic auth then the door secret, service); `door-secret.yml` is generated beside it at start |
+| `traefik/dynamic.yml`, `traefik/dynamic.host.yml` | Traefik's file-provider dynamic config (routers: `litellm` with the door secret only, `admin` with basic auth then the door secret; service); `door-secret.yml` is generated beside it at start |
 | `scripts/health.sh` | Smoke-checks the running stack through Traefik |
 | `test/fake-llm.mjs`, `test/register-model.mjs` | compose.test.yml's fake upstream and model-registration one-shot |
