@@ -17,7 +17,7 @@ name: llm-appliance
 
 on:
   push:
-    branches: [main, llm-appliance] # TEMP: llm-appliance, to exercise CD before merge; reverted
+    branches: [main]
     paths:
       - "apps/hub/**"
       - "apps/relay/package.json"
@@ -94,7 +94,7 @@ jobs:
       cancel-in-progress: false
     # Main only, and only while the switch is on:
     #   gh variable set LLM_DEPLOY_ENABLED --body true    (anything else: publish, don't deploy)
-    if: (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/llm-appliance') && github.event_name != 'pull_request' && vars.LLM_DEPLOY_ENABLED == 'true'
+    if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request' && vars.LLM_DEPLOY_ENABLED == 'true'
     steps:
       - name: Deploy this commit on the server
         env:
