@@ -69,30 +69,34 @@ found by standing up a live mesh.
 
 ## `mountEdge` never waits for a controller that cannot come
 
-The edge is `webrun-http-browser`'s `SwHttpAdapter`, whose `start()` waits for
-`navigator.serviceWorker.controller` with no bound. A **hard reload**
-(Ctrl+Shift+R; Firefox's `location.reload(true)`) loads the page bypassing its
-ServiceWorker, while that worker is already active and claimed its clients long
-ago — so no `controllerchange` ever comes. llm-chat's `mesh.html` shipped
-sitting at "Joining… (mounting-edge)" for good after one.
+The edge is `webrun-http-browser`'s `SwHttpAdapter` (`^0.5.0`). A **hard
+reload** (Ctrl+Shift+R; Firefox's `location.reload(true)`) loads the page
+bypassing its ServiceWorker, while that worker is already active and claimed its
+clients long ago — so no `controllerchange` ever comes. Up to 0.4 `start()`
+then waited forever, and llm-chat's `mesh.html` shipped sitting at "Joining…
+(mounting-edge)" for good after one.
 
-Before starting the adapter, `mountEdge` (`edge-control.ts`) checks:
+Since 0.5 the library recovers it, and `mountEdge` relies on that:
 
-- controlled, or no active worker yet (a first visit, whose `activate` claims
-  the page) → carry on;
-- uncontrolled under an active worker → **reload once**. An ordinary reload
-  comes back controlled in Chromium and Firefox; the page cannot ask the stock
-  worker to claim it again. The guard is a timestamped `sessionStorage` flag,
-  so it cannot loop;
-- still uncontrolled with the guard spent, or no usable `sessionStorage` →
-  throw `UncontrolledPageError` ("close the tab and reopen it").
+- uncontrolled under an active worker → `start()` sends a `CLAIM` request, the
+  stock `sw-worker` (every app's `/sw.js`) answers with `clients.claim()`, and
+  the page is taken over **in place, without a reload**;
+- a worker that does not answer `CLAIM` (an older `/sw.js` still installed in a
+  returning visitor's browser, or a custom `serviceWorkerUrl`) → after the
+  bound, **one reload** (`reloadIfUncontrolled`, kept as the last resort; the
+  library guards it with a `sessionStorage` marker, so it cannot loop);
+- still uncontrolled after that, or no usable `sessionStorage` → throw
+  `UncontrolledPageError` ("close the tab and reopen it").
 
-And the whole wait is bounded (`controlTimeoutMs`, default
-`DEFAULT_CONTROL_TIMEOUT_MS` = 30 s), so a case nobody has thought of yet
-fails with a message instead of hanging. `tests/edge-control.test.ts` pins the
-decision; `httpeers-browser-conformance`'s `pnpm run test:reload` runs first
-visit, reload, hard reload, a second tab and a spent guard in real Chromium and
-Firefox.
+Every wait is bounded (`controlTimeoutMs`, default `DEFAULT_CONTROL_TIMEOUT_MS`
+= 30 s, passed to the adapter as its `timeout`); a worker that never activates
+or never answers fails with an `Error` that says what to do. `edge-control.ts`
+maps the library's `ServiceWorkerControlError` onto those errors, matching on
+`name`/`reason` rather than `instanceof`. `tests/edge-control.test.ts` pins the
+mapping; `httpeers-browser-conformance`'s `pnpm run test:reload` runs first
+visit, reload, a hard reload (asserting it recovers with no extra navigation) and
+a second tab, then — against a worker that ignores `CLAIM` — the fallback reload
+and a spent guard, in real Chromium and Firefox.
 
 ## Direct or relay: how a member reaches its hub
 
@@ -183,8 +187,8 @@ re-exporting `mountEdge` from `index.ts` and watching three named tests fail.
 
 ## Tests
 
-**126.** `tests/edge-control.test.ts` pins how `mountEdge` handles an
-uncontrolled page. `tests/reservation-fallback.test.ts` pins which refused reservations
+**116.** `tests/edge-control.test.ts` pins the error `mountEdge` throws when
+its ServiceWorker cannot take control. `tests/reservation-fallback.test.ts` pins which refused reservations
 drop a join to relay mode and which fail it. `tests/consumer.test.ts` compiles a real dependent against all three
 entry points under three tsconfig shapes — the `NodeNext` row is the only one
 that honours the `exports` map, and for a subpath there is no legacy `types`

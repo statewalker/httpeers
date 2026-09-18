@@ -15,23 +15,16 @@
  * THE KEY/PREFIX TRAP -- see `edge-guard.ts`'s `assertKeyMatchesPrefix` for
  * the mechanism and why it is factored into its own file.
  *
- * WORKSPACE IMPORT, NOT NPM (design note 39 "Published 0.3.3 and workspace
- * 0.3.3 are different artefacts"). `SwHttpAdapter` does not exist in the
- * published npm tarball's dist bundle at all -- `src/sw/index.js` is
- * absent there, the re-export is commented out, and the deep import fails
- * `ERR_PACKAGE_PATH_NOT_EXPORTED`. `package.json` pins
- * `@statewalker/webrun-http-browser: workspace:*` for exactly this reason.
- * The WORKSPACE package's own `package.json` still points its `./sw`
- * export at `./dist/sw.js`, and that package ships no committed `dist/`
- * (gitignored, `workspaces/webrun-wire/.gitignore`) -- so this import only
- * resolves once `pnpm --filter @statewalker/webrun-http-browser build` (or
- * an equivalent `turbo build` that reaches it) has actually run. This is
- * the known defect the task brief calls out; see this task's report for
- * exactly what was verified and how.
+ * THE `/sw` SUBPATH IS A BUILT FILE. `@statewalker/webrun-http-browser`
+ * (an optional peer, `^0.5.0`) points its `./sw` export at `./dist/sw.js`,
+ * which the published tarball ships. Inside an assembly, where the package is
+ * a linked workspace checkout, `dist/` is gitignored and only exists once
+ * `pnpm --filter @statewalker/webrun-http-browser build` has run -- and a
+ * stale one is bundled silently.
  */
 import type { FetchHandler } from "@statewalker/httpeers-core";
 import { SwHttpAdapter } from "@statewalker/webrun-http-browser/sw";
-import { type ControlStorage, ensureControlled, withTimeout } from "./edge-control.js";
+import { edgeStartError } from "./edge-control.js";
 import { assertKeyMatchesPrefix } from "./edge-guard.js";
 
 export { UncontrolledPageError } from "./edge-control.js";
@@ -44,17 +37,10 @@ export { assertKeyMatchesPrefix };
  * `navigator` is the interesting one: @types/node declares it too, and ITS
  * `Navigator` has no `serviceWorker`, so this is not merely filling a gap but
  * shadowing a same-named global that means something else in the other
- * runtime. Narrow on purpose -- only the members `mountEdge` and
- * `./edge-control.ts` read.
+ * runtime. Narrow on purpose -- only the members `mountEdge` reads.
  */
-declare const navigator: {
-  serviceWorker?: {
-    controller: unknown;
-    getRegistration(clientUrl?: string): Promise<{ active: unknown } | undefined>;
-  };
-};
-declare const location: { origin: string; href: string; reload(): void };
-declare const sessionStorage: ControlStorage;
+declare const navigator: { serviceWorker?: unknown };
+declare const location: { origin: string; href: string };
 
 export interface MountEdgeInit {
   /** The ServiceWorker adapter's channel key -- see `assertKeyMatchesPrefix`'s doc comment for why this must equal `prefix`'s first path segment. */
@@ -66,23 +52,24 @@ export interface MountEdgeInit {
   /** The peer's own router. Mounted unchanged -- see this module's doc comment. */
   dispatch: FetchHandler;
   /**
-   * The bound on getting a controlling ServiceWorker, in ms. Defaults to
-   * `DEFAULT_CONTROL_TIMEOUT_MS`. See that constant for why there is one.
+   * The bound on getting a controlling ServiceWorker, in ms -- passed to
+   * `SwHttpAdapter` as its `timeout`. Defaults to `DEFAULT_CONTROL_TIMEOUT_MS`.
    */
   controlTimeoutMs?: number;
 }
 
 /**
- * How long `mountEdge` waits for its ServiceWorker to take control of the
- * page before giving up with an error.
+ * How long `mountEdge` waits for its ServiceWorker to activate, take control
+ * of the page and answer, before giving up with an error.
  *
- * `SwHttpAdapter.start()` waits for a controller with no bound of its own, so
- * a page that never gets one -- a hard reload was the case that shipped; see
- * `./edge-control.ts` -- used to hang at "mounting-edge" for good.
- * `ensureControlled` handles the cases that are understood; this bound is for
- * the ones that are not, so they fail loudly instead. A first visit installs a
- * ~60 KB script and activates it, which takes well under a second on a slow
- * link; thirty seconds is generous.
+ * Before webrun-http-browser 0.5 `SwHttpAdapter.start()` had no bound, and a
+ * page that never got a controller -- a hard reload was the case that
+ * shipped; see `./edge-control.ts` -- hung at "mounting-edge" for good. The
+ * library now bounds every wait by its `timeout`; this is the value passed.
+ * A first visit installs a ~60 KB script and activates it, which takes well
+ * under a second on a slow link; thirty seconds is generous. It is also how
+ * long a worker that does NOT answer the `CLAIM` request (one older than 0.5,
+ * say) keeps a hard-reloaded page waiting before the one automatic reload.
  */
 export const DEFAULT_CONTROL_TIMEOUT_MS = 30_000;
 
@@ -121,10 +108,10 @@ export interface EdgeHandle {
  * `key`/`prefix` disagree -- the failure this function exists to make
  * loud instead of silent.
  *
- * On a page its ServiceWorker does not control (a hard reload) it reloads the
- * page once, guarded, and otherwise throws `UncontrolledPageError`; and it
- * gives up after `controlTimeoutMs` rather than wait forever for a controller.
- * See `./edge-control.ts`.
+ * On a page its ServiceWorker does not control (a hard reload) the adapter asks
+ * the worker to claim it, in place; if that does not take, it reloads the page
+ * once, guarded, and otherwise this throws `UncontrolledPageError`. It gives up
+ * after `controlTimeoutMs` rather than wait forever. See `./edge-control.ts`.
  */
 export async function mountEdge(init: MountEdgeInit): Promise<EdgeHandle> {
   const prefix = init.prefix ?? `${init.key}/`;
@@ -157,34 +144,25 @@ export async function mountEdge(init: MountEdgeInit): Promise<EdgeHandle> {
     init.serviceWorkerUrl ?? DEFAULT_SERVICE_WORKER_URL,
     location.href,
   ).href;
-  const container = navigator.serviceWorker;
 
-  // AN UNCONTROLLED PAGE UNDER AN ACTIVE WORKER (a hard reload): recover with
-  // one guarded reload, or say so -- never enter the adapter's unbounded wait
-  // knowing nothing will end it. See `./edge-control.ts`.
-  await ensureControlled({
-    isControlled: () => container.controller != null,
-    hasActiveWorker: async () => (await container.getRegistration(location.href))?.active != null,
-    storage: (() => {
-      try {
-        return sessionStorage;
-      } catch {
-        return undefined;
-      }
-    })(),
-    reload: () => location.reload(),
-    now: () => Date.now(),
-  });
-
-  const adapter = new SwHttpAdapter({ key: init.key, serviceWorkerUrl });
+  // AN UNCONTROLLED PAGE UNDER AN ACTIVE WORKER (a hard reload): `start()` asks
+  // the worker to claim it (`CLAIM`), and failing that reloads once --
+  // `reloadIfUncontrolled`, kept as the last resort for a worker that does not
+  // answer `CLAIM` (an older `/sw.js` still installed in a returning visitor's
+  // browser, or a custom `serviceWorkerUrl`). It costs nothing when the claim
+  // works, and the library guards it against looping. See `./edge-control.ts`.
   const timeoutMs = init.controlTimeoutMs ?? DEFAULT_CONTROL_TIMEOUT_MS;
-  await withTimeout(
-    adapter.start(),
-    timeoutMs,
-    `mountEdge: the ServiceWorker ${serviceWorkerUrl} did not take control of this page within ` +
-      `${Math.round(timeoutMs / 1000)} s. Close the tab and reopen it; if that does not help, ` +
-      "clear this site's data in the browser to remove the ServiceWorker and start clean.",
-  );
+  const adapter = new SwHttpAdapter({
+    key: init.key,
+    serviceWorkerUrl,
+    timeout: timeoutMs,
+    reloadIfUncontrolled: true,
+  });
+  try {
+    await adapter.start();
+  } catch (error) {
+    throw edgeStartError(error, serviceWorkerUrl, timeoutMs);
+  }
   const registration = await adapter.register(prefix, init.dispatch);
 
   return {
