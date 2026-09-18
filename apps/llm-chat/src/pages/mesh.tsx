@@ -11,8 +11,9 @@
  *      any URL outside `<edge><hubPeerId>/llm/`).
  *   4. Store them in the "mesh" config, keeping a key stored earlier for the same endpoint only.
  *   5. No key yet: paste one, or request one from the hub (admins only; a member sees the 403).
- *   6. The chat, with the link mode (the widget's compact mode, whose menu holds Disconnect and
- *      Leave) and, for an admin, the LiteLLM dashboard link in its header.
+ *   6. The chat, with the link mode (the widget's compact mode, whose menu holds Disconnect, Leave
+ *      and, for a mesh admin, Invite: member or admin invitations with link, QR code, Share and
+ *      Copy) and, for an admin, the LiteLLM dashboard link in its header.
  *
  * THE ONE PAGE THAT REACHES HTTPEERS. Everything mesh-specific is here and in `../mesh/`; the chat
  * itself is `ChatApp` unchanged, handed a different config store.

@@ -141,6 +141,15 @@ long-running service `healthy` once it's ready.
   `POST /hub/api/invitations {"roles":["member"]}` through the door), send
   them the link. They open it and join. A member **cannot mint a LiteLLM
   key** (the hub answers 403); give them one — see "LLM keys" below.
+- **Inviting from the mesh page**: an admin on `mesh.html` opens the "Mesh"
+  menu, then **Invite someone**. They pick Member or Admin and an expiry
+  (1 hour, 1 day or 7 days), then share the link, show its QR code, or copy
+  it. Pending invitations are listed there too. It is the same
+  `POST /hub/api/invitations`, made over the mesh with the admin's own token,
+  so it needs no tunnel. An **admin** invitation hands over full control
+  (inviting, revoking, keys), and the page warns before making one. Members
+  never see the section. The widget's README has the details
+  (`packages/httpeers-join`, "Invite").
 
 ## LLM keys
 

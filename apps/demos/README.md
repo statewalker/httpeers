@@ -48,7 +48,11 @@ mounts into it. llm-chat's `mesh.html` uses the same widget. It offers:
   page's short peer id, and the session's own message when something is wrong;
 - **Disconnect** (membership kept), **Reconnect**, and **Leave this mesh…**,
   which forgets this origin's identity after a confirmation. Joining again
-  then needs a new invitation.
+  then needs a new invitation;
+- for a mesh admin, **Invite someone**: an invitation as a member or an admin, with its link,
+  QR code, Share and Copy. It calls the hub's admin API (`/hub/api/*`), which the demos'
+  browser-tab hub does not have. Here it therefore stays hidden. It appears on llm-chat's
+  `mesh.html` for an admin of the appliance hub.
 
 Each page's `render()` feeds the widget every `SessionState` and keeps its own
 fields (`#state`, `#peer-id`, the mesh view). The smokes fill `.hp-join-input`

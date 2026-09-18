@@ -54,7 +54,7 @@ what libp2p is.
 | [`httpeers-member`](packages/httpeers-member) | Everything a participant does: `startMember`, the session, the edge, the gateway. |
 | [`httpeers-ghost`](packages/httpeers-ghost) | A remote peer's app rendered as a page that can reach only that peer. |
 | [`httpeers-qr`](packages/httpeers-qr) | Invitations as QR: pure encode/decode, plus a browser entry that scans from the camera. |
-| [`httpeers-join`](packages/httpeers-join) | The join-the-mesh widget every page shares: paste or scan an invitation, the link to the hub, disconnect, reconnect, leave. Plain DOM. |
+| [`httpeers-join`](packages/httpeers-join) | The join-the-mesh widget every page shares: paste or scan an invitation, the link to the hub, disconnect, reconnect, leave, and for a mesh admin, invite others as members or admins. Plain DOM. |
 | [`httpeers-conformance`](packages/httpeers-conformance) | Private. Every prototype rebuilt on the published API, every entry point imported, and one real mesh. |
 
 ### Two rules the packages are built on

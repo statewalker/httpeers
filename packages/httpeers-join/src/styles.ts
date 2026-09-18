@@ -4,7 +4,7 @@
  * OWN CSS, NOT THE PAGE'S. The two pages that use it style in opposite ways:
  * the demos with a few plain element rules, llm-chat with Tailwind, whose
  * preflight strips every button of its border and background. Every rule here
- * is on an `hp-join-` class, so it neither leaks into the page nor depends on
+ * is on an `hp-join-` or `hp-invite-` class, so it neither leaks into the page nor depends on
  * it, and it is NOT in a cascade layer -- unlayered rules beat Tailwind's
  * `@layer base`, which is what keeps a button looking like a button under it.
  *
