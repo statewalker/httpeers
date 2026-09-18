@@ -162,15 +162,27 @@ export function hubRelayService(
  * matters: the store's own expiry listener deletes by PEER, so a timer left
  * running would, two hours later, delete whatever reservation the same peer
  * holds by then.
+ *
+ * A STRING THAT IS NOT A PEER ID holds no reservation, so it returns false
+ * rather than throwing: a revocation must not fail half-way over it.
  */
 export function releaseReservation(
   relay: Pick<CircuitRelayService, "reservations">,
   peer: PeerId | PeerIdStr,
 ): boolean {
-  const peerId = typeof peer === "string" ? peerIdFromString(peer) : peer;
+  const peerId = typeof peer === "string" ? parsePeerId(peer) : peer;
+  if (peerId == null) return false;
   const reservation = relay.reservations.get(peerId);
   if (reservation == null) return false;
   reservation.signal.clear();
   relay.reservations.delete(peerId);
   return true;
+}
+
+function parsePeerId(peer: PeerIdStr): PeerId | undefined {
+  try {
+    return peerIdFromString(peer);
+  } catch {
+    return undefined;
+  }
 }

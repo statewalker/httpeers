@@ -164,6 +164,8 @@ describe("hubRelayService reservations", () => {
     expect(hub.services.relay.reservations.has(revoked.peerId)).toBe(false);
     // Idempotent: nothing left to release.
     expect(releaseReservation(hub.services.relay, revoked.peerId.toString())).toBe(false);
+    // And a subject that is not a peer id holds nothing, rather than throwing.
+    expect(releaseReservation(hub.services.relay, "not-a-peer-id")).toBe(false);
 
     // No way back in. (Over a fresh connection: on the old one the member's
     // own libp2p still believes in the reservation and would not ask.)
