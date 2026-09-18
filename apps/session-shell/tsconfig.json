@@ -1,0 +1,13 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    // The page, the worker and the ghost-side client are all browser code;
+    // the worker's own globals come from a triple-slash `webworker` reference
+    // in `sw.ts`, so they do not leak into the page files.
+    "lib": ["ES2022", "DOM", "DOM.Iterable"],
+    "types": ["node", "vite/client"],
+    "rootDir": ".",
+    "noEmit": true
+  },
+  "include": ["src/**/*.ts", "tests/**/*.ts", "*.ts"]
+}
