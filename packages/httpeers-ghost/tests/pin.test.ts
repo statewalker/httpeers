@@ -74,4 +74,25 @@ describe("06 — the ghost's pin, in Node", () => {
     expect(reached.every((p) => p === PINNED_PEER)).toBe(true);
     expect(reached).not.toContain(OTHER_PEER);
   });
+
+  // FIREFOX HAS NO `Request.prototype.body` (checked against 155). A handler
+  // that forwards `request.body` sends `undefined` there -- every POST arrives
+  // empty. Simulated here by hiding the property on one request, which is
+  // exactly what that browser's Request looks like.
+  it("forwards a request body where the runtime has no Request.body (Firefox)", async () => {
+    let received: string | null = null;
+    const handler = pinnedPeer({
+      landing: { peerId: PINNED_PEER, appPath: "/app" },
+      basePath: "/ghost/",
+      token: () => "VIEWER-TOKEN",
+      remote: async (_peerId, request) => {
+        received = await request.text();
+        return new Response("ok");
+      },
+    });
+    const post = new Request("http://viewer.local/ghost/echo", { method: "POST", body: "ping" });
+    Object.defineProperty(post, "body", { value: undefined });
+    expect((await handler(post)).status).toBe(200);
+    expect(received).toBe("ping");
+  });
 });
