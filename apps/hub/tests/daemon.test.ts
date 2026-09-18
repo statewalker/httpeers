@@ -89,7 +89,17 @@ afterEach(async () => {
       .pop()
       ?.stop()
       .catch(() => {});
-  while (dirs.length > 0) await rm(dirs.pop() as string, { recursive: true, force: true });
+  // maxRetries: CI failed once with ENOTEMPTY on `<dir>/hub/state` -- a state write landing
+  // while the directory was being removed, after stop() had resolved. A retry makes the cleanup
+  // robust; a write after stop() is a separate question, recorded in the PR, not hidden here
+  // (every assertion ran before this point).
+  while (dirs.length > 0)
+    await rm(dirs.pop() as string, {
+      recursive: true,
+      force: true,
+      maxRetries: 5,
+      retryDelay: 100,
+    });
   vi.restoreAllMocks();
 }, 30_000);
 
