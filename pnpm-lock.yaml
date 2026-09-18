@@ -208,6 +208,9 @@ importers:
       '@statewalker/httpeers-core':
         specifier: workspace:*
         version: link:../../packages/httpeers-core
+      '@statewalker/httpeers-join':
+        specifier: workspace:*
+        version: link:../../packages/httpeers-join
       '@statewalker/httpeers-member':
         specifier: workspace:*
         version: link:../../packages/httpeers-member
