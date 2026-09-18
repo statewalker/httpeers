@@ -18,7 +18,8 @@ x Cyclic dependency detected:
 | @statewalker/httpeers-member#build, ... @statewalker/httpeers-core#build
 ```
 
-A check that depends on everything has to be a **leaf**. Here it is one: it devDepends on all eight
+A check that depends on everything has to be a **leaf**. Here it is one: it devDepends on every
+published package (the eight above, plus `httpeers-ghost` and the join widget `httpeers-join`)
 and nothing depends on it, so the graph is acyclic and `turbo test` works again.
 
 **To reverse:** move `tests/` back under `httpeers-core`, restore the seven `workspace:*`

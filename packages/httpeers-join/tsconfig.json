@@ -1,0 +1,15 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    // "DOM" ON PURPOSE, unlike every other package here. This one is a widget:
+    // it builds elements and listens to clicks, and there is nothing
+    // isomorphic about it to protect. What it must NOT do is touch the DOM at
+    // IMPORT time -- `tests/import.test.ts` imports the built entry under
+    // plain Node to hold it to that.
+    "lib": ["ES2022", "DOM", "DOM.Iterable"],
+    "types": ["node"],
+    "rootDir": ".",
+    "noEmit": true
+  },
+  "include": ["src/**/*.ts", "tests/**/*.ts"]
+}
