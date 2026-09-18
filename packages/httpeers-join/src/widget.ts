@@ -20,6 +20,8 @@
  */
 
 import type { PeerSession, SessionState } from "@statewalker/httpeers-member";
+import type { HubTarget } from "./invite.js";
+import { createInvitePanel, type InvitePanel, type InvitePanelOptions } from "./invite-panel.js";
 import { defaultQrScanner, type QrScanner } from "./qr.js";
 import { injectJoinWidgetStyles } from "./styles.js";
 
@@ -29,8 +31,14 @@ export type JoinWidgetSession = Pick<
   "join" | "disconnect" | "reconnect" | "resetIdentity"
 >;
 
-/** The part of `SessionState` the widget reads. A full `SessionState` is one; so is a hand-built test state with no handle. */
-export type JoinWidgetState = Pick<SessionState, "phase" | "identity" | "hubLink" | "controls">;
+/**
+ * The part of `SessionState` the widget reads. A full `SessionState` is one;
+ * so is a hand-built test state with no handle. The handle is read only for
+ * the Invite panel: its hub peer id and edge base URL.
+ */
+export type JoinWidgetState = Pick<SessionState, "phase" | "identity" | "hubLink" | "controls"> & {
+  handle?: HubTarget | null;
+};
 
 export interface JoinWidgetOptions {
   session: JoinWidgetSession;
@@ -51,6 +59,12 @@ export interface JoinWidgetOptions {
   confirm?: (message: string) => boolean | Promise<boolean>;
   /** `false` leaves styling to the page; the class names are the API then. Default `true`. */
   injectStyles?: boolean;
+  /**
+   * The Invite panel, shown to a mesh admin while live (see `./invite-panel.ts`).
+   * On by default: it asks the hub once per link and stays hidden for anyone
+   * the hub refuses. `false` leaves it out altogether; an object configures it.
+   */
+  invite?: InvitePanelOptions | false;
 }
 
 export interface JoinWidget {
@@ -208,15 +222,20 @@ export function mountJoinWidget(container: HTMLElement, options: JoinWidgetOptio
   stopCameraButton.hidden = true;
   form.append(label, input, actions, viewfinder, stopCameraButton);
 
+  const invitePanel: InvitePanel | null =
+    options.invite === false ? null : createInvitePanel(doc, make, n, options.invite ?? {});
+
   if (compact) {
     const menu = make("details", "hp-join-menu");
     const summary = make("summary", "hp-join-menu-toggle", "Mesh");
     const panel = make("div", "hp-join-menu-panel");
     panel.append(message, error, controls);
+    if (invitePanel != null) panel.append(invitePanel.element);
     menu.append(summary, panel);
     root.append(status, menu);
   } else {
     root.append(status, message, error, form, controls);
+    if (invitePanel != null) root.append(invitePanel.element);
   }
   container.append(root);
 
@@ -311,6 +330,9 @@ export function mountJoinWidget(container: HTMLElement, options: JoinWidgetOptio
     submit.disabled = pending.has(submit) || input.value.trim() === "";
     cameraButton.hidden = scanner == null || !scanner.cameraAvailable() || camera != null;
     fileLabel.hidden = scanner == null;
+
+    // Invite: only while live, and only toward that link's hub.
+    invitePanel?.setTarget(phase?.kind === "live" ? (state?.handle ?? null) : null);
 
     // A camera left running behind a form that has gone -- a join started,
     // or succeeded -- is a light on the operator's laptop for no reason.
@@ -421,6 +443,7 @@ export function mountJoinWidget(container: HTMLElement, options: JoinWidgetOptio
       if (destroyed) return;
       destroyed = true;
       void stopCamera();
+      invitePanel?.destroy();
       root.remove();
     },
   };
