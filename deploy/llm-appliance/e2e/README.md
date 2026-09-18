@@ -49,6 +49,30 @@ Other settings are listed at the top of `e2e.mjs`: `HUB_DOOR_URL`, `MESH_PAGE_UR
 `HUB_CONTAINER`, `E2E_NETWORK`, `E2E_PW_CONTAINER`, `E2E_PW_IMAGE`, `E2E_KEEP_ISOLATED=1` (leave the
 isolated container and network up) and `LLM_MODEL`.
 
+## Against the httpeers.net server
+
+The same script drives the appliance CI deployed on the server (see `../README.md`, "On the
+httpeers.net server"). The browsers run on this machine, so they are on a different network
+from the hub by construction.
+
+```sh
+ssh -N -L 8080:127.0.0.1:8080 kotelnikov@163.172.46.87 &      # the door, as on the workstation
+HUB_CONTAINER=remote LLM_MODEL=gpt-4o-mini \
+APPLIANCE_ENV=<(ssh kotelnikov@163.172.46.87 \
+  'grep -E "^(ADMIN_USER|ADMIN_PASSWORD|UI_USERNAME|UI_PASSWORD|LITELLM_MASTER_KEY)=" /opt/httpeers-llm/.env') \
+node deploy/llm-appliance/e2e/e2e.mjs
+```
+
+- `HUB_CONTAINER=remote` replaces the isolation control's probe of a local hub container, which
+  does not exist here, with the page check alone.
+- With a real model (anything but `fake`), a reply is complete when the chat's own action bar
+  (Copy / Regenerate, hidden while a run is in progress) appears under it, with non-empty text.
+- The credentials come from a process substitution and are never written to disk here.
+- A real model costs a few tokens per run: one "hello" per browser, plus one short "ping" per
+  revocation poll.
+
+Nothing of the local appliance is needed: stop it first if it holds `127.0.0.1:8080`.
+
 ## What it does
 
 1. **Hub is up.** `GET /hub/api/mesh` through the door gives `hubPeerId`.

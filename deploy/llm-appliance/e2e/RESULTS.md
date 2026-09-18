@@ -1,3 +1,37 @@
+# End-to-end results — 2026-09-18, the httpeers.net server
+
+**Outcome: all six steps PASS, key cleanup PASS** (run of 2026-09-18 about 12:18 UTC, exit 0).
+
+- **Target.** The appliance CI deployed on the server (release `077069c`: hub, LiteLLM with
+  OpenRouter, Postgres and Traefik in `/opt/httpeers-llm`).
+- **Browsers.** They ran on the workstation, behind a home NAT, which is a different network
+  from the server. Browsers A and B were in an isolated Docker network, C on the host. The door
+  was reached through `ssh -L 8080:127.0.0.1:8080`, and the model was `gpt-4o-mini`.
+- **Page.** `https://llm-chat.httpeers.net/mesh.html` with the shared join widget
+  (`mesh-DJWhf1m6.js`).
+
+| Step | Result |
+| --- | --- |
+| 1. Hub is up | PASS. hubPeerId `12D3KooWNAjNwj1vY8hHPGaFXHLDaCTiCytGhxB8gyq1j4osbYXj` |
+| 2. Admin A joins, mints a key, chats | PASS. **direct**, joined in 1.1 s. The picker listed `claude-haiku-4.5`, `gemini-2.5-flash`, `gpt-4o-mini`, `llama-3.3-70b`. The streamed reply completed in 2.1 s after 8 partial states |
+| 3. Dashboard over the mesh | PASS. 127 responses under the mount, 9 non-2xx, none of them 403 or 5xx (the known LiteLLM first-fetch 401s) |
+| 4. Member B refused admin paths, chats with A's key | PASS. **relay** (joined in 7.1 s). `POST …/llm/keys` and `GET …/llm/ui/login/` answered 403, and the reply came in 2.0 s |
+| 5. Revocation | PASS. A 403 `membership revoked` came 65 ms after the DELETE (first attempt), and the page showed the revocation |
+| 6. Host browser C | PASS. **direct**, joined in 1.1 s |
+
+The hub's own view (`GET /hub/api/members`) listed A, B and C as `direct`. B's page said relay
+at join time, and the hub's link to it was direct by the time it was read.
+
+**The join widget on the live page, separately.** A fresh Chromium with no saved identity opened
+`mesh.html`, pasted a member invitation link into the widget, and pressed Join. It was
+`Connected (direct)` in 1.25 s, and the LLM key step followed. The test members were revoked
+afterwards.
+
+**Not measured:** a phone on mobile data, or any network other than this workstation's. The
+earlier phone run (2026-09-15) was against a workstation hub, not this server.
+
+---
+
 # End-to-end results — 2026-09-15
 
 **Outcome: all six steps PASS, key cleanup PASS** (recorded run, 2026-09-15 19:10:45–19:11:31 UTC,

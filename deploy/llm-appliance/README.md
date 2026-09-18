@@ -6,10 +6,16 @@ built locally), `litellm` (LiteLLM, proxying to whatever model you configure),
 and `traefik` (the only way in from the host, with basic auth).
 
 Members reach the hub over the public httpeers mesh (WebRTC, or the
-relay-circuit fallback when WebRTC is unavailable — this appliance's default
-bridge network makes the fallback the normal path; see "Host networking"
-below for direct WebRTC). The appliance itself needs outbound internet
-access (to `relay.httpeers.net`) but publishes nothing except the admin door.
+relay-circuit fallback when WebRTC is unavailable). On a Docker host behind a
+home NAT the default bridge network makes the fallback the normal path (see
+"Host networking" below); on the httpeers.net server, which has a public
+address, members measured `direct` through the same bridge network. The
+appliance itself needs outbound internet access (to `relay.httpeers.net`) but
+publishes nothing except the admin door.
+
+It runs in two places: on a workstation, built from source (the sections
+below), and on the httpeers.net server, deployed by CI (see "On the
+httpeers.net server").
 
 ## Prerequisites
 
@@ -227,9 +233,125 @@ the default variant, local processes can route to that bridge address; LiteLLM's
 own authentication (master key, virtual keys, dashboard login) is what guards
 it.
 
+## On the httpeers.net server
+
+The same appliance runs on the httpeers.net host (`163.172.46.87`, see the server runbook in
+the notes), beside, but separate from, the relay/Caddy/sites stack in `/opt/httpeers`: its own
+directory `/opt/httpeers-llm`, its own compose project `httpeers-llm`, its own bridge network.
+Caddy does not route to it and nothing about it is public: members reach the hub over the mesh
+(through `relay.httpeers.net`), invitations open `https://llm-chat.httpeers.net/mesh.html`, and
+the LLM backend is OpenRouter.
+
+| Service | Reachable from | Notes |
+| --- | --- | --- |
+| `hub` | the mesh; its door only from Traefik | `ghcr.io/statewalker/httpeers-hub:sha-<commit>` |
+| `traefik` | **`127.0.0.1:8080` on the server only** | basic auth, then the door secret. Admin UI via SSH tunnel |
+| `litellm` | the appliance network only | models from `litellm/config.server.yaml` (OpenRouter) |
+| `postgres` | the appliance network only | LiteLLM's keys and spend |
+
+### The admin UI
+
+```sh
+ssh -N -L 8080:127.0.0.1:8080 kotelnikov@163.172.46.87
+# then open http://127.0.0.1:8080/ -- ADMIN_USER / ADMIN_PASSWORD from the server's .env:
+ssh kotelnikov@163.172.46.87 'grep -E "^ADMIN_(USER|PASSWORD)=" /opt/httpeers-llm/.env'
+```
+
+**Use local port 8080** (or `localhost:8080`): the door answers only the Host values in
+`HUB_DOOR_ALLOWED_HOSTS`, and a tunnel on another local port gets a 421. Minting an invitation
+without the UI, on the server:
+
+```sh
+cd /opt/httpeers-llm && set -a && . ./.env && set +a
+curl -s -u "$ADMIN_USER:$ADMIN_PASSWORD" -H 'content-type: application/json' \
+  -d '{"roles":["member"]}' http://127.0.0.1:8080/hub/api/invitations    # .link is the join URL
+```
+
+### How a change reaches it
+
+`.github/workflows/llm-appliance.yml`, on a push to `main` touching the hub, the packages or
+this directory:
+
+1. **publish** builds `apps/hub/Dockerfile` and pushes `ghcr.io/statewalker/httpeers-hub` as
+   `sha-<commit>` and `latest`. The image carries this directory's deployment files under
+   `/appliance` (compose files, LiteLLM and Traefik config, `scripts/health.sh`, `server/`), so
+   one sha pins the code and the configuration together. A pull request builds the image
+   without pushing it.
+2. **deploy** (only when the repository variable `LLM_DEPLOY_ENABLED` is `true`) connects over
+   SSH with a **forced-command key** and sends `deploy <sha>`. Whatever the client sends, that key
+   runs only `/opt/httpeers-llm/bin/deploy.sh` (`server/deploy.sh`), which accepts a 40-hex sha and
+   nothing else. It pulls that sha's image, copies `/appliance` into `releases/<sha>/`,
+   and runs `docker compose up -d --wait`. It then checks that the hub's peerId is unchanged,
+   `scripts/health.sh` passes, and LiteLLM lists models through the door. When any check fails
+   it brings the previous release back up and fails the job.
+
+**Why this mechanism** rather than the relay's plain SSH key or a pull-based updater:
+
+- The relay's `DEPLOY_SSH_KEY` can run any command as a `docker`-group user, which is root in
+  effect. This key is `restrict`ed (no pty, no forwarding) and can only choose which CI-built
+  image runs. GHCR, which only this repository's workflows can write to, is the trust anchor.
+- A pull-based updater (Watchtower, a timer polling GHCR) updates images but not compose files.
+  Its failures show in no pull request and in no run list, and it needs a registry poll loop
+  on the host. The push model gives a red job when a deploy does not verify.
+- A failed deploy prints container **status only**, never logs. The Actions log of a public
+  repository is public, and the hub's or LiteLLM's logs can name invitations, keys or
+  request bodies.
+
+Measured on the server, 2026-09-18:
+
+- LiteLLM's first start against an empty database took about 2.5 min (migrations), hence
+  `compose.server.yml`'s `start_period: 600s`.
+- Traefik answered 404 for a few seconds after `--wait` returned, hence the door wait in
+  `deploy.sh`.
+- With `APPLIANCE_DATA_DIR` set, a deploy recreates `hub`, `litellm` and `traefik` but not
+  `postgres`. Expect about a minute without the LLM service per deploy.
+
+### Layout on the server
+
+```
+/opt/httpeers-llm/
+  .env                 mode 600: every secret, plus COMPOSE_PROJECT_NAME, COMPOSE_FILE
+                       (compose.yml:compose.server.yml:compose.release.yml),
+                       APPLIANCE_DATA_DIR=/opt/httpeers-llm/data, OPENROUTER_API_KEY
+  data/hub/            the hub's identity and state   } back these up; see "Backup and data"
+  data/postgres/       LiteLLM's database              }
+  releases/<sha>/      one release's /appliance files, .env and data symlinked in,
+                       and compose.release.yml pinning the hub image
+  current -> releases/<sha>
+  bin/deploy.sh        installed by hand from server/deploy.sh
+  deploy.log           one line per deploy
+```
+
+Operating it by hand, on the server: `cd /opt/httpeers-llm/current && docker compose ps` (or
+`logs hub`). After editing `.env`, run `bin/deploy.sh redeploy`. `bin/deploy.sh status` shows the
+running release. **Roll back** with `bin/deploy.sh deploy <older sha>`: every `sha-` image of
+the last three releases stays on the host, and any older one is pulled again from GHCR.
+
+### One-time setup (done 2026-09-18; repeat only to rebuild the host)
+
+1. `install -d -o kotelnikov -m 750 /opt/httpeers-llm` (as root), then in it `data/`,
+   `releases/`, `bin/` (mode 700).
+2. `.env`: generate every secret on the server, as in "Secrets" above (`openssl rand`, the
+   htpasswd hash single-quoted), and add `COMPOSE_PROJECT_NAME=httpeers-llm`,
+   `COMPOSE_FILE=compose.yml:compose.server.yml:compose.release.yml`,
+   `APPLIANCE_DATA_DIR=/opt/httpeers-llm/data`, `HUB_JOIN_PAGE_URL` and
+   `OPENROUTER_API_KEY`. Send the OpenRouter key over stdin, never on a command line. Mode 600.
+3. `scp server/deploy.sh` to `bin/deploy.sh.new`, then `mv` it over `bin/deploy.sh`. The
+   rename matters: `sh` reads a script while it runs, and overwriting a running deploy in place
+   corrupts it. **Re-install it by hand after every change to `server/deploy.sh`**, because the
+   copy inside the image is only for reference.
+4. The key: `ssh-keygen -t ed25519 -N "" -C llm-deploy@httpeers -f k`. Append
+   `restrict,command="/opt/httpeers-llm/bin/deploy.sh" <k.pub>` to `~kotelnikov/.ssh/authorized_keys`.
+   Then `gh secret set LLM_DEPLOY_SSH_KEY < k` and `shred -u k k.pub`.
+5. The repository variables: `gh variable set DEPLOY_KNOWN_HOSTS` with the output of
+   `ssh-keyscan -t ed25519 163.172.46.87` (compare it with a known fingerprint first), and
+   `gh variable set LLM_DEPLOY_ENABLED --body true`. `DEPLOY_HOST` and `DEPLOY_USER` are the
+   relay's existing secrets.
+
 ## Backup and data
 
-Everything durable lives under `./data/` (gitignored):
+Everything durable lives under `./data/` (gitignored), or under `APPLIANCE_DATA_DIR` when that is
+set (`/opt/httpeers-llm/data` on the server):
 
 - `./data/hub/hub.key` — the hub's Ed25519 identity. **Never regenerate this
   without meaning to**: deleting it changes `hub.env`'s `HUB_PEER_ID`, which
@@ -256,10 +378,11 @@ LiteLLM's own tables aren't keyed by `HUB_PEER_ID`.
   gets a 502 at the mesh edge. Streaming (`stream: true`) has no such limit
   — prefer it.
 - **A member is stuck on the relay (`hubLink: relay`) even though you
-  expected direct WebRTC.** That's the default and correct behavior on the
-  plain `compose.yml` (bridge network) — see "Host networking" above. It is
-  also the correct fallback for any member whose own network blocks WebRTC,
-  regardless of the hub's networking.
+  expected direct WebRTC.** On a host behind NAT that is the default and
+  correct behavior of the plain `compose.yml` (bridge network) — see "Host
+  networking" above. It is also the correct fallback for any member whose own
+  network blocks WebRTC, regardless of the hub's networking. (On the
+  httpeers.net server, with a public address, members measured `direct`.)
 - **`docker compose up` hangs with `litellm` unhealthy.** Check
   `docker compose logs litellm` for `litellm-entrypoint: timed out ... waiting
   for /data/hub/hub.env` — this means the hub itself failed to start (check
@@ -286,6 +409,11 @@ LiteLLM's own tables aren't keyed by `HUB_PEER_ID`.
 | `compose.yml` | The appliance: hub, litellm, postgres, traefik |
 | `compose.host.yml` | EXPERIMENTAL: direct WebRTC via host networking (Linux) |
 | `compose.test.yml` | Local smoke test: a fake OpenAI upstream + model registration |
+| `compose.server.yml` | The httpeers.net server: the hub pulled from GHCR, OpenRouter models, LiteLLM's long first start |
+| `litellm/config.server.yaml` | The server's model list (OpenRouter; the key comes from the environment) |
+| `server/deploy.sh` | The server's forced-command deploy script (installed by hand as `/opt/httpeers-llm/bin/deploy.sh`) |
+| `e2e/` | The end-to-end run on the real domains, against this machine's appliance or the server's |
+| `../../.github/workflows/llm-appliance.yml` | CI: publish the hub image, deploy it to the server |
 | `.env.example` | Secrets template — copy to `.env` |
 | `litellm/config.yaml` | LiteLLM's config (the key-header fix; no secrets) |
 | `litellm-entrypoint.sh` | Waits for the hub's identity, sets `SERVER_ROOT_PATH`/`PROXY_BASE_URL`, execs LiteLLM |

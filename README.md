@@ -25,12 +25,16 @@ mesh's own vocabulary in `docs/httpeers/CONTEXT.md`.
 ## Layout
 
 ```
-packages/          the libraries -- see below
-apps/relay/        the circuit relay, and its image
-apps/sites/        the static-site host -- one site per storage prefix
-deploy/            the compose stack, the Caddyfile, the ingress image
-tools/publish/     shell toolkit: publish a site by editing a folder
-.github/workflows/ ci, and one image-publishing workflow per deployable
+packages/              the libraries -- see below
+apps/relay/            the circuit relay, and its image
+apps/sites/            the static-site host -- one site per storage prefix
+apps/hub/              the Node hub daemon (identity, rules, service modules, admin UI), and its image
+apps/llm-chat/         the chat page: standalone (index.html) or over the mesh (mesh.html)
+apps/demos/            the demo sites: hub, app, images, proxy
+deploy/                the compose stack, the Caddyfile, the ingress image
+deploy/llm-appliance/  hub + LiteLLM + Postgres + Traefik, locally or on the server via CI
+tools/publish/         shell toolkit: publish a site by editing a folder
+.github/workflows/     ci, and one image-publishing workflow per deployable
 ```
 
 ## The libraries

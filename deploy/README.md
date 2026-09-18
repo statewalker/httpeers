@@ -9,6 +9,11 @@
 | `sites` | `httpeers-sites` | The static-site host, reading from `rustfs`. |
 | `rustfs` | `rustfs/rustfs` | S3-compatible storage. One first-level prefix per site. |
 
+**A second, separate stack runs on the same host**: the LLM appliance (hub, LiteLLM, Postgres,
+Traefik) in `/opt/httpeers-llm`, compose project `httpeers-llm`, on its own network and with no
+public port. Caddy does not route to it. It is deployed by `.github/workflows/llm-appliance.yml`.
+See `llm-appliance/README.md`, "On the httpeers.net server". Nothing in this file changes for it.
+
 This file lives beside the three things it describes: `docker-compose.yml`, the
 `Caddyfile`, and `ingress/Dockerfile` (Caddy plus the Gandi DNS plugin — a stock Caddy
 image cannot solve the DNS-01 challenge below).

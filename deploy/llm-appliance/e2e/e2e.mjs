@@ -336,16 +336,28 @@ async function chooseModel(page) {
 }
 
 /**
- * Sends `message` and waits for the WHOLE reply (the fake upstream's last word is the model, so a
- * cut-off stream cannot match). Samples the last assistant bubble while it grows.
+ * Sends `message` and waits for the WHOLE reply. Samples the last assistant bubble while it grows.
+ *
+ * With the fake upstream the reply ends with the model's name, so a cut-off stream cannot match.
+ * A real model's reply is unknown, so there the signal is the chat's own: the bubble's action bar
+ * (Copy / Regenerate) is `hideWhenRunning` (src/ui/Thread.tsx), so it appears only once the run
+ * has ended -- and the reply text must be non-empty.
  */
 async function chat(page, message) {
   await page.getByLabel("Message").fill(message);
   const started = Date.now();
   await page.getByRole("button", { name: "Send" }).click();
   const samples = await page.evaluate(
-    async ({ text, timeout }) => {
-      const complete = new RegExp(`reply to: ${text} \\(model [^)]+\\)`);
+    async ({ text, timeout, fake }) => {
+      const expected = new RegExp(`reply to: ${text} \\(model [^)]+\\)`);
+      const complete = (bubble) => {
+        if (bubble == null) return false;
+        if (fake) return expected.test(bubble.textContent ?? "");
+        const done = [...bubble.querySelectorAll("button")].some(
+          (b) => b.textContent?.trim() === "Regenerate",
+        );
+        return done && (bubble.querySelector(".markdown")?.textContent ?? "").trim() !== "";
+      };
       const seen = [];
       const deadline = performance.now() + timeout;
       for (;;) {
@@ -354,12 +366,12 @@ async function chat(page, message) {
         if (current !== "" && seen.at(-1)?.text !== current) {
           seen.push({ text: current, at: Math.round(performance.now()) });
         }
-        if (complete.test(current)) return { seen, complete: true };
+        if (complete(bubbles[bubbles.length - 1])) return { seen, complete: true };
         if (performance.now() > deadline) return { seen, complete: false };
         await new Promise((resolve) => setTimeout(resolve, 25));
       }
     },
-    { text: message, timeout: 60_000 },
+    { text: message, timeout: 60_000, fake: MODEL === "fake" },
   );
   check(
     samples.complete,
@@ -701,7 +713,9 @@ if (facts.pageErrors.length > 0) {
   for (const line of facts.pageErrors) console.log(`  ${line}`);
 }
 console.log(`link modes: ${JSON.stringify(facts.modes ?? {})}`);
-console.log(`hub's link per member (GET /hub/api/members): ${JSON.stringify(facts.hubLinks ?? {})}`);
+console.log(
+  `hub's link per member (GET /hub/api/members): ${JSON.stringify(facts.hubLinks ?? {})}`,
+);
 console.log(`key aliases minted: ${JSON.stringify(facts.keyAliases)}`);
 console.log(`key cleanup: ${facts.keyCleanup?.outcome ?? "SKIP"}`);
 console.log(`artifacts: ${ARTIFACTS}`);
