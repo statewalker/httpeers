@@ -25,6 +25,11 @@
 # RESTARTS. `restart: unless-stopped` on every long-running service: the hub
 # in particular exits 1 on a relay-fetch failure at start (a transient
 # network blip must not leave the appliance down until an operator notices).
+#
+# DATA. Everything durable is under APPLIANCE_DATA_DIR (default ./data). The
+# server sets it to an absolute path: each release there runs from its own
+# directory, and a mount source that changed with the release directory would
+# make compose recreate Postgres on every deploy for no reason.
 networks:
   appliance:
 
@@ -40,7 +45,7 @@ services:
     # (apps/hub/src/local-door.ts); its gate is Traefik (127.0.0.1:8080, basic
     # auth) plus the door secret and Host allowlist Traefik satisfies.
     volumes:
-      - ./data/hub:/data/hub
+      - ${APPLIANCE_DATA_DIR:-./data}/hub:/data/hub
     environment:
       - HUB_SERVICES=llm
       - HUB_LLM_UPSTREAM=http://litellm:4000
@@ -88,7 +93,7 @@ services:
     networks:
       - appliance
     volumes:
-      - ./data/postgres:/var/lib/postgresql/data
+      - ${APPLIANCE_DATA_DIR:-./data}/postgres:/var/lib/postgresql/data
     environment:
       - POSTGRES_USER=litellm
       - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}
@@ -116,7 +121,7 @@ services:
       - ./litellm/config.yaml:/app/config.yaml:ro
       - ./litellm-entrypoint.sh:/litellm-entrypoint.sh:ro
       # Read-only: this container only ever reads the hub's identity.
-      - ./data/hub:/data/hub:ro
+      - ${APPLIANCE_DATA_DIR:-./data}/hub:/data/hub:ro
     environment:
       - DATABASE_URL=postgresql://litellm:${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}@postgres:5432/litellm
       - LITELLM_MASTER_KEY=${LITELLM_MASTER_KEY:?set LITELLM_MASTER_KEY in .env}

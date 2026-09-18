@@ -42,7 +42,7 @@ services:
       fake-llm:
         condition: service_healthy
     volumes:
-      - ./data/hub:/data/hub:ro
+      - ${APPLIANCE_DATA_DIR:-./data}/hub:/data/hub:ro
       - ./test/register-model.mjs:/register-model.mjs:ro
     environment:
       - LITELLM_MASTER_KEY=${LITELLM_MASTER_KEY:?set LITELLM_MASTER_KEY in .env}
