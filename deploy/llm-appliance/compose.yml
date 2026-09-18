@@ -55,6 +55,9 @@ services:
       # The Host a browser uses to reach Traefik (it passes Host through).
       # Change it together with Traefik's published port.
       - HUB_DOOR_ALLOWED_HOSTS=${HUB_DOOR_ALLOWED_HOSTS:-127.0.0.1:8080,localhost:8080}
+      # Optional: how many members may hold a relay reservation on the hub at
+      # once. Empty means the hub's default (4096); see .env.example.
+      - HUB_MAX_RESERVATIONS=${HUB_MAX_RESERVATIONS:-}
     healthcheck:
       # Both halves of "the hub is up": its identity is written (`hub.env`,
       # apps/hub/src/identity.ts) AND the local door answers. `node:http`, not

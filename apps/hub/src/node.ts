@@ -19,8 +19,8 @@
 
 import { noise } from "@chainsafe/libp2p-noise";
 import { yamux } from "@chainsafe/libp2p-yamux";
-import { circuitRelayTransport } from "@libp2p/circuit-relay-v2";
-import { identify } from "@libp2p/identify";
+import { type CircuitRelayService, circuitRelayTransport } from "@libp2p/circuit-relay-v2";
+import { type Identify, identify } from "@libp2p/identify";
 import type { Ed25519PrivateKey, Libp2p } from "@libp2p/interface";
 import { webRTC } from "@libp2p/webrtc";
 import { webSockets } from "@libp2p/websockets";
@@ -42,9 +42,20 @@ export interface CreateHubNodeInit {
    * which is after the node. `membershipGater` reads it at decision time.
    */
   isMember: () => IsMember;
+  /**
+   * The relay's reservation store size (`HUB_MAX_RESERVATIONS`); defaults to
+   * `hubRelayService`'s own, sized for a mesh rather than libp2p's 15.
+   */
+  maxReservations?: number;
 }
 
-export async function createHubNode(init: CreateHubNodeInit): Promise<Libp2p> {
+/** The hub node's services: `relay` is what `releaseReservation` acts on. */
+export interface HubNodeServices extends Record<string, unknown> {
+  identify: Identify;
+  relay: CircuitRelayService;
+}
+
+export async function createHubNode(init: CreateHubNodeInit): Promise<Libp2p<HubNodeServices>> {
   return createLibp2p({
     privateKey: init.privateKey,
     addresses: { listen: ["/p2p-circuit", "/webrtc"] },
@@ -52,7 +63,12 @@ export async function createHubNode(init: CreateHubNodeInit): Promise<Libp2p> {
     connectionEncrypters: [noise()],
     streamMuxers: [yamux()],
     connectionGater: membershipGater(init.isMember),
-    services: { identify: identify(), relay: hubRelayService() },
+    services: {
+      identify: identify(),
+      relay: hubRelayService(
+        init.maxReservations != null ? { maxReservations: init.maxReservations } : {},
+      ),
+    },
   });
 }
 

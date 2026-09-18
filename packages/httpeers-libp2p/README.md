@@ -70,7 +70,7 @@ that:
 |---|---|
 | `reservation` | `dialRelay`, `waitForCircuitReservation`, `circuitAddrs`, `superviseRelay` |
 | `hub-link` | `reachHub`, `reserveOnHub`, `leaveRelay`, `superviseHubReservation` |
-| `hub-relay` | `hubRelayService`, `membershipGater` — a hub relaying for **its own members and nobody else** |
+| `hub-relay` | `hubRelayService`, `membershipGater`, `releaseReservation` — a hub relaying for **its own members and nobody else** |
 | `identity` | `generateKey`, `peerIdOf`, `signerOf`, the persisted `identityStore` |
 | `duplex` | the second altitude — see below |
 
@@ -83,6 +83,17 @@ the wrong one.
 **`membershipGater` takes a thunk, not a value.** A hub's node must exist
 before the member store that answers "is this a member" does, and the thunk is
 read at decision time, which is what closes that ordering cycle.
+
+**A hub's reservation store is sized for a mesh, not for a public relay.**
+libp2p's default holds 15 reservations for two hours each and keeps one after
+its holder hangs up; a hub on it refused every member with
+`RESERVATION_REFUSED` after fifteen distinct peers. `hubRelayService` sizes the
+store at `HUB_MAX_RESERVATIONS` (4096; `{ maxReservations }` overrides it),
+releases a reservation when its holder's last connection closes, and
+`releaseReservation(relay, peerId)` frees a revoked member's slot at once. None
+of this touches the per-circuit data limits (128 KiB, 2 min), which are what
+keep a hub a signalling channel: the store says how *many* members are
+reachable through the hub, not how *much* may cross it.
 
 ## `signerOf` — the bridge that stops a mesh naming nobody
 

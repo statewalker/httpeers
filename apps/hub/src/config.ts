@@ -44,6 +44,15 @@ export interface HubConfig {
    * DNS-rebound name, a bridge IP) is refused.
    */
   doorAllowedHosts: string[];
+  /**
+   * `HUB_MAX_RESERVATIONS`: how many members may hold a relay reservation on
+   * this hub at once (default `HUB_MAX_RESERVATIONS` from
+   * `@statewalker/httpeers-libp2p`, 4096). A member that cannot reserve cannot
+   * join, so this must exceed the members connected at any one time. It sizes
+   * the reservation store only; it does not change how much data a circuit
+   * through the hub may carry.
+   */
+  maxReservations?: number;
   llmUpstream?: string;
   litellmMasterKey?: string;
 }
@@ -80,10 +89,21 @@ function port(env: NodeJS.ProcessEnv, name: string, fallback: number): number {
   return value;
 }
 
+function positiveInteger(env: NodeJS.ProcessEnv, name: string): number | undefined {
+  const raw = setting(env, name);
+  if (raw == null) return undefined;
+  const value = Number(raw);
+  if (!/^\d+$/.test(raw) || !Number.isSafeInteger(value) || value < 1) {
+    throw new Error(`config: ${name} must be a positive integer, got "${raw}"`);
+  }
+  return value;
+}
+
 export function loadConfig(env: NodeJS.ProcessEnv): HubConfig {
   const llmUpstream = setting(env, "HUB_LLM_UPSTREAM");
   const litellmMasterKey = setting(env, "LITELLM_MASTER_KEY");
   const doorSecret = setting(env, "HUB_DOOR_SECRET");
+  const maxReservations = positiveInteger(env, "HUB_MAX_RESERVATIONS");
   return {
     dataDir: setting(env, "HUB_DATA_DIR") ?? DEFAULT_DATA_DIR,
     relayDoc: setting(env, "HUB_RELAY_DOC") ?? DEFAULT_RELAY_DOC,
@@ -93,6 +113,7 @@ export function loadConfig(env: NodeJS.ProcessEnv): HubConfig {
     localDoorHost: setting(env, "HUB_LOCAL_DOOR_HOST") ?? DEFAULT_LOCAL_DOOR_HOST,
     doorAllowedHosts: list(env, "HUB_DOOR_ALLOWED_HOSTS") ?? [...DEFAULT_DOOR_ALLOWED_HOSTS],
     ...(doorSecret != null ? { doorSecret } : {}),
+    ...(maxReservations != null ? { maxReservations } : {}),
     ...(llmUpstream != null ? { llmUpstream } : {}),
     ...(litellmMasterKey != null ? { litellmMasterKey } : {}),
   };
