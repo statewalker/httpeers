@@ -23,6 +23,7 @@
 
 import type { MeshView, MeshViewAdvertisement } from "@statewalker/httpeers-core";
 import { createMounts } from "@statewalker/httpeers-core";
+import { type JoinWidget, mountJoinWidget } from "@statewalker/httpeers-join";
 import type { PeerSession, SessionState } from "@statewalker/httpeers-member";
 import { createSession } from "@statewalker/httpeers-member/browser";
 import type { ImageInfo } from "../shared/images.js";
@@ -37,6 +38,8 @@ const el = <T extends HTMLElement>(id: string): T => {
 };
 
 let session: PeerSession | undefined;
+/** Paste or scan an invitation, see the link, disconnect or leave. Mounted once the session exists. */
+let joinWidget: JoinWidget | undefined;
 /** The live handle, or null when this page is not joined. Read at call time, never cached across a disconnect. */
 let handle: SessionState["handle"] = null;
 
@@ -182,11 +185,6 @@ function render(state: SessionState): void {
   el("state").textContent = state.phase.kind;
   el("peer-id").textContent = state.identity ?? "…";
 
-  el("join-form").hidden = !state.controls.join;
-  el("session-controls").hidden = !(state.controls.disconnect || state.controls.reconnect);
-  el<HTMLButtonElement>("reconnect").hidden = !state.controls.reconnect;
-  el<HTMLButtonElement>("disconnect").hidden = !state.controls.disconnect;
-
   const view = state.handle?.meshView() ?? null;
   el("images-provider").textContent = describe("images", view);
   el("search-provider").textContent = describe("search", view);
@@ -196,14 +194,8 @@ function render(state: SessionState): void {
   el<HTMLButtonElement>("load-images").disabled = !live;
   el<HTMLButtonElement>("do-search").disabled = !live;
 
-  const phase = state.phase;
-  if (phase.kind === "needs-invitation") {
-    el("session-status").textContent = phase.message;
-  } else if (phase.kind === "disconnected" || phase.kind === "blocked" || phase.kind === "failed") {
-    el("live-status").textContent = phase.message;
-  } else if (phase.kind === "live") {
-    el("live-status").textContent = phase.note ?? `Joined by ${phase.joinedBy}.`;
-  }
+  // The join form, the phase and its message, and the session controls.
+  joinWidget?.update(state);
 }
 
 async function main(): Promise<void> {
@@ -221,12 +213,7 @@ async function main(): Promise<void> {
     readDeploymentConfig: async () => null,
   });
 
-  el<HTMLButtonElement>("join").addEventListener("click", () => {
-    const text = el<HTMLInputElement>("invite").value.trim();
-    if (text !== "") void session?.join(text);
-  });
-  el<HTMLButtonElement>("disconnect").addEventListener("click", () => void session?.disconnect());
-  el<HTMLButtonElement>("reconnect").addEventListener("click", () => void session?.reconnect());
+  joinWidget = mountJoinWidget(el("mesh-join"), { session, state: session.state() });
   el<HTMLButtonElement>("load-images").addEventListener("click", () => void loadImages());
   el<HTMLButtonElement>("do-search").addEventListener("click", () => void runSearch());
 

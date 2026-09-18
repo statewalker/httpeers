@@ -74,6 +74,9 @@ importers:
       '@statewalker/httpeers-hub':
         specifier: workspace:*
         version: link:../../packages/httpeers-hub
+      '@statewalker/httpeers-join':
+        specifier: workspace:*
+        version: link:../../packages/httpeers-join
       '@statewalker/httpeers-libp2p':
         specifier: workspace:*
         version: link:../../packages/httpeers-libp2p
