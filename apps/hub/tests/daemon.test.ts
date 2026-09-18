@@ -388,6 +388,26 @@ describe("startDaemon", () => {
     expect(await refused.text()).toContain("revoked");
   }, 90_000);
 
+  it("frees a revoked member's relay reservation: with ONE slot, the next member can still join", async () => {
+    // One slot, so the second join succeeds only if the revoke released the
+    // first member's reservation. The first member stays connected: a slot
+    // freed by its hanging up would prove nothing about the revoke.
+    const daemon = await start({ ...(await configFor()), maxReservations: 1 });
+    const door = `http://127.0.0.1:${daemon.localDoorPort}`;
+
+    const first = await joinMember(daemon, webRTCNode);
+    expect(first.hubLink()).toBe("direct");
+
+    const revoked = await doorFetch(`${door}/hub/api/members/${first.peerId}`, {
+      method: "DELETE",
+    });
+    expect(revoked.status).toBe(200);
+
+    const second = await joinMember(daemon, webRTCNode);
+    expect(second.hubLink()).toBe("direct");
+    expect(first.hubLink()).toBe("direct");
+  }, 90_000);
+
   it("serves the admin API on the mesh mount, gated by std:mesh.admin: a member is refused, an admin is allowed", async () => {
     const daemon = await start(await configFor());
     const member = await joinMember(daemon, webRTCNode);

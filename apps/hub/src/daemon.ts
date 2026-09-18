@@ -24,6 +24,8 @@
  * demos pass no `revocation` to the hub's `withAccess`; this daemon passes the
  * hub's registry, so a revoked member's still-valid token is refused here too,
  * and -- through `persistentRevocations` -- still refused after a restart.
+ * Revoking also releases the member's relay reservation (`releaseReservation`),
+ * so a revoked member does not hold one of the hub's slots until it expires.
  */
 
 import { join } from "node:path";
@@ -37,7 +39,7 @@ import {
 } from "@statewalker/httpeers-core";
 import { createHub, type Hub, usesTransportIdentity } from "@statewalker/httpeers-hub";
 import { fileStorage } from "@statewalker/httpeers-hub/node";
-import { servePeer, signerOf } from "@statewalker/httpeers-libp2p";
+import { releaseReservation, servePeer, signerOf } from "@statewalker/httpeers-libp2p";
 import { createAdminApi } from "./admin-api.js";
 import type { HubConfig } from "./config.js";
 import { loadOrCreateIdentity } from "./identity.js";
@@ -120,7 +122,11 @@ export async function startDaemon(config: HubConfig, modules: ServiceModule[]): 
 
   // Late-bound: the member store does not exist until `createHub` runs.
   let isMember = (_peerId: string): boolean => false;
-  const node = await createHubNode({ privateKey, isMember: () => isMember });
+  const node = await createHubNode({
+    privateKey,
+    isMember: () => isMember,
+    ...(config.maxReservations != null ? { maxReservations: config.maxReservations } : {}),
+  });
 
   const unwind: Array<() => void | Promise<void>> = [() => node.stop()];
   const teardown = async () => {
@@ -201,6 +207,9 @@ export async function startDaemon(config: HubConfig, modules: ServiceModule[]): 
       revoke: async (subject) => {
         hub.members.remove(subject);
         hub.revocations.revoke(subject);
+        // Free its relay slot now, not at expiry. The gater already refuses it
+        // a new one, and relaying to it, since it is no longer a member.
+        releaseReservation(node.services.relay, subject);
         await revocations.flushed();
       },
     });
