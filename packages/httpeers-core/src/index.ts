@@ -33,9 +33,13 @@ export {
   lookupClaims,
   lookupClaimsResult,
   lookupPeer,
+  MESH_CREDENTIAL_HEADERS,
+  MESH_TOKEN_HEADER,
   PEER_ID_HEADER,
+  readMeshToken,
   registerAnonymous,
   registerPeer,
+  setMeshToken,
   stripPeerBinding,
 } from "./peer-context.js";
 

@@ -257,7 +257,7 @@ export type TokenRejectionReason =
  * Widening this type is what makes that distinction expressible at all; the
  * status split lives in `peer-handlers.ts`, which is where the decision is.
  *
- *   - `absent`   — no `authorization: Bearer` header at all.
+ *   - `absent`   — no membership-token header (`MESH_TOKEN_HEADER`) at all.
  *   - `verified` — a token that passed every check, claims included.
  *   - `refused`  — a token was presented and did not verify. `reason` is the
  *     matchable discriminant; `detail` is the one-line prose a refusal

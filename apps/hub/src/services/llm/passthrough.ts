@@ -10,12 +10,15 @@
  * `hubPeerId` is a per-REQUEST value here (`ServiceContext`), not a
  * construction-time one — cheap, since it is just a closure.
  *
- * HEADERS (rule 2). `urlUpstream` already drops `authorization` (a LiteLLM
- * key the dashboard put there is moved to `x-litellm-api-key` first -- see
- * `moveDashboardKey`) and
- * hop-by-hop headers; `stripRequestHeaders: [PEER_ID_HEADER]` drops the
- * proven-peer header too. No `headers` or `credential` is configured here, so
- * the master key is never added — it belongs to `keys.ts` alone.
+ * HEADERS (rule 2). `stripRequestHeaders` drops the mesh's own headers
+ * (`MESH_CREDENTIAL_HEADERS`: the membership token and the proven peer) and
+ * `authorization`; `urlUpstream` drops the hop-by-hop set. `authorization` is
+ * the application's header, not the mesh's, but the appliance configures
+ * LiteLLM to read its key from `x-litellm-api-key` and ignore `authorization`,
+ * so a Bearer key found there is MOVED first (`moveDashboardKey`) and anything
+ * else there -- a reverse proxy's cached Basic login -- is not LiteLLM's to
+ * see. No `headers` or `credential` is configured here, so the master key is
+ * never added — it belongs to `keys.ts` alone.
  *
  * REDIRECTS AND BODIES (rules 3-4) are `rewrite.ts`'s job; this file only
  * decides WHEN to buffer (the two gated endpoints) versus stream (everything
@@ -37,7 +40,7 @@
  * `content-encoding` is present, before either branch below.
  */
 
-import { PEER_ID_HEADER } from "@statewalker/httpeers-core";
+import { MESH_CREDENTIAL_HEADERS } from "@statewalker/httpeers-core";
 import { MARKER, urlUpstream } from "@statewalker/webrun-http-proxy";
 import { rewriteLocation, shouldRewriteBody, stripOrigins } from "./rewrite.js";
 
@@ -58,22 +61,22 @@ const MARKER_ERROR_TEXT: Record<string, string> = {
   "upstream-unreachable": "llm: upstream unreachable",
 };
 
-/** A LiteLLM key: `sk-` then key characters. A mesh token (base64url) never starts with `sk-`. */
-const LITELLM_BEARER = /^Bearer sk-\S+$/;
+/** A bearer credential -- in `authorization`, always the application's own key. */
+const BEARER = /^Bearer \S+$/;
 
 /**
  * LiteLLM's dashboard sends its key as `Authorization: Bearer sk-...` until it
  * has read `litellm_key_header_name` from `/get/ui_settings`, and as
- * `x-litellm-api-key` after that. Every call it makes before that point would
- * lose its key with the dropped `authorization` (rule 2) and get a 401, so a
- * LiteLLM-shaped bearer is moved to `x-litellm-api-key` when that header is
- * absent. Anything else in `authorization` -- the mesh's own token -- is still
- * dropped, never forwarded.
+ * `x-litellm-api-key` after that; its Playground always sends it as
+ * `Authorization` (the OpenAI SDK). The appliance's LiteLLM reads only
+ * `x-litellm-api-key`, so a Bearer value is moved there when that header is
+ * absent. The mesh token never travels in `authorization`
+ * (`MESH_TOKEN_HEADER`), so there is nothing here to tell apart from a key.
  */
 function moveDashboardKey(request: Request): Request {
   const authorization = request.headers.get("authorization");
   if (authorization == null || request.headers.has("x-litellm-api-key")) return request;
-  if (!LITELLM_BEARER.test(authorization)) return request;
+  if (!BEARER.test(authorization)) return request;
   const headers = new Headers(request.headers);
   headers.set("x-litellm-api-key", authorization);
   headers.delete("authorization");
@@ -93,7 +96,7 @@ export function createPassthrough(init: PassthroughInit): Passthrough {
     const request = moveDashboardKey(incoming);
     const forward = urlUpstream({
       base: `${init.upstream}/peers/${hubPeerId}`,
-      stripRequestHeaders: [PEER_ID_HEADER],
+      stripRequestHeaders: [...MESH_CREDENTIAL_HEADERS, "authorization"],
       ...(init.fetchImpl != null ? { fetchImpl: init.fetchImpl } : {}),
     });
     const response = await forward(request);

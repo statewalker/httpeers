@@ -47,7 +47,7 @@ describe("06 — the ghost's pin, in Node", () => {
   it("CLAIM 2 — the viewer's token is attached for the pinned peer", async () => {
     const { handler, log } = build_();
     await handler(new Request("http://viewer.local/ghost/asset.txt"));
-    expect(log.lastAuth).toBe("Bearer VIEWER-TOKEN");
+    expect(log.lastAuth).toBe("VIEWER-TOKEN");
   });
 
   it("CLAIM 3 — a path naming ANOTHER peer is refused, not forwarded", async () => {

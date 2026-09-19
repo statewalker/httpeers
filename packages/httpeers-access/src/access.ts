@@ -35,6 +35,7 @@ import {
   lookupClaims,
   lookupClaimsResult,
   lookupPeer,
+  readMeshToken,
 } from "@statewalker/httpeers-core";
 import { newPeerHandlers } from "./binding.js";
 import { type IssuerKeys, selfCertifyingKeys } from "./keys.js";
@@ -128,8 +129,9 @@ export function withAccess(init: WithAccessInit): (next: FetchHandler) => FetchH
         const cached = lookupClaimsResult(req);
         if (cached !== undefined) return cached;
 
-        const header = req.headers.get("authorization");
-        const token = header?.startsWith("Bearer ") === true ? header.slice(7) : null;
+        // The mesh's own header, never `Authorization` -- that one belongs to
+        // the application behind this peer (see `MESH_TOKEN_HEADER`).
+        const token = readMeshToken(req);
 
         let result: ClaimsResult;
         if (token == null) {

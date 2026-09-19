@@ -7,7 +7,7 @@
 import { generateKeyPair } from "@libp2p/crypto/keys";
 import { ruleSet, withAccess } from "@statewalker/httpeers-access";
 import { mintToken } from "@statewalker/httpeers-access/issuer";
-import { ANONYMOUS, registerPeer } from "@statewalker/httpeers-core";
+import { ANONYMOUS, MESH_TOKEN_HEADER, registerPeer } from "@statewalker/httpeers-core";
 import { peerIdOf, signerOf } from "@statewalker/httpeers-libp2p";
 import { describe, expect, it } from "vitest";
 import { llmModule } from "../src/services/llm/index.js";
@@ -48,7 +48,7 @@ describe("the llm module's rules, behind withAccess", () => {
 
     function withBearer(path: string, token: string, peer: string): Request {
       const request = new Request(`http://hub.local${path}`, {
-        headers: { authorization: `Bearer ${token}` },
+        headers: { [MESH_TOKEN_HEADER]: token },
       });
       registerPeer(request, peer);
       return request;

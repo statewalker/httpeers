@@ -38,7 +38,7 @@
  *    it documents.
  *
  * 2. ATTACH THE MEMBERSHIP TOKEN (Ruling 59). `peer.call()` turns a
- *    `{ token }` option into an `authorization: Bearer` header (`peer.ts`);
+ *    `{ token }` option into a `MESH_TOKEN_HEADER` header (`peer-request.ts`);
  *    `fetch()` has no such option, so without this every mesh call from a
  *    page would arrive at the provider tokenless and be refused 401. The
  *    token is NOT the page's to hold: it rotates on each 5 s heartbeat
@@ -103,7 +103,13 @@
  * holds that shut.
  */
 import type { FetchHandler, PeerErrorKind, PeerIdStr } from "@statewalker/httpeers-core";
-import { json, PeerCallError, stripPeerBinding } from "@statewalker/httpeers-core";
+import {
+  json,
+  MESH_TOKEN_HEADER,
+  PeerCallError,
+  setMeshToken,
+  stripPeerBinding,
+} from "@statewalker/httpeers-core";
 
 /**
  * `PeerErrorKind` -> HTTP status, the whole table.
@@ -232,13 +238,18 @@ export function createEdgeDispatch(init: EdgeDispatchInit): FetchHandler {
     const url = new URL(req.url);
     url.pathname = stripEdgePrefix(url.pathname, key);
     const outbound = new Request(url, req);
-    // NEVER OVERWRITE A CALLER'S OWN authorization HEADER. A page that set
-    // one deliberately -- calling a peer with a token it was handed out of
-    // band, or testing what a provider does with a bad one -- meant it, and
+    // NEVER OVERWRITE A CALLER'S OWN MEMBERSHIP TOKEN. A page that set one
+    // deliberately -- calling a peer with a token it was handed out of band,
+    // or testing what a provider does with a bad one -- meant it, and
     // silently replacing it would make that call untestable and its failure
     // inexplicable.
-    if (!outbound.headers.has("authorization")) {
-      outbound.headers.set("authorization", `Bearer ${init.token()}`);
+    //
+    // `Authorization` is not looked at at all. It is the page's header for
+    // the application it is calling (LiteLLM's dashboard puts its own key
+    // there); when the token lived in it too, a page that set it got no mesh
+    // token and the provider refused the application key `malformed-token`.
+    if (!outbound.headers.has(MESH_TOKEN_HEADER)) {
+      setMeshToken(outbound.headers, init.token());
     }
 
     // Job 4. Before the call, not after a failure: a retry-on-failure shape

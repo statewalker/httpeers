@@ -15,6 +15,7 @@
  */
 
 import type { FetchHandler, PeerIdStr } from "@statewalker/httpeers-core";
+import { MESH_TOKEN_HEADER } from "@statewalker/httpeers-core";
 
 /** A peer id the ghost is NOT pinned to. */
 export const OTHER_PEER: PeerIdStr = "12D3KooWEHUcCvsmTLLoQG28Y2PDkUfddP1WmdSKwY1sSxfANcxR";
@@ -22,15 +23,18 @@ export const OTHER_PEER: PeerIdStr = "12D3KooWEHUcCvsmTLLoQG28Y2PDkUfddP1WmdSKwY
 export interface HostLog {
   /** Every path the host was asked for, in order — so a test can see what did and did not arrive. */
   seen: string[];
-  /** The authorization header of the last request, to check the viewer's token is attached. */
+  /** The membership-token header of the last request, to check the viewer's token is attached. */
   lastAuth: string | null;
+  /** The last request's `Authorization`, which belongs to the page and passes through untouched. */
+  lastAppAuth?: string | null;
 }
 
 export function createHostApp(log: HostLog, useBaseHref: boolean): FetchHandler {
   return async (request: Request): Promise<Response> => {
     const url = new URL(request.url);
     log.seen.push(url.pathname);
-    log.lastAuth = request.headers.get("authorization");
+    log.lastAuth = request.headers.get(MESH_TOKEN_HEADER);
+    log.lastAppAuth = request.headers.get("authorization");
 
     if (url.pathname === "/app/asset.txt") {
       return new Response("asset-from-host", { headers: { "content-type": "text/plain" } });

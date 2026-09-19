@@ -43,7 +43,7 @@ function claimsFor(sub: string): MeshClaims {
   };
 }
 
-/** No `authorization` header at all. */
+/** No membership-token header at all. */
 const ABSENT: ClaimsResult = { status: "absent" };
 
 /** A token that verified. */

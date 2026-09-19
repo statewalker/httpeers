@@ -43,6 +43,42 @@ const claims = new WeakMap<Request, ClaimsResult>();
 export const PEER_ID_HEADER = "x-httpeers-peer";
 
 /**
+ * Where the membership token travels: the bare token, no auth scheme.
+ *
+ * NOT `Authorization`. That header belongs to the application a request is
+ * addressed to -- a page calling LiteLLM through the mesh puts LiteLLM's key
+ * there -- and while the mesh read its token from the same header the two
+ * collided: the edge would not overwrite the page's value, so the provider
+ * tried to verify an application key as a mesh token and refused it
+ * `malformed-token`. Every writer (`peerRequest`, the ServiceWorker edge, the
+ * ghost) and the one reader (`withAccess`) go through this spelling.
+ */
+export const MESH_TOKEN_HEADER = "x-httpeers-token";
+
+/**
+ * The mesh's own headers: what a request LEAVING the mesh must not carry. A
+ * proxy re-issuing a request to a third party passes this as its strip list,
+ * so the upstream learns neither a membership token nor which peer called.
+ * `Authorization` is deliberately absent -- it is the application's, and is
+ * forwarded.
+ */
+export const MESH_CREDENTIAL_HEADERS: readonly string[] = [MESH_TOKEN_HEADER, PEER_ID_HEADER];
+
+/** Put `token` in `headers` as the membership token, replacing any other. */
+export function setMeshToken(headers: Headers, token: string): void {
+  headers.set(MESH_TOKEN_HEADER, token);
+}
+
+/**
+ * The membership token a request carries, or `null` for none. An empty header
+ * is none, and `Authorization` is never consulted -- see `MESH_TOKEN_HEADER`.
+ */
+export function readMeshToken(req: Request): string | null {
+  const token = req.headers.get(MESH_TOKEN_HEADER)?.trim();
+  return token == null || token === "" ? null : token;
+}
+
+/**
  * The wire spelling of `ANONYMOUS`.
  *
  * A symbol cannot be a header value, so the sentinel needs an encoding — and

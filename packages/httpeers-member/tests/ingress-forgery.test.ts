@@ -20,7 +20,7 @@
  * could legitimately observe.
  */
 
-import { lookupPeer, PEER_ID_HEADER } from "@statewalker/httpeers-core";
+import { lookupPeer, MESH_TOKEN_HEADER, PEER_ID_HEADER } from "@statewalker/httpeers-core";
 import { describe, expect, it } from "vitest";
 import { createEdgeDispatch } from "../src/edge-dispatch.js";
 import { createGateway } from "../src/gateway.js";
@@ -73,7 +73,7 @@ describe("the edge strips a claimed identity", () => {
       }),
     );
 
-    expect((seen as unknown as Request).headers.get("authorization")).toBe("Bearer REAL-TOKEN");
+    expect((seen as unknown as Request).headers.get(MESH_TOKEN_HEADER)).toBe("REAL-TOKEN");
   });
 });
 

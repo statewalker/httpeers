@@ -33,7 +33,7 @@ import { circuitRelayTransport } from "@libp2p/circuit-relay-v2";
 import { identify } from "@libp2p/identify";
 import type { Connection, Libp2p } from "@libp2p/interface";
 import { webSockets } from "@libp2p/websockets";
-import { createMounts, PeerCallError } from "@statewalker/httpeers-core";
+import { createMounts, MESH_TOKEN_HEADER, PeerCallError } from "@statewalker/httpeers-core";
 import {
   createRemote,
   type Peer,
@@ -161,7 +161,7 @@ describe("a member reaches its hub over a kept relay circuit", () => {
     const response = await peer.call(
       live.hubPeerId,
       new Request("http://hub.invalid/.well-known/mesh", {
-        headers: { authorization: `Bearer ${token}` },
+        headers: { [MESH_TOKEN_HEADER]: token },
       }),
     );
     expect(response.status).toBe(200);
@@ -180,7 +180,7 @@ describe("a member reaches its hub over a kept relay circuit", () => {
 
     const response = await peer.call(
       live.hubPeerId,
-      new Request("http://hub.invalid/stream", { headers: { authorization: `Bearer ${token}` } }),
+      new Request("http://hub.invalid/stream", { headers: { [MESH_TOKEN_HEADER]: token } }),
     );
     expect(response.status).toBe(200);
     // Mid-stream, the protocol stream is on the kept circuit, not a new one.

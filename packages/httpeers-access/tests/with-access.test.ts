@@ -23,7 +23,7 @@ import { generateKeyPair } from "@libp2p/crypto/keys";
 import type { Ed25519PrivateKey } from "@libp2p/interface";
 import { peerIdFromPrivateKey } from "@libp2p/peer-id";
 import type { FetchHandler } from "@statewalker/httpeers-core";
-import { ANONYMOUS, json, registerPeer } from "@statewalker/httpeers-core";
+import { ANONYMOUS, json, MESH_TOKEN_HEADER, registerPeer } from "@statewalker/httpeers-core";
 import { beforeAll, describe, expect, it } from "vitest";
 import { access, withAccess } from "../src/access.js";
 import { ruleSet } from "../src/rules.js";
@@ -56,9 +56,9 @@ describe("withAccess", () => {
     token = await mintToken({ signer, sub: member, roles: ["member"], ttlMs: 600_000 });
   });
 
-  function request(path: string, bearer?: string): Request {
+  function request(path: string, meshToken?: string, extra: Record<string, string> = {}): Request {
     const req = new Request(`http://peer.local${path}`, {
-      headers: bearer == null ? {} : { authorization: `Bearer ${bearer}` },
+      headers: meshToken == null ? extra : { ...extra, [MESH_TOKEN_HEADER]: meshToken },
     });
     registerPeer(req, member);
     return req;
@@ -140,6 +140,43 @@ describe("withAccess", () => {
 
     expect(response.status).toBeGreaterThanOrEqual(400);
     expect(await response.text()).toContain("removed from the mesh");
+  });
+
+  // AUTHORIZATION BELONGS TO THE APPLICATION. Measured live: LiteLLM's
+  // Playground sends its own key as `Authorization: Bearer sk-...`; while the
+  // mesh read its token from there, that request was refused
+  // `401 "malformed token"` before LiteLLM ever saw it.
+  it("reads the token from MESH_TOKEN_HEADER, not Authorization", async () => {
+    const handler = withAccess({ issuer, rules: RULES, provenPeer: () => member })(ok);
+
+    const response = await handler(
+      request("/data/thing", token, { authorization: "Bearer sk-app-key" }),
+    );
+
+    expect(response.status).toBe(200);
+  });
+
+  it("leaves the application's Authorization on the request for the handler", async () => {
+    const seen: Array<string | null> = [];
+    const handler = withAccess({ issuer, rules: RULES, provenPeer: () => member })(async (req) => {
+      seen.push(req.headers.get("authorization"));
+      return json({ ok: true });
+    });
+
+    await handler(request("/data/thing", token, { authorization: "Bearer sk-app-key" }));
+
+    expect(seen).toEqual(["Bearer sk-app-key"]);
+  });
+
+  it("a mesh token in Authorization is not a mesh token", async () => {
+    const handler = withAccess({ issuer, rules: RULES, provenPeer: () => member })(ok);
+
+    const response = await handler(
+      request("/data/thing", undefined, { authorization: `Bearer ${token}` }),
+    );
+
+    expect(response.status).toBe(401);
+    expect(await response.json()).toEqual({ error: "membership token required" });
   });
 
   it("bootstrap requests skip the token, and are still bound to a proven peer", async () => {
