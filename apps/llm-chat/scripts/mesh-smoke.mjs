@@ -13,8 +13,9 @@
  *                       to the relay circuit; the smoke then requires "Connected (relay)"
  *
  * Steps: an ADMIN joins from `?join=`, sees the link mode and the dashboard link, requests a key,
- * picks the model and streams a reply over the mesh. Then a MEMBER joins in a separate browser
- * context, is refused a key with the 403 message, pastes the admin's key and chats too.
+ * picks the model and streams a reply over the mesh, then creates a key for a member ("Key for a
+ * member"). A MEMBER joins in a separate browser context, is refused a key with the 403 message,
+ * pastes the key the admin created for it and chats too.
  *
  * Prints no secret: not the door credentials, not the invitation, not the minted key.
  */
@@ -139,6 +140,7 @@ async function chooseModelAndChat(page, message) {
 }
 
 let adminKey = "";
+let memberKey = "";
 try {
   step = "an admin joins from ?join=";
   const admin = await openPage("admin");
@@ -202,6 +204,18 @@ try {
   );
   await tab.close();
 
+  step = "the admin creates a key for a member";
+  await admin.getByRole("button", { name: "Key for a member" }).click();
+  const keyDialog = admin.getByRole("dialog", { name: "Key for a member" });
+  await keyDialog.getByLabel("Who is it for").fill("mesh-smoke member");
+  await keyDialog.getByRole("button", { name: "Create key" }).click();
+  const created = keyDialog.getByLabel("The new key");
+  await created.waitFor({ timeout: 30_000 });
+  memberKey = await created.inputValue();
+  check(memberKey !== "" && memberKey !== adminKey, "no new key, or the admin's own key again");
+  await keyDialog.getByRole("button", { name: "Done" }).click();
+  await keyDialog.waitFor({ state: "detached" });
+
   step = "a member joins in its own browser context";
   const member = await openPage("member");
   await joinAs(member, ["member"]);
@@ -210,13 +224,17 @@ try {
     (await member.getByRole("link", { name: "LiteLLM dashboard" }).count()) === 0,
     "a plain member sees the dashboard link",
   );
+  check(
+    (await member.getByRole("button", { name: "Key for a member" }).count()) === 0,
+    "a plain member sees Key for a member",
+  );
 
   step = "the member's Request a key shows the 403 message";
   await member.getByRole("button", { name: "Request a key" }).click();
   await member.getByRole("alert").filter({ hasText: "403" }).waitFor({ timeout: 30_000 });
 
-  step = "the member pastes a key and chats";
-  await member.getByLabel("Key", { exact: true }).fill(adminKey);
+  step = "the member pastes the key the admin created for it and chats";
+  await member.getByLabel("Key", { exact: true }).fill(memberKey);
   await member.getByRole("button", { name: "Use key" }).click();
   await chooseModelAndChat(member, "hello from a member");
 

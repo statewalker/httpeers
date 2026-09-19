@@ -5,6 +5,7 @@ import {
   findLlmAdvert,
   isMeshAdmin,
   KeyRequestError,
+  keyShareText,
   meshConfig,
   mintKey,
 } from "../src/mesh/discover.js";
@@ -146,6 +147,26 @@ describe("mintKey", () => {
     });
   });
 
+  it("names a key minted for someone in its alias, keeping the timestamp that makes it unique", async () => {
+    const { calls, fetchImpl } = fetchAnswering(() => Response.json({ key: "sk-bob" }));
+    expect(await mintKey(fetchImpl, SERVICE, now, "Bob Smith")).toBe("sk-bob");
+    expect(JSON.parse(String(calls[0]?.init?.body))).toEqual({
+      key_alias: "mesh-chat-Bob-Smith-2026-09-15T10:20:30.456Z",
+      duration: "30d",
+    });
+  });
+
+  it("keeps only safe characters of the name, and ignores a blank one", async () => {
+    const { calls, fetchImpl } = fetchAnswering(() => Response.json({ key: "sk-x" }));
+    await mintKey(fetchImpl, SERVICE, now, "  ../al ice@example.com/x ");
+    await mintKey(fetchImpl, SERVICE, now, "   ");
+    const aliases = calls.map((c) => JSON.parse(String(c.init?.body)).key_alias);
+    expect(aliases).toEqual([
+      "mesh-chat-al-ice-example.com-x-2026-09-15T10:20:30.456Z",
+      "mesh-chat-2026-09-15T10:20:30.456Z",
+    ]);
+  });
+
   it("turns a 403 into a KeyRequestError that says an admin must do it", async () => {
     const { fetchImpl } = fetchAnswering(() => new Response("forbidden", { status: 403 }));
     const error = await mintKey(fetchImpl, SERVICE, now).catch((e: unknown) => e);
@@ -159,6 +180,17 @@ describe("mintKey", () => {
     await expect(mintKey(failing.fetchImpl, SERVICE, now)).rejects.toThrow(/502/);
     const keyless = fetchAnswering(() => Response.json({ key_alias: "a" }));
     await expect(mintKey(keyless.fetchImpl, SERVICE, now)).rejects.toThrow(/no key/);
+  });
+});
+
+describe("keyShareText", () => {
+  it("carries the key and the mesh page to paste it into, without the page's query or hash", () => {
+    const text = keyShareText("sk-bob", "https://chat.test/mesh.html?join=secret#x");
+    expect(text).toContain("sk-bob");
+    expect(text).toContain("https://chat.test/mesh.html");
+    expect(text).not.toContain("secret");
+    expect(text).not.toContain("#x");
+    expect(text).toMatch(/30 days/);
   });
 });
 

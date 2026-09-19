@@ -156,6 +156,10 @@ export class KeyRequestError extends Error {
  * Ask the hub to mint a LiteLLM key (spec §5.2). The hub uses its own master key; this request
  * carries no key and no `Authorization`, so the edge attaches the mesh token that authorizes it.
  *
+ * `name` is who the key is for, when an admin mints one to hand to a member: it goes into the
+ * alias, so the dashboard shows whose key is whose and one can be deleted alone. Only letters,
+ * digits, `.`, `_` and `-` are kept.
+ *
  * The alias carries the full timestamp, not just the day: LiteLLM refuses a duplicate key alias.
  * The key expires after `KEY_DURATION` ("30d"), so a forgotten one does not stay live forever; no
  * budget or rate limit is set here — per-member limits are the admin's call (README "LLM keys").
@@ -166,11 +170,17 @@ export async function mintKey(
   fetchImpl: typeof fetch,
   serviceBase: string,
   now: Date = new Date(),
+  name = "",
 ): Promise<string> {
+  const label = name
+    .replace(/[^A-Za-z0-9._-]+/g, "-")
+    .replace(/^[-.]+|[-.]+$/g, "")
+    .slice(0, 40);
+  const alias = `mesh-chat-${label === "" ? "" : `${label}-`}${now.toISOString()}`;
   const response = await fetchImpl(new URL("keys", serviceBase).href, {
     method: "POST",
     headers: { "content-type": "application/json" },
-    body: JSON.stringify({ key_alias: `mesh-chat-${now.toISOString()}`, duration: KEY_DURATION }),
+    body: JSON.stringify({ key_alias: alias, duration: KEY_DURATION }),
   });
   if (response.status === 403) {
     throw new KeyRequestError(
@@ -195,6 +205,21 @@ export async function mintKey(
     throw new KeyRequestError(response.status, "The hub answered with no key.");
   }
   return key;
+}
+
+/**
+ * The message an admin sends a member with a key minted for them: the key, and the mesh page to
+ * paste it into. The page's query and hash are dropped — `?join=` would be the admin's own spent
+ * or, worse, still-valid invitation.
+ */
+export function keyShareText(key: string, pageUrl: string): string {
+  const page = new URL(pageUrl);
+  page.search = "";
+  page.hash = "";
+  return (
+    `Your key for the mesh's LLM chat (valid for 30 days):\n\n${key}\n\n` +
+    `Open ${page.href}, and paste it when the page asks for a key.`
+  );
 }
 
 /**
