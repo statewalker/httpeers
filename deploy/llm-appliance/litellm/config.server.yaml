@@ -25,6 +25,6 @@ model_list:
 
 general_settings:
   master_key: os.environ/LITELLM_MASTER_KEY
-  # Same as config.yaml -- see the comment there. Without it the mesh token and LiteLLM's key
-  # both want `Authorization` and every member call is a 401.
+  # Same as config.yaml -- see the comment there: LiteLLM reads its key from
+  # `x-litellm-api-key`, where the hub, the chat app and the passthrough put it.
   litellm_key_header_name: x-litellm-api-key

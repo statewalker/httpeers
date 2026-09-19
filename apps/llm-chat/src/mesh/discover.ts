@@ -154,7 +154,7 @@ export class KeyRequestError extends Error {
 
 /**
  * Ask the hub to mint a LiteLLM key (spec §5.2). The hub uses its own master key; this request
- * carries no key and no `Authorization`, so the edge attaches the mesh token that authorizes it.
+ * carries no key, only the mesh token the edge attaches (in `x-httpeers-token`) that authorizes it.
  *
  * `name` is who the key is for, when an admin mints one to hand to a member: it goes into the
  * alias, so the dashboard shows whose key is whose and one can be deleted alone. Only letters,
