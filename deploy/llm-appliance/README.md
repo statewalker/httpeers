@@ -151,7 +151,7 @@ long-running service `healthy` once it's ready.
 - **Inviting a member**: mint an invitation in the admin UI (or
   `POST /hub/api/invitations {"roles":["member"]}` through the door), send
   them the link. They open it and join. A member **cannot mint a LiteLLM
-  key** (the hub answers 403); give them one — see "LLM keys" below.
+  key** (the hub answers 403); an admin gives them one — see "LLM keys" below.
 - **Inviting from the mesh page**: an admin on `mesh.html` opens the "Mesh"
   menu, then **Invite someone**. They pick Member or Admin and an expiry
   (1 hour, 1 day or 7 days), then share the link, show its QR code, or copy
@@ -164,11 +164,16 @@ long-running service `healthy` once it's ready.
 
 ## LLM keys
 
-**Only admins mint keys.** Three ways, all equivalent for LiteLLM:
+**Only admins mint keys.** Four ways, all equivalent for LiteLLM:
 
-- **The mesh page as an admin**: join `mesh.html` with an `admin` invitation
-  and press "Request a key". It mints a key with alias
+- **The mesh page as an admin, for yourself**: join `mesh.html` with an
+  `admin` invitation and press "Request a key". It mints a key with alias
   `mesh-chat-<timestamp>` that **expires after 30 days** and has no budget.
+- **The mesh page as an admin, for a member**: in the chat's header, press
+  **Key for a member**, type who it is for, and press **Create key**. The key
+  (alias `mesh-chat-<name>-<timestamp>`, 30 days, no budget) is shown once:
+  **Copy** or **Share** sends a message carrying the key and the `mesh.html`
+  address to paste it into. Closing the dialog drops it; nothing stores it.
 - **The door**: `POST /peers/<hubPeerId>/llm/keys` through Traefik. The hub
   adds the master key itself and forwards only `key_alias`, `user_id`,
   `models`, `max_budget`, `budget_duration`, `duration`, `tpm_limit`,

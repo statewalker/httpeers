@@ -13,7 +13,8 @@
  *   5. No key yet: paste one, or request one from the hub (admins only; a member sees the 403).
  *   6. The chat, with the link mode (the widget's compact mode, whose menu holds Disconnect, Leave
  *      and, for a mesh admin, Invite: member or admin invitations with link, QR code, Share and
- *      Copy) and, for an admin, the LiteLLM dashboard link in its header.
+ *      Copy) and, for an admin, "Key for a member" (`../mesh/member-key.tsx`: mint a key to hand
+ *      to a member) and the LiteLLM dashboard link in its header.
  *
  * THE ONE PAGE THAT REACHES HTTPEERS. Everything mesh-specific is here and in `../mesh/`; the chat
  * itself is `ChatApp` unchanged, handed a different config store.
@@ -35,6 +36,7 @@ import {
   mintKey,
 } from "../mesh/discover.js";
 import { JoinWidgetView } from "../mesh/join-widget.js";
+import { MemberKeyButton } from "../mesh/member-key.js";
 import { startMeshSession } from "../mesh/session.js";
 import { ChatApp } from "../ui/ChatApp.js";
 import { buttonClass, inputClass, primaryButtonClass } from "../ui/Modal.js";
@@ -250,7 +252,16 @@ function MeshPage() {
     ) : null;
   const dashboard =
     admin && (stage.kind === "chat" || stage.kind === "key") ? (
-      <DashboardLink href={stage.service.dashboardUrl} />
+      <>
+        {stage.service.canMintKeys && (
+          <MemberKeyButton
+            fetchImpl={pageFetch}
+            serviceBase={stage.service.serviceBase}
+            pageUrl={location.href}
+          />
+        )}
+        <DashboardLink href={stage.service.dashboardUrl} />
+      </>
     ) : null;
 
   if (stage.kind === "chat") {
