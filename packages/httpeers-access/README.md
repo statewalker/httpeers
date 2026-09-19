@@ -54,6 +54,12 @@ the natural reading order. `withAccess` removes the choice rather than
 documenting it better — it takes no ordering parameter, because there is
 nothing to order. Inside, the composition is exactly the proven one.
 
+`withAccess` reads the token from `x-httpeers-token` (`MESH_TOKEN_HEADER`,
+`httpeers-core`) and **never** from `Authorization`, which it leaves on the
+request for the handler — that header is the application's. A token sent in
+`Authorization` is no token: the request is refused `401 "membership token
+required"`.
+
 ## There is no `DEFAULT_RULES`
 
 The prototype exported one. It derived `std:` capabilities for the demo's

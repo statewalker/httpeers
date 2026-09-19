@@ -57,7 +57,7 @@ what libp2p is.
 | [`httpeers-join`](packages/httpeers-join) | The join-the-mesh widget every page shares: paste or scan an invitation, the link to the hub, disconnect, reconnect, leave, and for a mesh admin, invite others as members or admins. Plain DOM. |
 | [`httpeers-conformance`](packages/httpeers-conformance) | Private. Every prototype rebuilt on the published API, every entry point imported, and one real mesh. |
 
-### Two rules the packages are built on
+### Three rules the packages are built on
 
 **Proven identity is a header, and every ingress strips it.** `x-httpeers-peer`
 carries the peer the *transport* proved. It travels in a header rather than a
@@ -67,6 +67,18 @@ a header is whatever the caller typed, so `registerPeer`, `registerAnonymous`
 and `stripPeerBinding` all strip before they write, and every entry point calls
 exactly one of them. `httpeers-conformance` proves it over a real libp2p
 connection: a peer claiming to be somebody else is overwritten by the handshake.
+
+**The membership token has its own header; `Authorization` is the application's.**
+`x-httpeers-token` carries the bare token (`MESH_TOKEN_HEADER` in
+`httpeers-core`, the only place the name is spelled). The edge, `peerRequest`
+and the ghost write it; `withAccess` reads it and nothing else. `Authorization`
+passes through the mesh untouched, for whatever application the request is
+addressed to. When the token lived in `Authorization` the two collided — LiteLLM's
+Playground sent its own key there, the edge would not overwrite it, and the hub
+refused the key as a `malformed token`. A proxy re-issuing a request outside the
+mesh strips `MESH_CREDENTIAL_HEADERS` (the token and the proven peer), never
+`Authorization`. `httpeers-conformance` scans every library's source to keep it
+that way.
 
 **Isomorphic by default, platform behind an entry point.** A package's root
 runs in Node, in a worker and in a page alike; anything that cannot goes behind

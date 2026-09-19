@@ -34,7 +34,7 @@ is a tested requirement rather than a note.
 |---|---|
 | `types` | `FetchHandler`, `PeerIdStr`, `MeshClaims`, the store **interfaces**, `json()` |
 | `router` | The mount table: longest-prefix matching, and `/{peerId}/…` peer routing |
-| `peer-context` | The proven-peer HEADER (`x-httpeers-peer`), `forwardLocalOnly`, and the claims cache |
+| `peer-context` | The proven-peer HEADER (`x-httpeers-peer`), the membership-token header (`x-httpeers-token`), `forwardLocalOnly`, and the claims cache |
 | `errors` | The peer-call error taxonomy, each with a stable `kind` discriminant |
 | `clock` | A strictly-increasing millisecond clock |
 
@@ -48,6 +48,21 @@ registries change when membership does, and belong to the hub.
 
 The store **interfaces** stay because the type is produced by one package and
 consumed by another that must not depend on it.
+
+## The membership token has its own header
+
+`MESH_TOKEN_HEADER` (`x-httpeers-token`) carries the bare membership token — no
+`Bearer ` scheme. `setMeshToken` writes it, `readMeshToken` reads it (an empty
+value is no token), and `MESH_CREDENTIAL_HEADERS` lists it with the proven-peer
+header as what a request **leaving** the mesh must not carry — the strip list a
+proxy passes to `urlUpstream`.
+
+It is **not** `Authorization`. That header belongs to the application a request
+is addressed to: a page calling LiteLLM through the mesh puts LiteLLM's key
+there. While the token lived in the same header the two collided — the edge will
+not overwrite a page's own value, so no token was attached, and the provider
+refused the application's key as `malformed-token`. Every writer and the one
+reader import the name from here; nothing else spells it.
 
 ## Proven identity is a header
 
