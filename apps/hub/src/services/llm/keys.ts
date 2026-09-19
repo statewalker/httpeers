@@ -80,7 +80,7 @@ export function createKeys(init: KeysInit): KeysHandler {
         headers: {
           "content-type": "application/json",
           // See the module comment: the header LiteLLM actually reads, not
-          // the mesh's own Authorization.
+          // Authorization.
           "x-litellm-api-key": `Bearer ${init.masterKey}`,
         },
         body: JSON.stringify(forwarded),

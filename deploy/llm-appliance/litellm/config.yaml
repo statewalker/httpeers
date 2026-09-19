@@ -7,12 +7,12 @@ model_list: []
 
 general_settings:
   master_key: os.environ/LITELLM_MASTER_KEY
-  # MEASURED (docs/research/2026-09-15-llm-appliance-spikes/litellm-ui-through-mesh.md,
-  # Q3): without this, the dashboard's own credential header and the mesh
-  # edge's biscuit token both want the `Authorization` header, and the mesh
-  # edge never overwrites a caller-set one — so LiteLLM would get a mesh
-  # token instead of a key, and 401. This retargets LiteLLM's own key
-  # extraction (server-side) and the dashboard JS (client-side, via the
-  # login response's `auth_header_name`) to `x-litellm-api-key`, freeing
-  # `Authorization` for the mesh.
+  # Retargets LiteLLM's own key extraction (server-side) and the dashboard JS
+  # (client-side, via the login response's `auth_header_name`) to
+  # `x-litellm-api-key`; with it set, LiteLLM ignores `Authorization` for keys
+  # (MEASURED, docs/research/2026-09-15-llm-appliance-spikes/litellm-ui-through-mesh.md
+  # Q3). It was introduced because the mesh token also lived in `Authorization`;
+  # it no longer does (the mesh uses `x-httpeers-token`), but the hub's `/keys`,
+  # the chat app and the e2e all send the key here, and the hub's passthrough
+  # moves a Bearer key it finds in `Authorization` (the Playground's) here too.
   litellm_key_header_name: x-litellm-api-key

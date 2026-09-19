@@ -1,3 +1,5 @@
+import { setMeshToken } from "@statewalker/httpeers-core";
+
 /**
  * A `Request` addressed at a mesh path.
  *
@@ -13,7 +15,9 @@
  */
 export interface PeerRequestInit extends RequestInit {
   /**
-   * A membership token, placed in `Authorization: Bearer`.
+   * A membership token, placed in `MESH_TOKEN_HEADER` -- never
+   * `Authorization`, which stays the caller's to use for the application it
+   * is calling.
    *
    * The prototype's `peer.call` took this as its own option and built the
    * header internally. Keeping it here rather than making every call site
@@ -27,7 +31,7 @@ export interface PeerRequestInit extends RequestInit {
 export function peerRequest(path: string, init: PeerRequestInit = {}): Request {
   const { token, headers, ...rest } = init;
   const merged = new Headers(headers);
-  if (token != null) merged.set("authorization", `Bearer ${token}`);
+  if (token != null) setMeshToken(merged, token);
   return new Request(`http://peer.local${path.startsWith("/") ? path : `/${path}`}`, {
     ...rest,
     headers: merged,

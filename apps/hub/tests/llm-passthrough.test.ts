@@ -10,6 +10,7 @@ import { once } from "node:events";
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
 import type { AddressInfo } from "node:net";
 import { gzipSync } from "node:zlib";
+import { MESH_TOKEN_HEADER, PEER_ID_HEADER } from "@statewalker/httpeers-core";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { createPassthrough } from "../src/services/llm/passthrough.js";
 
@@ -149,39 +150,41 @@ describe("createPassthrough", () => {
     expect(body.path).toBe(`/peers/${HUB_PEER_ID}/llm/v1/models?foo=bar`);
   });
 
-  it("rule 2: drops authorization and x-httpeers-peer, keeps x-litellm-api-key, never adds a master key", async () => {
+  it("rule 2: drops the mesh token and x-httpeers-peer, keeps x-litellm-api-key, never adds a master key", async () => {
     const passthrough = createPassthrough({ upstream });
     const response = await passthrough(
       new Request("http://mesh.local/llm/v1/models", {
         headers: {
-          authorization: "Bearer mesh-token",
-          "x-httpeers-peer": "12D3KooWSomePeer",
+          [MESH_TOKEN_HEADER]: "mesh-token",
+          [PEER_ID_HEADER]: "12D3KooWSomePeer",
           "x-litellm-api-key": "sk-user-key",
         },
       }),
       HUB_PEER_ID,
     );
     const body = (await response.json()) as { headers: Record<string, string> };
-    expect(body.headers.authorization).toBeUndefined();
-    expect(body.headers["x-httpeers-peer"]).toBeUndefined();
+    expect(body.headers[MESH_TOKEN_HEADER]).toBeUndefined();
+    expect(body.headers[PEER_ID_HEADER]).toBeUndefined();
     expect(body.headers["x-litellm-api-key"]).toBe("sk-user-key");
     // Nothing resembling a master key is ever added: this passthrough
     // constructor takes no master key at all (see PassthroughInit) — the
-    // strongest guarantee available. As a runtime check: no authorization
-    // header appears when the caller sent none.
+    // strongest guarantee available. As a runtime check: no key header
+    // appears when the caller sent none.
     const noAuthCase = await passthrough(
       new Request("http://mesh.local/llm/v1/models"),
       HUB_PEER_ID,
     );
     const noAuthBody = (await noAuthCase.json()) as { headers: Record<string, string> };
     expect(noAuthBody.headers.authorization).toBeUndefined();
+    expect(noAuthBody.headers["x-litellm-api-key"]).toBeUndefined();
   });
 
   // LiteLLM's dashboard sends its key as `Authorization: Bearer sk-...` until
   // it has read `litellm_key_header_name` from /get/ui_settings, and as
-  // `x-litellm-api-key` afterwards. Measured live: after a reload,
-  // /model_group/info and /v2/model/info went out with `Authorization` and got
-  // 401 "Malformed API Key", which left the Add Model form without data.
+  // `x-litellm-api-key` afterwards; its Playground ALWAYS sends it that way
+  // (the OpenAI SDK). Measured live: after a reload, /model_group/info and
+  // /v2/model/info went out with `Authorization` and got 401 "Malformed API
+  // Key", which left the Add Model form without data.
   it("rule 2: moves a LiteLLM key sent as Authorization into x-litellm-api-key", async () => {
     const passthrough = createPassthrough({ upstream });
     const response = await passthrough(
@@ -210,18 +213,8 @@ describe("createPassthrough", () => {
     expect(body.body).toBe(JSON.stringify({ litellm_params: { model: "openrouter/x" } }));
   });
 
-  it("rule 2: never moves a mesh token, and an explicit x-litellm-api-key wins", async () => {
+  it("rule 2: an explicit x-litellm-api-key wins, and Authorization never reaches LiteLLM", async () => {
     const passthrough = createPassthrough({ upstream });
-    const meshToken = await passthrough(
-      new Request("http://mesh.local/llm/v1/models", {
-        headers: { authorization: "Bearer EnQKCgoIbWVzaC10b2tlbg" },
-      }),
-      HUB_PEER_ID,
-    );
-    const meshBody = (await meshToken.json()) as { headers: Record<string, string> };
-    expect(meshBody.headers.authorization).toBeUndefined();
-    expect(meshBody.headers["x-litellm-api-key"]).toBeUndefined();
-
     const both = await passthrough(
       new Request("http://mesh.local/llm/v1/models", {
         headers: { authorization: "Bearer sk-other", "x-litellm-api-key": "Bearer sk-explicit" },
@@ -230,6 +223,23 @@ describe("createPassthrough", () => {
     );
     const bothBody = (await both.json()) as { headers: Record<string, string> };
     expect(bothBody.headers["x-litellm-api-key"]).toBe("Bearer sk-explicit");
+    expect(bothBody.headers.authorization).toBeUndefined();
+  });
+
+  it("rule 2: a non-Bearer Authorization (a reverse proxy's Basic login) is dropped, not moved", async () => {
+    // The local door sits behind basic auth; a browser resends those cached
+    // credentials to every path on the origin. They are the proxy's, not a
+    // LiteLLM key, and LiteLLM has no business seeing them.
+    const passthrough = createPassthrough({ upstream });
+    const response = await passthrough(
+      new Request("http://mesh.local/llm/v1/models", {
+        headers: { authorization: "Basic dXNlcjpwYXNz" },
+      }),
+      HUB_PEER_ID,
+    );
+    const body = (await response.json()) as { headers: Record<string, string> };
+    expect(body.headers.authorization).toBeUndefined();
+    expect(body.headers["x-litellm-api-key"]).toBeUndefined();
   });
 
   it("rule 3: rewrites a Location at the upstream origin to root-relative", async () => {

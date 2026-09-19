@@ -8,8 +8,8 @@
  * prefix matching, path rewriting and a listing are what a router does, and
  * every caller already has one. The package keeps the part that is genuinely
  * its own -- `urlUpstream`, which re-issues a request to an outside origin
- * with the caller's credential consumed, identity headers stripped, hop-by-hop
- * headers dropped and the body streamed.
+ * with the mesh's own headers (membership token, proven peer) stripped,
+ * hop-by-hop headers dropped and the body streamed (`shared/proxy-upstream.ts`).
  *
  * THE ROUTER IS REBUILT WHEN THE TABLE CHANGES, which is the shape a router
  * wants; the old table took a thunk and re-read it per request. Both solve the
@@ -25,13 +25,14 @@
  * 401s after it.
  */
 
-import { createMounts, PEER_ID_HEADER } from "@statewalker/httpeers-core";
+import { createMounts } from "@statewalker/httpeers-core";
 import { type JoinWidget, mountJoinWidget } from "@statewalker/httpeers-join";
 import type { PeerSession, SessionState } from "@statewalker/httpeers-member";
 import { createSession } from "@statewalker/httpeers-member/browser";
-import { MARKER, type Upstream, urlUpstream } from "@statewalker/webrun-http-proxy";
+import { MARKER, type Upstream } from "@statewalker/webrun-http-proxy";
 import { Hono } from "hono";
 import { EDGE_KEY, meshRules } from "../shared/policy.js";
+import { proxyUpstream } from "../shared/proxy-upstream.js";
 import { needsPermissiveGater, readRelayAddrs } from "../shared/relay.js";
 import { localStorageRouteStore, type StoredRoute } from "../shared/route-store.js";
 
@@ -55,17 +56,7 @@ let joinWidget: JoinWidget | undefined;
 
 /** One stored route as a live upstream, carrying whatever secret was typed this session. */
 function upstreamFor(route: StoredRoute): Upstream {
-  const secret = secrets.get(route.prefix);
-  return urlUpstream({
-    base: route.upstream,
-    // Read at REQUEST time, so typing a credential takes effect on the next
-    // call rather than needing anything rebuilt.
-    credential: () => (secret == null ? {} : { [secret.name]: secret.value }),
-    // THE ONE THING THE PROXY USED TO KNOW ABOUT MESHES. A third-party origin
-    // has no business learning which peer called, and the header travels by
-    // default now that proven identity is a header.
-    stripRequestHeaders: [PEER_ID_HEADER],
-  });
+  return proxyUpstream(route, secrets.get(route.prefix));
 }
 
 /**

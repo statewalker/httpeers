@@ -12,7 +12,7 @@ export interface ChatConfig {
   apiKey?: string;
   /**
    * The header that carries the key, as `Bearer <key>`. Absent: `authorization`. The mesh page
-   * sets `x-litellm-api-key`, because there `Authorization` belongs to the mesh token.
+   * sets `x-litellm-api-key`, the header the hub's document advertises for the LiteLLM key.
    */
   apiKeyHeader?: string;
   /** The last list fetched from `GET {baseUrl}/models`. */
@@ -44,8 +44,8 @@ export function startupStep(config: ChatConfig | null): StartupStep {
  * default, because both belonged to the old endpoint.
  *
  * The key header is KEPT unless the endpoint names one: the settings dialog edits only the URL and
- * the key, and silently falling back to `authorization` on a mesh page would put the LLM key where
- * the mesh token goes.
+ * the key, and silently falling back to `authorization` on a mesh page would send the LLM key in a
+ * header other than the one the hub's document advertised.
  */
 export function applyEndpoint(
   previous: ChatConfig | null,

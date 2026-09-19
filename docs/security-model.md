@@ -31,6 +31,11 @@ model.
   forwards. So a remote resource is not merely addressable like a local one; it
   is *called with your credentials automatically*, exactly like a local one. Any
   code running on your origin inherits that authority without asking for it.
+  The token rides in its own header, `x-httpeers-token`, which the edge adds to
+  every request that does not already carry one; the page's `Authorization` is
+  left alone and reaches the target application. A proxy that re-issues a
+  request *outside* the mesh strips the token and the proven-peer header
+  (`MESH_CREDENTIAL_HEADERS`), so a third-party origin never sees either.
 
 - **Authorization is remote.** What actually gets served is decided by the
   **target** peer's Biscuit/Datalog policy at *its* ingress, where the caller's

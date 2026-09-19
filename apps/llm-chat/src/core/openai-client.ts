@@ -2,9 +2,9 @@
  * The OpenAI-compatible HTTP client: `GET /models` and streamed `POST /chat/completions`.
  *
  * The key is sent ONLY when it is set, as `Bearer <key>`, in `apiKeyHeader` (default
- * `authorization`). In mesh mode the header is `x-litellm-api-key`, never `Authorization`: the
- * ServiceWorker edge adds the mesh token only to a request that has no `Authorization`, so a key
- * there would replace the token and the hub would refuse the call.
+ * `authorization`). In mesh mode the header is `x-litellm-api-key`, the one the hub's document
+ * advertises (`llmKey`) and the appliance's LiteLLM reads. The mesh token never competes for it:
+ * the ServiceWorker edge carries that in its own `x-httpeers-token` header.
  */
 
 import type { ChatMessage } from "./sessions.js";

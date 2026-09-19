@@ -145,7 +145,7 @@ export async function rung12_hub(selfPeerId: PeerIdStr, rules: RuleSet): Promise
 // Rung 05 — the reverse proxy, and exposing a local app
 // ---------------------------------------------------------------------------
 
-import { PEER_ID_HEADER } from "@statewalker/httpeers-core";
+import { MESH_CREDENTIAL_HEADERS } from "@statewalker/httpeers-core";
 import { MARKER, type Upstream, urlUpstream } from "@statewalker/webrun-http-proxy";
 
 /**
@@ -157,16 +157,18 @@ import { MARKER, type Upstream, urlUpstream } from "@statewalker/webrun-http-pro
  * its own, which is the point of the rung: a peer exposes an outside origin
  * and a local handler through the same mount, and only the LAST step differs.
  *
- * A local handler is CALLED, so it keeps the caller's `authorization`: a
+ * A local handler is CALLED, so it keeps the caller's membership token: a
  * handler on this side of the proxy still needs to know who is calling. A URL
- * upstream is RE-ISSUED, so `urlUpstream` consumes it.
+ * upstream is RE-ISSUED, so `urlUpstream` consumes the mesh's own headers
+ * (`MESH_CREDENTIAL_HEADERS`) and forwards the application's `authorization`.
  */
 export function rung05_expose(local: FetchHandler): FetchHandler {
   const openai: Upstream = urlUpstream({
     base: "https://api.openai.com/v1",
     // THE ONE THING THE PROXY USED TO KNOW ABOUT MESHES, now passed in:
-    // a third-party origin has no business learning which peer called.
-    stripRequestHeaders: [PEER_ID_HEADER],
+    // a third-party origin has no business seeing a membership token or
+    // learning which peer called.
+    stripRequestHeaders: MESH_CREDENTIAL_HEADERS,
   });
 
   return async (request) => {

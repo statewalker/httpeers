@@ -22,7 +22,7 @@
  */
 
 import type { FetchHandler, PeerIdStr } from "@statewalker/httpeers-core";
-import { PEER_ID_HEADER } from "@statewalker/httpeers-core";
+import { PEER_ID_HEADER, setMeshToken } from "@statewalker/httpeers-core";
 
 /** Where a ghost points: one peer, one path under it. Signed by the hub in a real deployment. */
 export interface Landing {
@@ -86,7 +86,10 @@ export function pinnedPeer(init: PinnedPeerInit): FetchHandler {
     // rebinds from its own transport at ingress, so a value arriving here is
     // at best noise and at worst a claim.
     headers.delete(PEER_ID_HEADER);
-    headers.set("authorization", `Bearer ${init.token()}`);
+    // The VIEWER's token, replacing any the page wrote: the page may not choose
+    // the mesh credential. `Authorization` is the page's own header for its
+    // own app and passes through -- the mesh never reads it.
+    setMeshToken(headers, init.token());
 
     const forwarded = new Request(target, {
       method: request.method,
