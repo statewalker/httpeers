@@ -49,6 +49,40 @@ Other settings are listed at the top of `e2e.mjs`: `HUB_DOOR_URL`, `MESH_PAGE_UR
 `HUB_CONTAINER`, `E2E_NETWORK`, `E2E_PW_CONTAINER`, `E2E_PW_IMAGE`, `E2E_KEEP_ISOLATED=1` (leave the
 isolated container and network up) and `LLM_MODEL`.
 
+## Against a locally prepared appliance (`--local`)
+
+```sh
+E2E_ARTIFACTS=/tmp/llm-e2e node deploy/llm-appliance/e2e/e2e.mjs --local
+```
+
+Drives the same six steps against a local-model backend (`../BACKENDS.md`) prepared on this
+machine instead of the server -- the appliance still up from `docker compose -f compose.yml -f
+compose.local.yml -f compose.models.yml up -d` (or whatever overlay `bin/prepare.sh` chose), with
+`ADMIN_USER`/`ADMIN_PASSWORD` in its `.env` and models downloaded under `models/`. `--local`
+differs from server mode in exactly four ways (see `e2e.mjs`'s own file doc for the full
+rationale):
+
+1. **The door** is `http://127.0.0.1:<APPLIANCE_DOOR_PORT>` (from `.env`, default 8080) with the
+   local `.env`'s admin credentials, instead of the fixed `http://127.0.0.1:8080`.
+   `HUB_DOOR_URL` still overrides either mode outright.
+2. **The invitation is consumed as a blob**: minted through the door, then pasted straight into
+   the published page's own join form (`Paste an invitation` / `Join`) rather than navigated to as
+   a `?join=` link. Same published page, same origin -- only the door and the join mechanics
+   differ; the local hub still dials the public relay like any other.
+3. **The expected model ids** come from `models/manifest.lock.json` -- the tier actually
+   prepared -- never a hard-coded list. Step 2's model picker (itself backed by a real
+   `GET …/v1/models` through the mesh) is asserted equal to it, and `LLM_MODEL` defaults to the
+   tier's first id (alphabetically) rather than `fake`.
+4. **No assertion about transport.** A same-host run reports `direct` or `relay` for reasons that
+   say nothing about real NAT traversal (a remote peer is the only test of that -- see the spec's
+   Task 15), so `--local` makes no claim about which one a step sees.
+
+Everything else -- the isolated-browser dance and its network-isolation control, the dashboard
+check, member B's refused admin paths, the revocation poll, host browser C -- runs exactly as it
+does against the server, against the locally running containers.
+
+The last recorded `--local` run is in `RESULTS.md`.
+
 ## Against the httpeers.net server
 
 The same script drives the appliance CI deployed on the server (see `../README.md`, "On the
