@@ -163,9 +163,11 @@ make it acceptable, and §4 dictates their mechanics.
    and that worker answers every request the app makes — `index.html` included —
    over the port. So the app gets plain `fetch()` and root-absolute URLs, *and*
    its own storage, cookies and worker; the port's handlers are the broker, and
-   hold the pin (`pinnedPeer`) and whatever policy the shell applies. The app
-   has no mount on the shell's origin and no identity of its own. The name is
-   not a secret; authority is the port, never the name.
+   they decide, per mount, what the app reaches — the pin (`pinnedPeer`) at the
+   root, and in this deployment the whole mesh under `/peers/`, which is a
+   deliberately wider grant than a pin and is spelled out below. The app has no
+   mount on the shell's origin and no identity of its own. The name is not a
+   secret; authority is the port, never the name.
 
 ### A session is a mesh window, pinned at the root
 
@@ -179,7 +181,12 @@ demo registers two, and the pair is the whole boundary:
   to the one peer that serves it and cannot be steered anywhere else.
 - **`/peers/` is the mesh.** `createGateway` takes `/peers/<peerId>/<path>` and
   dispatches it through the ghost app's member. An app in a session may
-  therefore call **any peer the parent can see.**
+  therefore call **any peer the parent can see** — and `GET /peers/` is that
+  gateway's own listing, answering with whether the mesh view is ready, this
+  peer's own id, the view's version, every member with its roles, and every
+  advertisement with the peer offering it and its `id`, `kind` and `title`
+  (never a URL — the mesh view carries no service paths). **So an app in a
+  session does not have to be told which peers exist: it can ask.**
 
 State that plainly, because it is a real widening and it is intended:
 
@@ -188,16 +195,23 @@ State that plainly, because it is a real widening and it is intended:
    is allowed is the **target peer's own ingress policy** (its Datalog rules) —
    not the session, which is a window and not a firewall. A session hands an app
    the same reach its host page already has.
-2. **The app never sees the membership token.** The ghost app's edge attaches it
+2. **Enumeration is part of the widening, not a separate future feature.** The
+   listing above ships in `createGateway` and `session-frame.ts` wires that same
+   gateway into every session, so a hostile app's first move can be to read the
+   membership and the advertised kinds and then choose what to call. Discovery
+   was never the boundary here — the callee's policy is — but a provider that
+   assumed nobody would learn its peer id from inside a session assumed wrong.
+3. **The app never sees the membership token.** The ghost app's edge attaches it
    after the request has left the session (`createEdgeDispatch`), so an app can
    spend the viewer's authority on a call but cannot carry it away, replay it
    elsewhere, or read it out of its own request.
-3. **One origin per app still holds.** The widening is about *reach*, not about
+4. **One origin per app still holds.** The widening is about *reach*, not about
    containment: a hostile app in a session still cannot read another app's
    storage, cookies, IndexedDB or DOM, because each session is its own origin
    (§10). What it can do is talk to peers — and a peer that must not be talked
-   to by a member's app has to say so in its own policy.
-4. **`/peers/` is reserved, and the key space with it.** An app cannot own
+   to by a member's app has to say so **in its own policy**, because it cannot
+   rely on not being reachable by name or on not being found.
+5. **`/peers/` is reserved, and the key space with it.** An app cannot own
    `/peers/`, and `openSession` holds every allowlisted service key it is not
    using: a session name is not a secret, so a second ghost is free to frame a
    live session's relay, and an unheld key mounted at `/index.html` would
@@ -222,7 +236,7 @@ State that plainly, because it is a real widening and it is intended:
 | **Running ad-hoc / untrusted foreign code on your origin** | It inherits your identity key and full mesh authority — measured, not theoretical (§10) |
 | **Treating the client-side mount as a boundary *between apps on one peer*** | Same origin = one trust domain: shared authority, storage, DOM |
 | **Relying on the pin or a same-origin CSP to contain a hostile app** | They stop mesh-walking and accidental egress, not storage/DOM theft |
-| **Treating a session as a bound on *which peers* an app may call** | `/peers/` is a window onto the whole mesh the host page can see; the bound is the target peer's own ingress policy (§6) |
+| **Treating a session as a bound on *which peers* an app may call, or on which it can discover** | `/peers/` is a window onto the whole mesh the host page can see, and `GET /peers/` lists it; the bound is the target peer's own ingress policy (§6) |
 | **Keeping secrets or capabilities in origin storage** next to untrusted code | Any on-origin code reads them and exfiltrates through an allowed mount |
 | **Executing a mesh response** (`eval`, `innerHTML`, a running template) | Turns data into code — crosses the one line that must not be crossed |
 | **"Advertised ⇒ safe to render blindly"** | A malicious provider serves hostile content; the consumer that renders it pays |
