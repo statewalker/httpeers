@@ -25,6 +25,7 @@
  */
 
 import type { FetchHandler, MeshView, PeerIdStr } from "@statewalker/httpeers-core";
+import { MESH_CREDENTIAL_HEADERS } from "@statewalker/httpeers-core";
 import { pinnedPeer } from "@statewalker/httpeers-ghost";
 import { createGateway } from "@statewalker/httpeers-member";
 import {
@@ -109,6 +110,36 @@ export function withDeadline(
   };
 }
 
+/**
+ * Ingress for the route the app addresses ITSELF: drop every mesh credential
+ * the caller supplied, so the edge attaches the VIEWER's.
+ *
+ * A session's app is foreign code on that origin. `createGateway` strips the
+ * proven-peer header, but the member's edge deliberately does NOT overwrite a
+ * membership token a caller already set (a page that wrote one "meant it"), so
+ * without this the app chose the credential its call travelled under -- its
+ * own bad token (a self-DoS), or, read from anywhere it could reach one, the
+ * serving peer's, which would put that peer's membership on the viewer's
+ * connection and make the audit trail name the wrong party. `pinnedPeer` has
+ * enforced the same rule at the root since it was written ("the page may not
+ * choose the mesh credential"), and `docs/security-model.md` §6 claims 1 and 3
+ * assert it for every call a session makes.
+ *
+ * ONLY ON THE MESH PATH, never in `dispatch`. `dispatch` also carries
+ * `pinnedPeer`'s requests, and `pinnedPeer` attaches the viewer's token BEFORE
+ * they reach it -- a strip there would remove the credential it just set and
+ * leave the session's root route unauthenticated.
+ */
+export function withoutMeshCredentials(handler: FetchHandler): FetchHandler {
+  return async (request) => {
+    // In place, as `stripPeerBinding` does on this same request one frame
+    // down inside `createGateway`: these requests are built by the relay page
+    // from a port message, so their headers are mutable.
+    for (const name of MESH_CREDENTIAL_HEADERS) request.headers.delete(name);
+    return await handler(request);
+  };
+}
+
 /** What a session serves for a mesh app: the app at `/`, the mesh at `/peers/`. */
 export function meshAppServices(init: OpenMeshAppInit): SessionService[] {
   const deadlineMs = init.deadlineMs ?? 20_000;
@@ -131,18 +162,20 @@ export function meshAppServices(init: OpenMeshAppInit): SessionService[] {
     token: init.member.token,
     remote: callThroughMember(dispatch, EDGE_KEY),
   });
-  const mesh = createGateway({
-    source: {
-      peerId: init.member.peerId,
-      fetch: dispatch,
-      meshView: init.member.meshView,
-    },
-    // The library does NOT strip the mount prefix, and createGateway strips
-    // this one itself -- so the two line up exactly, and stripping here too
-    // would send the edge a path with no peer in it.
-    basePath: MESH_PREFIX.replace(/\/$/, ""),
-    edgeKey: EDGE_KEY,
-  });
+  const mesh = withoutMeshCredentials(
+    createGateway({
+      source: {
+        peerId: init.member.peerId,
+        fetch: dispatch,
+        meshView: init.member.meshView,
+      },
+      // The library does NOT strip the mount prefix, and createGateway strips
+      // this one itself -- so the two line up exactly, and stripping here too
+      // would send the edge a path with no peer in it.
+      basePath: MESH_PREFIX.replace(/\/$/, ""),
+      edgeKey: EDGE_KEY,
+    }),
+  );
   return [
     { key: APP_SERVICE_KEY, path: "/", handler: withDeadline(app, deadlineMs) },
     { key: MESH_SERVICE_KEY, path: MESH_PREFIX, handler: withDeadline(mesh, deadlineMs) },

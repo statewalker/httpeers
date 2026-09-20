@@ -201,10 +201,17 @@ State that plainly, because it is a real widening and it is intended:
    membership and the advertised kinds and then choose what to call. Discovery
    was never the boundary here — the callee's policy is — but a provider that
    assumed nobody would learn its peer id from inside a session assumed wrong.
-3. **The app never sees the membership token.** The ghost app's edge attaches it
-   after the request has left the session (`createEdgeDispatch`), so an app can
-   spend the viewer's authority on a call but cannot carry it away, replay it
-   elsewhere, or read it out of its own request.
+3. **The app never sees the membership token, and never chooses it.** The ghost
+   app's edge attaches it after the request has left the session
+   (`createEdgeDispatch`), so an app can spend the viewer's authority on a call
+   but cannot carry it away, replay it elsewhere, or read it out of its own
+   request. It cannot *supply* one either: the edge deliberately leaves a token
+   a caller already set alone, so the session's mesh handler strips
+   `MESH_CREDENTIAL_HEADERS` off every request entering `/peers/`
+   (`session-frame.ts`'s `withoutMeshCredentials`) — exactly as `pinnedPeer`
+   overwrites them on the root route. Without that strip the app picked the
+   credential its call travelled under, which is a self-DoS at best and a
+   mis-attributed call at worst.
 4. **One origin per app still holds.** The widening is about *reach*, not about
    containment: a hostile app in a session still cannot read another app's
    storage, cookies, IndexedDB or DOM, because each session is its own origin

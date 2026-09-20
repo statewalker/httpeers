@@ -2,7 +2,11 @@
  * The session demo, minus the browser: the hub's app and the pinned handler
  * a session's requests land in, wired as the app page wires them.
  */
-import { type FetchHandler, MESH_TOKEN_HEADER } from "@statewalker/httpeers-core";
+import {
+  type FetchHandler,
+  MESH_TOKEN_HEADER,
+  PEER_ID_HEADER,
+} from "@statewalker/httpeers-core";
 import { pinnedPeer } from "@statewalker/httpeers-ghost";
 import { beforeEach, describe, expect, it } from "vitest";
 import { createDemoSpa, SPA_ADVERTISEMENT } from "../src/shared/demo-spa.js";
@@ -124,8 +128,17 @@ describe("a session's requests, as the app page routes them", () => {
  */
 let seenPaths: string[] = [];
 
+/**
+ * What the member's edge was handed BESIDE the path: the two mesh credential
+ * headers. A session's app is foreign code on that origin, so what it can put
+ * in these is a claim -- and the edge, which attaches the viewer's own token
+ * only when none is present, cannot tell a claim from a fact.
+ */
+let seenCredentials: Array<{ token: string | null; peer: string | null }> = [];
+
 beforeEach(() => {
   seenPaths = [];
+  seenCredentials = [];
 });
 
 /**
@@ -148,6 +161,10 @@ function wireServices() {
   let current: FetchHandler | null = async (request) => {
     const url = new URL(request.url);
     seenPaths.push(`${url.pathname}${url.search}`);
+    seenCredentials.push({
+      token: request.headers.get(MESH_TOKEN_HEADER),
+      peer: request.headers.get(PEER_ID_HEADER),
+    });
     // The member's edge: /peers/<peer>/<rest> -> that peer's handler.
     const [, , peer, ...rest] = url.pathname.split("/");
     if (peer === HUB) {
@@ -244,6 +261,44 @@ describe("a session's two services", () => {
     setFetch(async () => new Response("B"));
     const second = await app?.handler(new Request("https://abc.p.httpeers.net/api/hello"));
     expect(await second?.text()).toBe("B");
+  });
+
+  /**
+   * THE APP MAY NOT CHOOSE THE MESH CREDENTIAL, on the route it addresses
+   * itself. `createGateway` strips only the proven-peer header, and the
+   * member's edge deliberately does NOT overwrite a token a caller already
+   * set -- so foreign code in the session could send its own, or its serving
+   * peer's, and the call would leave carrying it. `pinnedPeer` has enforced
+   * the opposite rule at the root since it was written; this is the same rule
+   * on `/peers/`, and the security model's §6 claims 1 and 3 assert it.
+   */
+  it("strips a forged mesh credential before the /peers/ route reaches the edge", async () => {
+    const { services } = wireServices();
+    const mesh = services.find((s) => s.path === "/peers/");
+    const res = await mesh?.handler(
+      new Request(`https://abc.p.httpeers.net/peers/${OTHER}/llm/v1`, {
+        headers: { [MESH_TOKEN_HEADER]: "FORGED-BY-THE-APP", [PEER_ID_HEADER]: HUB },
+      }),
+    );
+    expect(res?.status).toBe(200);
+    // Nothing of the app's own: the edge attaches the VIEWER's token because
+    // it finds none, and binds no peer because nothing proved one.
+    expect(seenCredentials).toEqual([{ token: null, peer: null }]);
+  });
+
+  // THE REGRESSION GUARD FOR THE STRIP ABOVE. `dispatch` is shared with
+  // `pinnedPeer`, which sets the token itself BEFORE the request reaches it,
+  // so a strip in the wrong place would silently unauthenticate the root.
+  it("still carries the viewer's own token on the pinned root route", async () => {
+    const { services } = wireServices();
+    const app = services.find((s) => s.path === "/");
+    const res = await app?.handler(
+      new Request("https://abc.p.httpeers.net/api/hello", {
+        headers: { [MESH_TOKEN_HEADER]: "FORGED-BY-THE-APP", [PEER_ID_HEADER]: HUB },
+      }),
+    );
+    expect(res?.status).toBe(200);
+    expect(seenCredentials).toEqual([{ token: "TOKEN", peer: null }]);
   });
 
   // Not a 502 from a dead node's dispatch and not a 504 from the deadline --
