@@ -2,6 +2,7 @@
  * The session demo, minus the browser: the hub's app and the pinned handler
  * a session's requests land in, wired as the app page wires them.
  */
+import { MESH_TOKEN_HEADER } from "@statewalker/httpeers-core";
 import { pinnedPeer } from "@statewalker/httpeers-ghost";
 import { describe, expect, it } from "vitest";
 import { createDemoSpa, SPA_ADVERTISEMENT } from "../src/shared/demo-spa.js";
@@ -47,7 +48,9 @@ describe("a session's requests, as the app page routes them", () => {
     const spa = createDemoSpa();
     const memberFetch = async (request: Request): Promise<Response> => {
       const url = new URL(request.url);
-      seen.push(`${url.pathname}${url.search} ${request.headers.get("authorization")}`);
+      // The MEMBERSHIP token, in its own header: `Authorization` belongs to the
+      // app and the mesh never reads it (`MESH_TOKEN_HEADER`).
+      seen.push(`${url.pathname}${url.search} ${request.headers.get(MESH_TOKEN_HEADER)}`);
       // The member's edge: /peers/<peer>/<rest> -> that peer's handler.
       const [, , peer, ...rest] = url.pathname.split("/");
       if (peer !== HUB) return new Response("unreachable", { status: 502 });
@@ -67,14 +70,14 @@ describe("a session's requests, as the app page routes them", () => {
     const res = await handler(new Request("https://abc.p.httpeers.net/"));
     expect(res.status).toBe(200);
     expect(await res.text()).toContain("A mesh app, in its own origin");
-    expect(seen).toEqual([`/peers/${HUB}/spa/ Bearer TOKEN`]);
+    expect(seen).toEqual([`/peers/${HUB}/spa/ TOKEN`]);
   });
 
   it("maps a root-absolute path to the app's mount on the same peer", async () => {
     const { handler, seen } = wire();
     const res = await handler(new Request("https://abc.p.httpeers.net/api/hello?x=1"));
     expect((await res.json()).message).toContain("over the mesh");
-    expect(seen).toEqual([`/peers/${HUB}/spa/api/hello?x=1 Bearer TOKEN`]);
+    expect(seen).toEqual([`/peers/${HUB}/spa/api/hello?x=1 TOKEN`]);
   });
 
   it("cannot be steered to another peer", async () => {
