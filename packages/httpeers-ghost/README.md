@@ -73,6 +73,26 @@ than containment.
 `policyFor` and `frameSandbox` are exported so a caller can inspect or reuse
 the exact policy rather than re-deriving it.
 
+### What `contain` is not: a boundary against a hostile app
+
+Under `csp` the ghost iframe is **same-origin with the viewer**. Measured on
+2026-09-15 against a deliberately hostile host app: it read the viewer's
+`localStorage`, enumerated the IndexedDB that holds the identity key, and
+rewrote the viewer's DOM, and the policy stopped none of it — a CSP governs
+where a document may *fetch*, not what same-origin script may *touch*. `csp`
+contains a trusted app's accidental escape; it does not contain an untrusted
+one.
+
+**For an app you do not trust, give it an origin of its own.** The subdomain
+option this package once rejected now exists: `apps/session-shell` serves every
+`<name>.p.httpeers.net` as an empty session that a viewer feeds over a
+`MessagePort`. Use `pinnedPeer` as that port's handler — with `basePath: "/"`,
+because the whole session origin is the app's — and skip `contain`: in its own
+origin a root-absolute URL is the session's own path, so the escape `contain`
+exists for cannot happen. `apps/demos` (`src/shared/session-frame.ts`) is the
+worked example, and its `scripts/session-smoke.mjs` measures the isolation in
+Chromium and Firefox.
+
 ## `PIN_REFUSED`
 
 A request the pin will not express comes back **403 with the
@@ -89,9 +109,16 @@ The dependency list is one entry: `@statewalker/httpeers-core`. `remote` and
 `token` are callbacks, so this package neither dials nor knows what a token is,
 and `tests/boundary.test.ts` asserts it.
 
+## Request bodies in Firefox
+
+Firefox has no `Request.prototype.body` (checked against 155), so a forwarder
+that passes `request.body` on sends every POST with no body at all, silently.
+`pinnedPeer` streams the body where the runtime can and reads it whole where it
+cannot; a test hides the property to stand in for that browser.
+
 ## Tests
 
-**20.** `tests/contain.test.ts` drives a real host app fixture
+**21.** `tests/contain.test.ts` drives a real host app fixture
 (`tests/host-app.ts`) through all three modes against the same escape, which is
 the only way the comparison means anything — a containment tested against a
 different attack from the one that motivated it proves nothing.

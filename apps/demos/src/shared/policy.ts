@@ -30,6 +30,7 @@ export function meshRules(): RuleSet {
       'capability("app:images.read")    <- role("member");',
       'capability("app:search.query")   <- role("member");',
       'capability("app:proxy.use")      <- role("member");',
+      'capability("app:spa.read")       <- role("member");',
       // Admin implies member -- transitivity is what a rule does, so there is no
       // separate `implies` feature to maintain.
       'capability("std:mesh.admin")     <- role("admin");',
@@ -48,6 +49,10 @@ export function meshRules(): RuleSet {
       // and the slash-prefixed match are written separately.
       'allow if capability("app:proxy.use"), resource("/proxy")' +
         ' or capability("app:proxy.use"), resource($r), $r.starts_with("/proxy/");',
+      // The demo app a session opens (`demo-spa.ts`). Both forms, as for
+      // `/proxy`: `/spa` itself and everything under `/spa/`, not `/spa-other`.
+      'allow if capability("app:spa.read"), resource("/spa")' +
+        ' or capability("app:spa.read"), resource($r), $r.starts_with("/spa/");',
       'allow if capability("std:mesh.admin"), resource("/admin")' +
         ' or capability("std:mesh.admin"), resource($r), $r.starts_with("/admin/");',
     ],

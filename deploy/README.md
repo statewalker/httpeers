@@ -4,7 +4,7 @@
 
 | Service | Image | What it is |
 |---|---|---|
-| `caddy` | `httpeers-ingress` | The only service with published ports (`80`, `443`). Holds the certificates and routes by `Host`. |
+| `caddy` | `httpeers-ingress` | The only service with published ports (`80`, `443`). Holds the certificates (`*.httpeers.net`, `*.p.httpeers.net`) and routes by `Host`. |
 | `relay` | `httpeers-relay` | The circuit relay. Reached through Caddy, never directly. |
 | `sites` | `httpeers-sites` | The static-site host, reading from `rustfs`. |
 | `rustfs` | `rustfs/rustfs` | S3-compatible storage. One first-level prefix per site. |
@@ -39,6 +39,7 @@ on external nameservers this will not apply). Then **Add**:
 | --- | --- | --- | --- |
 | `A` | `*` | `<server ip>` | 3600 |
 | `A` | `@` | `<server ip>` | 3600 |
+| `A` | `*.p` | `<server ip>` | 3600 |
 
 The `*` record is the point of the whole design: it points **every** unassigned subdomain at
 the server, so publishing a new site needs no DNS change — and with the wildcard certificate,
@@ -48,8 +49,21 @@ no Caddy change either. It does not override more specific records, so an explic
 The `@` record covers the bare apex `httpeers.net`, which a wildcard does **not** match. Skip
 it if the apex is not wanted.
 
+The `*.p` record is for **session origins**, `<name>.p.httpeers.net` (see
+`apps/session-shell`). It looks redundant — while `p.httpeers.net` does not exist in the
+zone, the `*` record already answers for `abc.p.httpeers.net` — and it is not. Issuing the
+`*.p.httpeers.net` certificate writes a TXT record at `_acme-challenge.p.httpeers.net`,
+which makes `p.httpeers.net` exist as an *empty non-terminal*; from then on it is the
+closest encloser for every session name, the `*` record no longer applies (RFC 4592), and
+without `*.p` every session name is NXDOMAIN for as long as the challenge record exists —
+at every issuance and renewal, plus negative caching. A side effect of the record: the
+bare `p.httpeers.net` stops resolving (NOERROR, no address), which is correct — it is not
+a site.
+
 Gandi accepts a wildcard record without validating it, so a typo here fails silently at
-resolution time rather than at entry.
+resolution time rather than at entry. (`*.p` is accepted as a name: created through the
+LiveDNS API on 2026-09-18 with the same Personal Access Token Caddy uses — its
+"technical configuration" permission covers A records as well as TXT.)
 
 ### 2. The Personal Access Token
 
@@ -138,6 +152,20 @@ openssl s_client -connect <server ip>:443 -servername nonesuch.httpeers.net </de
 
 The SAN list must contain `*.httpeers.net`.
 
+Session origins have a certificate of their own (`*.httpeers.net` matches one label and
+does not cover `abc.p.httpeers.net`). Check it the same way, with a name nothing has used,
+and check the DNS answer too:
+
+```sh
+dig +short nonesuch123.p.httpeers.net          # the server's address
+openssl s_client -connect <server ip>:443 -servername nonesuch123.p.httpeers.net </dev/null 2>/dev/null \
+  | openssl x509 -noout -issuer -ext subjectAltName   # must list *.p.httpeers.net, issuer Let's Encrypt
+```
+
+Run the `dig` again **during** an issuance or renewal (`docker compose logs caddy | grep
+'p.httpeers.net'`): that is when a missing `*.p` record would show up, as NXDOMAIN.
+`apps/session-shell`'s `pnpm run live-check` does all of this with fresh random names.
+
 ## The relay's bootstrap document
 
 The relay writes `/.well-known/httpeers-relay.json` onto the `bootstrap`
@@ -176,6 +204,31 @@ ownership it already has. Either fix the ownership or unset
 failure to write as fatal, because a healthy relay whose document is silently
 absent is a failure nobody notices until peers cannot reach it.
 
+## Changing the Caddyfile
+
+The Caddyfile is a bind mount, not part of the image, so a change needs no rebuild — and
+no container restart either:
+
+```sh
+# validate the new file against the running image, BEFORE it replaces the live one
+docker run --rm -e GANDI_BEARER_TOKEN=x -e ACME_EMAIL=x@example.com \
+  -v "$PWD/Caddyfile.new:/etc/caddy/Caddyfile:ro" \
+  ghcr.io/statewalker/httpeers-ingress:latest caddy validate --config /etc/caddy/Caddyfile
+cp -p Caddyfile Caddyfile.bak.$(date +%Y%m%d)
+cat Caddyfile.new > Caddyfile          # in place -- see below
+docker exec -w /etc/caddy httpeers_caddy caddy reload --config /etc/caddy/Caddyfile
+```
+
+**Write it in place.** A single-file bind mount follows the file's inode: `cp`, `scp` or
+an editor that writes a new file and renames it over the old one leaves the container
+reading the OLD inode, and the reload then applies nothing. `cat new > Caddyfile` keeps
+the inode; compare `md5sum Caddyfile` with `docker exec httpeers_caddy md5sum
+/etc/caddy/Caddyfile` before reloading.
+
+A reload keeps every connection and certificate; a new site block's certificate is
+obtained in the background (for a DNS-01 wildcard, a little over the 2-minute
+propagation delay).
+
 ## Publishing a site
 
 Sites live in the `sites` bucket, one prefix per domain. Publishing is writing
@@ -195,6 +248,12 @@ rclone sync ./dist httpeers:sites/abc.httpeers.net --progress
 `https://abc.httpeers.net` serves it immediately -- no DNS record, no
 certificate, no Caddy edit, no restart. A re-published file can take up to
 `SITES_CACHE_TTL_MS` to appear; set it to `0` while iterating.
+
+**`p.httpeers.net` is not an ordinary site.** It is the shared session shell: the
+`*.p.httpeers.net` block rewrites every session name's `Host` to `p.httpeers.net`, so
+all of them read this one prefix. Publish it with `apps/session-shell/scripts/deploy.mjs`,
+not by hand — the file order matters while visitors are mid-session. The bare name
+`p.httpeers.net` itself does not resolve (see the DNS section).
 
 Optional per-site settings go in `.site/config.json` inside the prefix:
 

@@ -1,0 +1,44 @@
+{
+  "name": "@statewalker/httpeers-session-shell",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "The static shell every {session}.p.httpeers.net serves: a relay page and a ServiceWorker that answer every other path over a ghost app's MessagePort.",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+ssh://git@github.com/statewalker/httpeers.git",
+    "directory": "apps/session-shell"
+  },
+  "exports": {
+    "./client": {
+      "types": "./dist/lib/client.d.ts",
+      "import": "./dist/lib/client.js"
+    }
+  },
+  "scripts": {
+    "build": "pnpm run build:site && pnpm run build:sw && pnpm run build:lib",
+    "build:site": "vite build",
+    "build:sw": "vite build --config vite.sw.config.ts",
+    "build:lib": "tsc -p tsconfig.build.json",
+    "test": "vitest run",
+    "typecheck": "tsc --noEmit",
+    "lint": "biome check src tests scripts",
+    "lint:check": "biome check src tests scripts",
+    "browser-test": "node scripts/browser-test.mjs",
+    "deploy": "node scripts/deploy.mjs",
+    "live-check": "node scripts/live-check.mjs"
+  },
+  "dependencies": {
+    "@statewalker/webrun-http-browser": "^0.5.0",
+    "idb-keyval": "^6.3.0"
+  },
+  "devDependencies": {
+    "@biomejs/biome": "catalog:",
+    "@types/node": "catalog:",
+    "playwright": "^1.63.0",
+    "typescript": "catalog:",
+    "vite": "^8.3.0",
+    "vitest": "catalog:"
+  }
+}

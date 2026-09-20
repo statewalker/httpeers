@@ -71,6 +71,9 @@ importers:
       '@statewalker/httpeers-core':
         specifier: workspace:*
         version: link:../../packages/httpeers-core
+      '@statewalker/httpeers-ghost':
+        specifier: workspace:*
+        version: link:../../packages/httpeers-ghost
       '@statewalker/httpeers-hub':
         specifier: workspace:*
         version: link:../../packages/httpeers-hub
@@ -86,6 +89,9 @@ importers:
       '@statewalker/httpeers-qr':
         specifier: workspace:*
         version: link:../../packages/httpeers-qr
+      '@statewalker/httpeers-session-shell':
+        specifier: workspace:*
+        version: link:../session-shell
       '@statewalker/webrun-files':
         specifier: 'catalog:'
         version: 0.9.0
@@ -309,6 +315,34 @@ importers:
       typescript:
         specifier: 'catalog:'
         version: 7.0.2
+      vitest:
+        specifier: 'catalog:'
+        version: 4.1.11(@types/node@26.4.1)(@vitest/browser-playwright@4.1.11)(happy-dom@20.14.5)(vite@8.3.0(@types/node@26.4.1)(esbuild@0.28.2)(jiti@2.7.0)(terser@5.51.2)(tsx@4.23.13))
+
+  apps/session-shell:
+    dependencies:
+      '@statewalker/webrun-http-browser':
+        specifier: ^0.5.0
+        version: 0.5.0
+      idb-keyval:
+        specifier: ^6.3.0
+        version: 6.3.0
+    devDependencies:
+      '@biomejs/biome':
+        specifier: 'catalog:'
+        version: 2.5.12
+      '@types/node':
+        specifier: 'catalog:'
+        version: 26.4.1
+      playwright:
+        specifier: ^1.63.0
+        version: 1.63.0
+      typescript:
+        specifier: 'catalog:'
+        version: 7.0.2
+      vite:
+        specifier: ^8.3.0
+        version: 8.3.0(@types/node@26.4.1)(esbuild@0.28.2)(jiti@2.7.0)(terser@5.51.2)(tsx@4.23.13)
       vitest:
         specifier: 'catalog:'
         version: 4.1.11(@types/node@26.4.1)(@vitest/browser-playwright@4.1.11)(happy-dom@20.14.5)(vite@8.3.0(@types/node@26.4.1)(esbuild@0.28.2)(jiti@2.7.0)(terser@5.51.2)(tsx@4.23.13))

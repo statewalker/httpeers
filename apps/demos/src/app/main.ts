@@ -15,6 +15,11 @@
  * origin's ServiceWorker, which routes it over the mesh — which is the whole
  * point of the edge existing.
  *
+ * ONE EXCEPTION, ON PURPOSE: an app opened in a session (`openApp`) does not
+ * go through this page's worker at all. Its requests arrive over a port from
+ * its own origin and are handed to the member in process, pinned to the one
+ * peer that serves it -- see `../shared/session-frame.ts`.
+ *
  * WHY THE URLS ARE COMPOSED FROM `baseUrl` AND NOT ROOT-RELATIVE. Writing
  * `fetch('/${peerId}/images')` would miss the mesh entirely: the worker keys
  * its channel on the edge prefix, so a root-relative path is just a 404 from
@@ -30,6 +35,7 @@ import type { ImageInfo } from "../shared/images.js";
 import { EDGE_KEY, meshRules } from "../shared/policy.js";
 import { needsPermissiveGater, readRelayAddrs } from "../shared/relay.js";
 import type { SearchResult } from "../shared/search.js";
+import { callThroughMember, openAppInSession } from "../shared/session-frame.js";
 
 const el = <T extends HTMLElement>(id: string): T => {
   const found = document.querySelector<T>(`#${id}`);
@@ -149,6 +155,60 @@ async function runSearch(): Promise<void> {
   }
 }
 
+/**
+ * Open the advertised app in a fresh session origin -- see
+ * `../shared/session-frame.ts` for why an origin of its own and not an iframe
+ * on this one. Each click is a new session, so opening it twice shows two
+ * origins that share nothing.
+ */
+async function openApp(): Promise<void> {
+  const live = handle;
+  if (live == null) return;
+  const ad = provider(live.meshView(), "app");
+  if (ad == null) {
+    el("app-status").textContent = "nobody is advertising an app";
+    return;
+  }
+
+  el("app-status").textContent = "opening a session…";
+  const box = document.createElement("figure");
+  box.className = "session";
+  const caption = document.createElement("figcaption");
+  caption.className = "mono";
+  const close = document.createElement("button");
+  close.textContent = "close";
+  box.append(caption);
+  el("sessions").append(box);
+  try {
+    const opened = await openAppInSession({
+      peerId: ad.peerId,
+      appPath: `/${ad.id}`,
+      // Read the handle PER REQUEST: after a reconnect the old one is dead.
+      call: (peerId, request) =>
+        handle == null
+          ? Promise.resolve(new Response("this page left the mesh", { status: 503 }))
+          : callThroughMember(handle.fetch, EDGE_KEY)(peerId, request),
+      token: () => handle?.token() ?? "",
+      container: box,
+    });
+    caption.textContent = `${opened.session.origin} `;
+    caption.append(close);
+    close.addEventListener("click", () => {
+      opened.close();
+      box.remove();
+    });
+    el("app-status").textContent = `${ad.title} from ${ad.peerId.slice(0, 16)}…`;
+  } catch (err) {
+    box.remove();
+    el("app-status").textContent = `could not open: ${String(err)}`;
+  }
+}
+
+function renderApps(view: MeshView | null, live: boolean): void {
+  el("app-provider").textContent = describe("app", view);
+  el<HTMLButtonElement>("open-app").disabled = !live || provider(view, "app") == null;
+}
+
 function renderMesh(view: MeshView | null): void {
   if (view == null || view.members.length === 0) {
     const tr = document.createElement("tr");
@@ -193,6 +253,7 @@ function render(state: SessionState): void {
   const live = state.phase.kind === "live";
   el<HTMLButtonElement>("load-images").disabled = !live;
   el<HTMLButtonElement>("do-search").disabled = !live;
+  renderApps(view, live);
 
   // The join form, the phase and its message, and the session controls.
   joinWidget?.update(state);
@@ -216,6 +277,7 @@ async function main(): Promise<void> {
   joinWidget = mountJoinWidget(el("mesh-join"), { session, state: session.state() });
   el<HTMLButtonElement>("load-images").addEventListener("click", () => void loadImages());
   el<HTMLButtonElement>("do-search").addEventListener("click", () => void runSearch());
+  el<HTMLButtonElement>("open-app").addEventListener("click", () => void openApp());
 
   await session.start();
 

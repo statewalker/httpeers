@@ -1,0 +1,13 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    // ONLY the ghost-side client and the contract it shares with the shell.
+    // The page and the worker are built by Vite into dist/site.
+    "lib": ["ES2022", "DOM", "DOM.Iterable"],
+    "types": [],
+    "rootDir": "src",
+    "outDir": "dist/lib",
+    "noEmit": false
+  },
+  "files": ["src/client.ts", "src/policy.ts"]
+}

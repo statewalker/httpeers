@@ -85,6 +85,38 @@ s3.httpeers.net {
 	reverse_proxy rustfs:9000
 }
 
+# Session origins: <name>.p.httpeers.net, one per session, all serving the
+# same static shell (apps/session-shell). Each name is its own ORIGIN -- its own
+# storage, cookies and ServiceWorker -- which is the whole point of them.
+#
+# A SEPARATE BLOCK, NOT A CASE OF THE ONE BELOW. Both a certificate wildcard
+# and Caddy's `*.httpeers.net` match exactly one label, so neither covers
+# `abc.p.httpeers.net`; this block brings its own `*.p.httpeers.net`
+# certificate through the same DNS-01 snippet. One wildcard certificate rather
+# than on-demand TLS: per-name certificates would publish every session name
+# in Certificate Transparency logs and spend Let's Encrypt's per-domain limit.
+#
+# NEEDS ITS OWN DNS RECORD (`A *.p`, deploy/README.md). The zone's `*` record
+# resolves these names today only while `p.httpeers.net` does not exist; the
+# `_acme-challenge.p` TXT record that issuing this certificate creates makes it
+# exist, and every session name would then be NXDOMAIN during issuance.
+*.p.httpeers.net {
+	import acme
+
+	# Only ghost apps on httpeers.net may frame a session. The worker stamps
+	# the same list on every response it makes itself (apps/session-shell,
+	# src/policy.ts FRAME_ANCESTORS -- a test compares the two), because a
+	# worker-made response never passes through here.
+	header Content-Security-Policy "frame-ancestors 'self' https://httpeers.net https://*.httpeers.net"
+
+	# Every session serves the same files, so every name reads ONE storage
+	# prefix. Without the rewrite the sites app would look up a prefix per
+	# random name and answer 404 for all of them.
+	reverse_proxy sites:3000 {
+		header_up Host p.httpeers.net
+	}
+}
+
 *.httpeers.net {
 	import acme
 
