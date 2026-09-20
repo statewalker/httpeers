@@ -1,0 +1,41 @@
+{
+  "schemaVersion": 1,
+  "collectedAt": "2026-09-20T22:04:00.000Z",
+  "os": {
+    "kernel": "Linux",
+    "arch": "x86_64",
+    "prettyName": "Ubuntu 24.04.4 LTS"
+  },
+  "cpu": {
+    "cores": 8
+  },
+  "memory": {
+    "totalBytes": 33336774656
+  },
+  "docker": {
+    "engine": "28.1.1",
+    "compose": "2.35.1"
+  },
+  "dockerRuntimes": ["runc"],
+  "nvidiaSmi": {
+    "gpus": [
+      {
+        "name": "NVIDIA GeForce RTX 4090",
+        "memoryTotalMiB": 24564,
+        "driver": "560.35.03"
+      }
+    ]
+  },
+  "pciDisplay": [
+    {
+      "raw": "0000:01:00.0 VGA compatible controller [0300]: NVIDIA Corporation AD102 [GeForce RTX 4090] [10de:2684] (rev a1)",
+      "vendorId": "10de",
+      "deviceId": "2684"
+    }
+  ],
+  "deviceNodes": {
+    "dri": [],
+    "mtgpu": [],
+    "kfd": false
+  }
+}

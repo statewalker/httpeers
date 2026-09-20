@@ -1,0 +1,33 @@
+{
+  "schemaVersion": 1,
+  "collectedAt": "2026-09-20T22:04:00.000Z",
+  "os": {
+    "kernel": "Linux",
+    "arch": "x86_64",
+    "prettyName": "Ubuntu 24.04.4 LTS"
+  },
+  "cpu": {
+    "cores": 8
+  },
+  "memory": {
+    "totalBytes": 33336774656
+  },
+  "docker": {
+    "engine": "28.1.1",
+    "compose": "2.35.1"
+  },
+  "dockerRuntimes": ["io.containerd.runc.v2", "runc"],
+  "nvidiaSmi": null,
+  "pciDisplay": [
+    {
+      "raw": "0000:04:00.0 VGA compatible controller [0300]: Moore Threads Technology Co., Ltd. MTT S80 [1ed5:0100]",
+      "vendorId": "1ed5",
+      "deviceId": "0100"
+    }
+  ],
+  "deviceNodes": {
+    "dri": [],
+    "mtgpu": ["mtgpu0"],
+    "kfd": false
+  }
+}

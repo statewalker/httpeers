@@ -1,0 +1,12 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    // ES2022 and not "DOM": this is a Node process (stock node:22-alpine),
+    // and stdlib-only besides — no browser globals belong here.
+    "lib": ["ES2022"],
+    "types": ["node"],
+    "rootDir": ".",
+    "noEmit": true
+  },
+  "include": ["src/**/*.ts", "tests/**/*.ts"]
+}
