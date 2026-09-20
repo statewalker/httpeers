@@ -13,9 +13,19 @@
  * `small`, because guessing high means the chosen model doesn't fit and the
  * appliance fails to start, while guessing low only means it runs a more
  * modest model than the hardware could have handled.
+ *
+ * A tier's memory cost is NOT the size of its bigger model. Spec §3.5 runs
+ * one `llama-server` per model, both resident at the same time, so the two
+ * models in a tier are paid for together — see `tierBudget`. The band
+ * floors (16 GiB, 32 GiB) were set to the sums that keep each tier's own
+ * pair under its `minUsableBytes` in `models.json`, with margin; changing
+ * either tier's models without re-checking `tierBudget` against
+ * `minUsableBytes` can silently reopen the OOM-at-startup bug this file was
+ * fixed for.
  */
 
 import type { Backend } from "./backend.js";
+import type { ModelEntry } from "./manifest.js";
 import type { Probe } from "./probe.js";
 
 export type Tier = "small" | "medium" | "large";
@@ -64,7 +74,7 @@ export function usableMemoryBytes(
 }
 
 /**
- * Maps usable memory to a tier: < 8 GiB is `small`, < 24 GiB is `medium`,
+ * Maps usable memory to a tier: < 16 GiB is `small`, < 32 GiB is `medium`,
  * everything else is `large`. `override` (the `LLAMA_TIER` env var) bypasses
  * detection entirely and must be one of the three tier names, or this
  * throws naming both the bad value and the valid set — an unrecognised
@@ -99,26 +109,53 @@ export function chooseTier(probe: Probe, backend: Backend, override?: string): T
     };
   }
 
-  if (bytes < 8 * GIB) {
+  if (bytes < 16 * GIB) {
     return {
       tier: "small",
       usableBytes: bytes,
       basis,
-      reason: `Usable memory (${basis}) is below 8 GiB.`,
+      reason: `Usable memory (${basis}) is below 16 GiB.`,
     };
   }
-  if (bytes < 24 * GIB) {
+  if (bytes < 32 * GIB) {
     return {
       tier: "medium",
       usableBytes: bytes,
       basis,
-      reason: `Usable memory (${basis}) is between 8 GiB and 24 GiB.`,
+      reason: `Usable memory (${basis}) is between 16 GiB and 32 GiB.`,
     };
   }
   return {
     tier: "large",
     usableBytes: bytes,
     basis,
-    reason: `Usable memory (${basis}) is 24 GiB or more.`,
+    reason: `Usable memory (${basis}) is 32 GiB or more.`,
   };
+}
+
+// A resident llama-server process costs more than its GGUF file: the KV
+// cache (sized by context length and model architecture) and the process's
+// own overhead both add up. 0.5 GB flat plus 15% of the file size per model
+// is the margin the spec's controller ruling settled on after the original
+// "budget = larger file only" defect let a tier's two models be selected
+// together but not actually fit together in memory.
+const PER_MODEL_OVERHEAD_BYTES = 0.5e9;
+const KV_CACHE_FRACTION = 0.15;
+
+/**
+ * The real memory cost of running a tier's models: spec §3.5 runs one
+ * `llama-server` per model, ALL of a tier's models resident at once, so the
+ * budget is the sum of every file plus each one's own overhead share — not
+ * the size of the single largest file.
+ */
+export function tierBudget(models: ModelEntry[]): number {
+  const totalFileSize = models.reduce((sum, model) => sum + model.fileSize, 0);
+  return (
+    totalFileSize + models.length * PER_MODEL_OVERHEAD_BYTES + KV_CACHE_FRACTION * totalFileSize
+  );
+}
+
+/** Whether a tier's models fit under the usable memory a host reports. */
+export function fitsTier(models: ModelEntry[], minUsableBytes: number): boolean {
+  return tierBudget(models) <= minUsableBytes;
 }

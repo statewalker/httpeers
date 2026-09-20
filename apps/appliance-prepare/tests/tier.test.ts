@@ -45,16 +45,45 @@ describe("usableMemoryBytes", () => {
 describe("chooseTier", () => {
   it.each([
     [4 * GIB, "small"],
-    [7.9 * GIB, "small"],
-    [8 * GIB, "medium"],
-    [23 * GIB, "medium"],
-    [24 * GIB, "large"],
+    [15.9 * GIB, "small"],
+    [16 * GIB, "medium"],
+    [31 * GIB, "medium"],
+    [32 * GIB, "large"],
     [80 * GIB, "large"],
   ])("maps %i usable bytes to %s", (usable, expected) => {
     const probe = probeWith({
       nvidiaSmi: { gpus: [{ name: "X", memoryTotalMiB: usable / (1024 * 1024), driver: "1" }] },
     });
     expect(chooseTier(probe, "cuda").tier).toBe(expected);
+  });
+
+  // Dedicated boundary assertions (in addition to the parametrised sweep
+  // above): these pin the exact edges where a tier's real budget started
+  // failing under the old 8/24 GiB bands (see the "Fix round 1" commit).
+  it("sits just under 16 GiB in small, and at 16 GiB moves to medium", () => {
+    const justUnder = probeWith({
+      nvidiaSmi: {
+        gpus: [{ name: "X", memoryTotalMiB: (16 * GIB - 1) / (1024 * 1024), driver: "1" }],
+      },
+    });
+    const atBoundary = probeWith({
+      nvidiaSmi: { gpus: [{ name: "X", memoryTotalMiB: (16 * GIB) / (1024 * 1024), driver: "1" }] },
+    });
+    expect(chooseTier(justUnder, "cuda").tier).toBe("small");
+    expect(chooseTier(atBoundary, "cuda").tier).toBe("medium");
+  });
+
+  it("sits just under 32 GiB in medium, and at 32 GiB moves to large", () => {
+    const justUnder = probeWith({
+      nvidiaSmi: {
+        gpus: [{ name: "X", memoryTotalMiB: (32 * GIB - 1) / (1024 * 1024), driver: "1" }],
+      },
+    });
+    const atBoundary = probeWith({
+      nvidiaSmi: { gpus: [{ name: "X", memoryTotalMiB: (32 * GIB) / (1024 * 1024), driver: "1" }] },
+    });
+    expect(chooseTier(justUnder, "cuda").tier).toBe("medium");
+    expect(chooseTier(atBoundary, "cuda").tier).toBe("large");
   });
 
   it("falls to small when memory is unknown, and says why", () => {
