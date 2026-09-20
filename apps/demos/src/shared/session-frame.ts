@@ -25,7 +25,7 @@
  */
 
 import type { FetchHandler, MeshView, PeerIdStr } from "@statewalker/httpeers-core";
-import { MESH_CREDENTIAL_HEADERS } from "@statewalker/httpeers-core";
+import { bodyOf, MESH_CREDENTIAL_HEADERS } from "@statewalker/httpeers-core";
 import { pinnedPeer } from "@statewalker/httpeers-ghost";
 import { createGateway } from "@statewalker/httpeers-member";
 import {
@@ -212,9 +212,12 @@ export async function openMeshApp(init: OpenMeshAppInit): Promise<OpenedApp> {
  * `pinnedPeer` hands over a request for `http://peer.local/<appPath>/...`;
  * the member's edge takes `http://local/<edge key>/<peer>/...`.
  *
- * THE BODY IS BUFFERED. Firefox cannot stream a request body at all (it has
- * no `Request.prototype.body`), a demo app's uploads are small, and one path
- * for both browsers beats a stream that only one of them can produce.
+ * THE BODY IS CORE'S `bodyOf`, NOT A FOURTH COPY OF IT. Firefox has no
+ * `Request.prototype.body` at all, so a forwarder that reads `request.body`
+ * there sends every POST on empty and silent; `bodyOf` streams where the
+ * runtime can and buffers where it cannot. This file hand-rolled the buffered
+ * half and streamed nowhere -- the same logic, in a fourth place, with one
+ * browser's behaviour baked in for both.
  */
 export function callThroughMember(
   memberFetch: (request: Request) => Promise<Response>,
@@ -222,13 +225,13 @@ export function callThroughMember(
 ): (peerId: PeerIdStr, request: Request) => Promise<Response> {
   return async (peerId, request) => {
     const url = new URL(request.url);
-    const body =
-      request.method === "GET" || request.method === "HEAD" ? null : await request.arrayBuffer();
+    const body = await bodyOf(request);
     return memberFetch(
       new Request(`http://local/${edgeKey}/${peerId}${url.pathname}${url.search}`, {
         method: request.method,
         headers: request.headers,
-        body: body != null && body.byteLength > 0 ? body : null,
+        body,
+        ...(body instanceof ReadableStream ? { duplex: "half" as const } : {}),
         signal: request.signal,
       }),
     );

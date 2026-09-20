@@ -112,6 +112,25 @@ describe("a session's requests, as the app page routes them", () => {
     expect(seen).toEqual([`/peers/${HUB}/spa/api/hello?x=1 TOKEN`]);
   });
 
+  // THE BODY SURVIVES THE REWRITE. `callThroughMember` builds a new Request
+  // for the edge, and core's `bodyOf` is what carries the body across in both
+  // engines -- Firefox has no `Request.prototype.body`, so a forwarder that
+  // read it directly would send this POST on empty and say nothing.
+  it("carries a POSTed body through to the pinned peer's app", async () => {
+    const { handler, seen } = wire();
+    const sent = JSON.stringify({ from: "abc.p.httpeers.net", nonce: "1" });
+    const res = await handler(
+      new Request("https://abc.p.httpeers.net/api/echo", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: sent,
+      }),
+    );
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({ echoed: sent, bytes: sent.length, method: "POST" });
+    expect(seen).toEqual([`/peers/${HUB}/spa/api/echo TOKEN`]);
+  });
+
   it("cannot be steered to another peer", async () => {
     const { handler, seen } = wire();
     const res = await handler(new Request(`https://abc.p.httpeers.net/${OTHER}/spa/`));
