@@ -187,6 +187,118 @@ describe("the door's gate", () => {
   });
 });
 
+/**
+ * The root rescue. LiteLLM's exported dashboard is a client-routed app: with a
+ * `token` cookie already set, its login page routes the browser to `/ui` at the
+ * ORIGIN ROOT, because the router knows nothing about `SERVER_ROOT_PATH`. On the
+ * door that landed on the admin UI's 404. The door serves exactly one hub, so
+ * `/ui...` at the root is unambiguous and it sends the browser back under the
+ * prefix.
+ */
+describe("the door's /ui rescue", () => {
+  const HUB = "12D3KooWHub";
+  const handler = createLocalDoorHandler({
+    hubPeerId: HUB,
+    modules: [
+      {
+        id: "llm",
+        advertisement: { id: "llm", kind: "openapi-service", title: "LLM" },
+        rules: [],
+        policies: [],
+        handler: async (request) => Response.json({ llm: new URL(request.url).pathname }),
+      },
+    ],
+    secret: SECRET,
+    allowedHosts: ALLOWED,
+    adminApi: async () => Response.json({ admin: true }),
+    ui: async () => new Response("<h1>ui</h1>"),
+  });
+  const get = (path: string, init: RequestInit = {}) =>
+    handler(
+      new Request(`http://127.0.0.1:8080${path}`, {
+        ...init,
+        headers: {
+          ...(init.headers as Record<string, string>),
+          host: "127.0.0.1:8080",
+          "x-hub-door-secret": SECRET,
+        },
+      }),
+    );
+
+  it("307s /ui and /ui/ to the hub's own prefixed dashboard", async () => {
+    for (const path of ["/ui", "/ui/"]) {
+      const res = await get(path);
+      expect(res.status, path).toBe(307);
+      expect(res.headers.get("location"), path).toBe(`/peers/${HUB}/llm/ui/`);
+    }
+  });
+
+  it("keeps the query string", async () => {
+    const res = await get("/ui/?redirect_to=%2Fui%2F&x=1");
+    expect(res.status).toBe(307);
+    expect(res.headers.get("location")).toBe(`/peers/${HUB}/llm/ui/?redirect_to=%2Fui%2F&x=1`);
+  });
+
+  it("keeps a deeper dashboard path", async () => {
+    const res = await get("/ui/models?page=2");
+    expect(res.status).toBe(307);
+    expect(res.headers.get("location")).toBe(`/peers/${HUB}/llm/ui/models?page=2`);
+  });
+
+  it("answers HEAD the same way", async () => {
+    const res = await get("/ui/", { method: "HEAD" });
+    expect(res.status).toBe(307);
+    expect(res.headers.get("location")).toBe(`/peers/${HUB}/llm/ui/`);
+  });
+
+  it("never redirects a request already under /peers/, so it cannot loop", async () => {
+    const res = await get(`/peers/${HUB}/llm/ui/`);
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({ llm: "/llm/ui/" });
+    // Another peer's prefix is not this door's business either: no rescue, no loop.
+    const other = await get("/peers/12D3KooWOther/llm/ui/");
+    expect(other.status).not.toBe(307);
+    expect(await other.text()).toBe("<h1>ui</h1>");
+  });
+
+  it("rescues only /ui, never a path that merely starts with those letters", async () => {
+    for (const path of ["/uix", "/ui.txt", "/uiconfig", "/hub/api/ui", "/"]) {
+      const res = await get(path);
+      expect(res.status, path).not.toBe(307);
+    }
+  });
+
+  it("leaves non-GET/HEAD methods alone: an escaped navigation is always a GET", async () => {
+    for (const method of ["POST", "PUT", "DELETE"]) {
+      const res = await get("/ui/", { method });
+      expect(res.status, method).not.toBe(307);
+    }
+  });
+
+  it("still rescues when the hub has no llm module -- the door does not vouch for the target", async () => {
+    const bare = createLocalDoorHandler({
+      hubPeerId: HUB,
+      modules: [],
+      secret: SECRET,
+      allowedHosts: ALLOWED,
+      ui: async () => new Response("<h1>ui</h1>"),
+    });
+    const res = await bare(
+      new Request("http://127.0.0.1:8080/ui/", {
+        headers: { host: "127.0.0.1:8080", "x-hub-door-secret": SECRET },
+      }),
+    );
+    expect(res.status).toBe(307);
+  });
+
+  it("is behind the gate: no secret, no rescue", async () => {
+    const res = await handler(
+      new Request("http://127.0.0.1:8080/ui/", { headers: { host: "127.0.0.1:8080" } }),
+    );
+    expect(res.status).toBe(401);
+  });
+});
+
 describe("createStaticUiHandler", () => {
   const dirs: string[] = [];
 

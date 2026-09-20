@@ -43,7 +43,15 @@ export function buildLlmOpenApi(): LlmOpenApiDocument {
           summary: "The LiteLLM admin dashboard.",
           "x-httpeers-capability": "app:llm.admin",
           "x-httpeers-resource": "html-app",
-          "x-httpeers-entry": "ui/login/",
+          // THE MOUNT, NEVER A PAGE INSIDE IT. LiteLLM's exported UI is
+          // client-routed and knows nothing of `SERVER_ROOT_PATH` (which
+          // rewrites its asset paths only). Measured 2026-09-20: opened at
+          // `ui/login/` in a browser that already holds LiteLLM's `token`
+          // cookie, the login page routes to `/ui` at the ORIGIN ROOT and off
+          // the mesh path; opened at `ui/` it lands on the same login page
+          // with a prefixed absolute `?redirect_to=` and stays. See
+          // `deploy/llm-appliance/README.md`, "The dashboard's entry point".
+          "x-httpeers-entry": "ui/",
           security: SECURITY,
           responses: {
             "200": {

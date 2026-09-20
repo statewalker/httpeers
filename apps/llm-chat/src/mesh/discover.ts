@@ -9,7 +9,9 @@
  *   - `servers[0].url`, resolved against the document's own URL (the hub publishes `"."`), is the
  *     service base; the OpenAI-compatible base is that plus `v1`;
  *   - `components.securitySchemes.llmKey.name` is the header the key travels in;
- *   - `paths["/ui/"].get["x-httpeers-entry"]`, resolved against the service base, is the dashboard;
+ *   - `paths["/ui/"].get["x-httpeers-entry"]`, resolved against the service base, is the dashboard —
+ *     and it is then clamped to the dashboard's own MOUNT (`<serviceBase>ui/`) when it points
+ *     inside it, see `dashboardEntry`;
  *   - `paths["/keys"]` existing is what offers "Request a key". The call may still be refused.
  *
  * TRUST ONLY THE HUB. Any member can advertise `llm` on its heartbeat and serve its own document,
@@ -134,11 +136,38 @@ export async function discoverLlm(
     baseUrl: underMount("OpenAI base", new URL("v1", serviceBase)),
     apiKeyHeader: header.toLowerCase(),
     canMintKeys: doc.paths?.["/keys"] != null,
-    dashboardUrl: underMount(
-      "x-httpeers-entry",
-      new URL(typeof entry === "string" ? entry : "ui/", serviceBase),
+    dashboardUrl: dashboardEntry(
+      underMount(
+        "x-httpeers-entry",
+        new URL(typeof entry === "string" ? entry : "ui/", serviceBase),
+      ),
+      serviceBase,
     ),
   };
+}
+
+/**
+ * The dashboard is opened at its MOUNT, never at a page inside it.
+ *
+ * MEASURED 2026-09-20, one browser, one URL, LiteLLM's `token` cookie the only difference: opened
+ * at `…/llm/ui/login/` WITHOUT the cookie the login page stays put; WITH it, the exported UI's
+ * client router — which knows nothing of the hub's `SERVER_ROOT_PATH`, that rewrites asset paths
+ * only — sends the browser to `/ui` at the ORIGIN ROOT, which on this page's origin is a 404.
+ * Opened at `…/llm/ui/` it lands on the same login page with a prefixed absolute `?redirect_to=`
+ * and never leaves the mesh path. Reproduced identically through the hub's local door, so it is
+ * the dashboard's doing and not the mesh edge's.
+ *
+ * WHY HERE AND NOT ONLY IN THE HUB. The hub now advertises `ui/`, but this is a static page that
+ * talks to whatever hub a member joins, including one running an older image. Clamping costs one
+ * comparison and cannot make a working entry worse: everything below `<serviceBase>ui/` is served
+ * by the same client-routed app, which routes itself from its mount anyway.
+ *
+ * The check happens AFTER `underMount`, so a hostile entry is still refused rather than quietly
+ * rewritten into something safe.
+ */
+function dashboardEntry(url: string, serviceBase: string): string {
+  const mount = `${serviceBase}ui/`;
+  return url.startsWith(mount) ? mount : url;
 }
 
 /** A refused or failed `POST keys`. `status` 403 means this member may not mint keys. */
