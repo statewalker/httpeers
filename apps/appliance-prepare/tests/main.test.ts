@@ -1,10 +1,10 @@
-import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { mkdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { describe, expect, it } from "vitest";
 import type { Io } from "../src/main.js";
-import { assembleProbe, composeCommand, parseArgs, run } from "../src/main.js";
+import { assembleProbe, composeCommand, createNodeIo, parseArgs, run } from "../src/main.js";
 import { serviceNameOf } from "../src/manifest.js";
 
 describe("parseArgs", () => {
@@ -263,6 +263,92 @@ describe("run", () => {
     expect(litellm).toContain(`http://${serviceNameOf("small-a")}:8080/v1`);
   });
 
+  it("writes the five derived, non-secret keys spec §8 requires, with the selected values", async () => {
+    const { io, files } = fakeIo({ ...GOOD_RAW_PROBE, "/a/models.json": MODELS_JSON });
+    const args = parseArgs([
+      "--raw-probe",
+      "/probe",
+      "--appliance",
+      "/a",
+      "--backend",
+      "cpu",
+      "--tier",
+      "small",
+      "--skip-download",
+    ]);
+    await run(args, io);
+    const env = files.get("/a/.env") as string;
+    expect(env).toContain("LLAMA_BACKEND=cpu");
+    expect(env).toContain("LLAMA_IMAGE=ghcr.io/ggml-org/llama.cpp:server");
+    expect(env).toContain("LLAMA_TIER=small");
+    expect(env).toContain("LLAMA_THREADS=8"); // GOOD_RAW_PROBE reports cpu-cores: 8
+    expect(env).toContain(`APPLIANCE_MODELS_DIR=${join("/a", "models")}`);
+  });
+
+  it("rewrites LLAMA_BACKEND/LLAMA_IMAGE on a later run with a different --backend (they are derived, not preserved)", async () => {
+    const args1 = parseArgs([
+      "--raw-probe",
+      "/probe",
+      "--appliance",
+      "/a",
+      "--backend",
+      "cpu",
+      "--tier",
+      "small",
+      "--skip-download",
+    ]);
+    const first = fakeIo({ ...GOOD_RAW_PROBE, "/a/models.json": MODELS_JSON });
+    await run(args1, first.io);
+    const firstEnv = first.files.get("/a/.env") as string;
+    expect(firstEnv).toContain("LLAMA_BACKEND=cpu");
+
+    const args2 = parseArgs([
+      "--raw-probe",
+      "/probe",
+      "--appliance",
+      "/a",
+      "--backend",
+      "vulkan",
+      "--tier",
+      "small",
+      "--skip-download",
+    ]);
+    const second = fakeIo({
+      ...GOOD_RAW_PROBE,
+      "/a/models.json": MODELS_JSON,
+      "/a/.env": firstEnv,
+    });
+    await run(args2, second.io);
+    const secondEnv = second.files.get("/a/.env") as string;
+    expect(secondEnv).toContain("LLAMA_BACKEND=vulkan");
+    expect(secondEnv).toContain("LLAMA_IMAGE=ghcr.io/ggml-org/llama.cpp:server-vulkan");
+    expect(secondEnv).not.toContain("LLAMA_BACKEND=cpu");
+  });
+
+  it("honours an existing APPLIANCE_MODELS_DIR from .env, using it as the download directory and preserving it", async () => {
+    const previousEnvText = "APPLIANCE_MODELS_DIR=/mnt/bigdisk/models\n";
+    const { io, files } = fakeIo({
+      ...GOOD_RAW_PROBE,
+      "/a/models.json": MODELS_JSON,
+      "/a/.env": previousEnvText,
+    });
+    const args = parseArgs([
+      "--raw-probe",
+      "/probe",
+      "--appliance",
+      "/a",
+      "--backend",
+      "cpu",
+      "--tier",
+      "small",
+      "--skip-download",
+    ]);
+    const report = await run(args, io);
+    expect(report.models[0].path).toBe(join("/mnt/bigdisk/models", "small-a", "a.gguf"));
+    const env = files.get("/a/.env") as string;
+    expect(env).toContain("APPLIANCE_MODELS_DIR=/mnt/bigdisk/models");
+  });
+
   it("prints the admin password only when generated, never when preserved", async () => {
     const args = parseArgs([
       "--raw-probe",
@@ -386,6 +472,45 @@ describe("run", () => {
           path: modelPath,
         },
       ]);
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+});
+
+// Fix round 1, finding 1: `writeFileSync(path, text, { mode })` only applies
+// `mode` when it CREATES the file -- an operator who already has a 0644
+// `.env` (e.g. from `cp .env.example .env`, per README.md) would keep 644
+// unless `writeFile` chmods explicitly after every write, not just on
+// creation. This has to go through the REAL `Io` against a REAL file: a test
+// that only inspects the `mode` argument a fake `Io` was called with cannot
+// see this bug, since that argument is correct regardless of what actually
+// happens on disk -- which is exactly how it slipped through Task 9's first
+// pass.
+describe("createNodeIo", () => {
+  it("chmods an already-existing file to the requested mode, not just a newly-created one", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "createNodeIo-"));
+    try {
+      const path = join(dir, ".env");
+      writeFileSync(path, "PRE_EXISTING=1\n", { mode: 0o644 });
+      expect(statSync(path).mode & 0o777).toBe(0o644);
+
+      const io = createNodeIo();
+      io.writeFile(path, "REWRITTEN=1\n", 0o600);
+
+      expect(statSync(path).mode & 0o777).toBe(0o600);
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+
+  it("still sets the mode on a freshly-created file", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "createNodeIo-"));
+    try {
+      const path = join(dir, "fresh", ".env");
+      const io = createNodeIo();
+      io.writeFile(path, "A=1\n", 0o600);
+      expect(statSync(path).mode & 0o777).toBe(0o600);
     } finally {
       await rm(dir, { recursive: true, force: true });
     }

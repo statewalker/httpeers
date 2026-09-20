@@ -15,7 +15,7 @@
  * executed directly -- never when a test imports it.
  */
 
-import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { chmodSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join, resolve as resolvePath } from "node:path";
 import { fileURLToPath } from "node:url";
 import { type Backend, type BackendChoice, chooseBackend } from "./backend.ts";
@@ -288,10 +288,24 @@ export async function run(args: Args, io: Io): Promise<PrepareReport> {
   }
   io.log(`Models: ${entries.map((entry) => entry.id).join(", ")}`);
 
+  const threads = probe.cpu.cores ?? 1;
+
+  // Read any existing .env EARLY -- before step 5, not step 6 -- because
+  // APPLIANCE_MODELS_DIR, when an operator has already set it (e.g. a 20 GB
+  // pair pointed at a second disk), decides where downloads land. Reading it
+  // late enough to only affect step 6's own write would leave step 5
+  // downloading to the wrong place while Compose mounts the right one.
+  const envPath = join(args.appliance, ".env");
+  const previousEnvText = io.readFile(envPath);
+  const previousEnv =
+    previousEnvText === null ? new Map<string, string>() : parseEnvFile(previousEnvText);
+  const modelsDir =
+    (previousEnv.get("APPLIANCE_MODELS_DIR") ?? "").trim() || join(args.appliance, "models");
+
   // Step 5: ensureModel each, threading `previous` from the lock file --
   // carry-forward 1. `models/manifest.lock.json` I/O belongs to this CLI
-  // alone; download.ts never reads or writes it.
-  const modelsDir = join(args.appliance, "models");
+  // alone; download.ts never reads or writes it. The lock lives alongside
+  // the actual downloaded files, so it follows modelsDir too.
   const lockPath = join(modelsDir, "manifest.lock.json");
   const previousLockText = io.readFile(lockPath);
   const previousLock: Lock | null = previousLockText === null ? null : JSON.parse(previousLockText);
@@ -330,14 +344,28 @@ export async function run(args: Args, io: Io): Promise<PrepareReport> {
     wrote.push(lockPath);
   }
 
-  // Step 6: .env -- read any existing one, plan secrets, write mode 600.
+  // Step 6: .env -- plan the nine secrets, add the five derived,
+  // non-secret keys spec §8 also requires (LLAMA_BACKEND, LLAMA_IMAGE,
+  // LLAMA_TIER, LLAMA_THREADS, APPLIANCE_MODELS_DIR), and write mode 600.
   // Print the admin password only when it was freshly generated.
-  const envPath = join(args.appliance, ".env");
-  const previousEnvText = io.readFile(envPath);
-  const previousEnv =
-    previousEnvText === null ? new Map<string, string>() : parseEnvFile(previousEnvText);
+  //
+  // The five derived keys are NOT secrets: planSecrets' preserve-unless-
+  // --rotate-secrets rule does not apply to them. They describe THIS run's
+  // selection and are rewritten every run -- otherwise re-running prepare
+  // after picking a different --backend/--tier would leave .env describing
+  // the previous run, and Task 10's verify-backend.sh (which reads
+  // LLAMA_BACKEND straight out of .env) would check against a stale value.
+  // APPLIANCE_MODELS_DIR is the one exception: `modelsDir` above already
+  // preserved whatever the operator had set, so writing it back here is a
+  // no-op unless this is the first run.
   const secretPlan = planSecrets(previousEnv, { rotate: args.rotateSecrets });
-  const envText = renderEnvFile(secretPlan.values, previousEnvText);
+  const envValues = new Map(secretPlan.values);
+  envValues.set("LLAMA_BACKEND", backend.backend);
+  envValues.set("LLAMA_IMAGE", backend.image);
+  envValues.set("LLAMA_TIER", tier.tier);
+  envValues.set("LLAMA_THREADS", String(threads));
+  envValues.set("APPLIANCE_MODELS_DIR", modelsDir);
+  const envText = renderEnvFile(envValues, previousEnvText);
   io.writeFile(envPath, envText, 0o600);
   wrote.push(envPath);
   if (secretPlan.generated.includes("ADMIN_PASSWORD")) {
@@ -349,7 +377,6 @@ export async function run(args: Args, io: Io): Promise<PrepareReport> {
   // Step 7: compose.models.yml and litellm/config.local.yaml. Carry-forward
   // 4: serviceNameOf(id) is computed once per model and reused for both --
   // never re-derived as a literal "llamacpp-<id>" string in either renderer.
-  const threads = probe.cpu.cores ?? 1;
   const modelsWithService = entries.map((entry) => ({ entry, service: serviceNameOf(entry.id) }));
 
   const composePlan: ComposePlan = {
@@ -390,9 +417,16 @@ export async function run(args: Args, io: Io): Promise<PrepareReport> {
   return report;
 }
 
-async function main(): Promise<void> {
-  const args = parseArgs(process.argv.slice(2));
-  const io: Io = {
+/**
+ * The real `Io` `main()` runs with: `node:fs` underneath every method.
+ * Exported (not just inlined in `main()`) so the mode-on-an-existing-file
+ * behaviour of `writeFile` -- easy to get wrong, since `writeFileSync`'s own
+ * `mode` option only applies when it creates the file -- is directly
+ * testable against a real temp-dir file, not just the argument a fake `Io`
+ * was called with.
+ */
+export function createNodeIo(): Io {
+  return {
     readFile(path) {
       try {
         return readFileSync(path, "utf8");
@@ -403,6 +437,14 @@ async function main(): Promise<void> {
     writeFile(path, text, mode) {
       mkdirSync(dirname(path), { recursive: true });
       writeFileSync(path, text, mode !== undefined ? { mode } : undefined);
+      // `writeFileSync`'s `mode` option only applies when the file is
+      // CREATED -- an operator who already has a 644 .env (e.g. from
+      // `cp .env.example .env`, per README.md) keeps 644 unless the mode is
+      // applied explicitly after the write, every time, regardless of
+      // whether the file existed before.
+      if (mode !== undefined) {
+        chmodSync(path, mode);
+      }
     },
     fetch: globalThis.fetch,
     log(line) {
@@ -412,6 +454,11 @@ async function main(): Promise<void> {
       return Date.now();
     },
   };
+}
+
+async function main(): Promise<void> {
+  const args = parseArgs(process.argv.slice(2));
+  const io = createNodeIo();
 
   try {
     await run(args, io);
