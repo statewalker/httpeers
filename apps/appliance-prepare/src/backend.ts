@@ -12,7 +12,7 @@
  * order: cuda, musa, intel, vulkan, cpu.
  */
 
-import type { Probe } from "./probe.js";
+import type { Probe } from "./probe.ts";
 
 export type Backend = "cpu" | "cuda" | "vulkan" | "intel" | "musa";
 

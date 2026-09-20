@@ -1,0 +1,13 @@
+# The local-model overlay. Hand-written and reviewed -- unlike compose.models.yml,
+# which prepare generates because the number of llama-server services is a
+# function of the detected tier.
+#
+# It swaps LiteLLM's config for the generated one and gives LiteLLM nothing
+# else: the llama-server services are on the same "appliance" network and are
+# reached by service name, so no new port, mount or credential is involved.
+services:
+  litellm:
+    volumes:
+      - ./litellm/config.local.yaml:/app/config.yaml:ro
+      - ./litellm-entrypoint.sh:/litellm-entrypoint.sh:ro
+      - ${APPLIANCE_DATA_DIR:-./data}/hub:/data/hub:ro

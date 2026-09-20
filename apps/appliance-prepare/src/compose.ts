@@ -27,8 +27,8 @@
  * was verified independently rather than copied.
  */
 
-import type { Backend } from "./backend.js";
-import type { ModelEntry } from "./manifest.js";
+import type { Backend } from "./backend.ts";
+import type { ModelEntry } from "./manifest.ts";
 
 export interface ComposePlan {
   backend: Backend;

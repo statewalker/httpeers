@@ -24,9 +24,9 @@
  * fixed for.
  */
 
-import type { Backend } from "./backend.js";
-import type { ModelEntry } from "./manifest.js";
-import type { Probe } from "./probe.js";
+import type { Backend } from "./backend.ts";
+import type { ModelEntry } from "./manifest.ts";
+import type { Probe } from "./probe.ts";
 
 export type Tier = "small" | "medium" | "large";
 

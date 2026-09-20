@@ -6,7 +6,17 @@
     "lib": ["ES2022"],
     "types": ["node"],
     "rootDir": ".",
-    "noEmit": true
+    "noEmit": true,
+    // Internal imports use an explicit ".ts" specifier (e.g. "./backend.ts"),
+    // not ".js": this package's src/main.ts is run directly by
+    // `node --experimental-strip-types` in a stock node:22-alpine container
+    // (see bin/prepare.sh), with no build step, and Node's native type
+    // stripping resolves only an exact-match specifier -- it does not map a
+    // ".js" specifier onto a ".ts" file the way a bundler or ts-node would.
+    // Verified directly against node:22-alpine (v22.23.2) on 2026-09-20: a
+    // ".js" specifier for a same-directory ".ts" file threw
+    // ERR_MODULE_NOT_FOUND.
+    "allowImportingTsExtensions": true
   },
   "include": ["src/**/*.ts", "tests/**/*.ts"]
 }

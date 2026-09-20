@@ -26,8 +26,7 @@ function specifiersOf(text: string): string[] {
 }
 
 describe("the prepare tool's dependency closure", () => {
-  // Unskipped in Task 9, when src/main.ts exists.
-  it.skip("imports nothing but node: builtins and its own files", async () => {
+  it("imports nothing but node: builtins and its own files", async () => {
     const files = await closureFrom(resolve(SRC, "main.ts"));
     const offenders: string[] = [];
     for (const file of files) {

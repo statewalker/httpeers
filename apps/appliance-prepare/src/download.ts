@@ -28,7 +28,7 @@ import { mkdir, rename, rm, stat } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { Readable } from "node:stream";
 import { pipeline } from "node:stream/promises";
-import type { ModelEntry } from "./manifest.js";
+import type { ModelEntry } from "./manifest.ts";
 
 export interface RemoteFile {
   size: number;
