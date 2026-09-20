@@ -119,9 +119,11 @@ try {
   const dashboardLink = page.getByRole("link", { name: "LiteLLM dashboard" });
   await dashboardLink.waitFor();
   const href = await dashboardLink.getAttribute("href");
+  // `ui/`, NEVER `ui/login/`: LiteLLM's client router escapes the mesh prefix
+  // from the login page when a `token` cookie is already set.
   check(
-    href === `/peers/${daemon.hubPeerId}/llm/ui/login/`,
-    `dashboard link href was "${href}", expected "/peers/${daemon.hubPeerId}/llm/ui/login/"`,
+    href === `/peers/${daemon.hubPeerId}/llm/ui/`,
+    `dashboard link href was "${href}", expected "/peers/${daemon.hubPeerId}/llm/ui/"`,
   );
 
   step = "Mint invitation produces a link and a QR code";
@@ -132,6 +134,30 @@ try {
   const linkValue = await link.jsonValue();
   check(linkValue?.includes("?join="), `unexpected invitation link: ${linkValue}`);
   await page.locator("#qr svg").waitFor();
+
+  // Last: it navigates away from the admin page.
+  step = "the door rescues /ui at the origin root into the hub's prefixed dashboard";
+  {
+    // No redirect following: what matters is the status and the Location, not
+    // the dashboard itself -- the `llm` upstream here is a dead port.
+    const res = await page.request.get(`http://127.0.0.1:${daemon.localDoorPort}/ui?x=1`, {
+      maxRedirects: 0,
+    });
+    check(res.status() === 307, `GET /ui answered ${res.status()}, expected 307`);
+    const location = res.headers().location;
+    check(
+      location === `/peers/${daemon.hubPeerId}/llm/ui/?x=1`,
+      `GET /ui redirected to "${location}", expected "/peers/${daemon.hubPeerId}/llm/ui/?x=1"`,
+    );
+    // And a real navigation actually ends up there, whatever the dashboard then answers.
+    await page.goto(`http://127.0.0.1:${daemon.localDoorPort}/ui`).catch(() => {});
+    check(
+      page
+        .url()
+        .startsWith(`http://127.0.0.1:${daemon.localDoorPort}/peers/${daemon.hubPeerId}/llm/ui/`),
+      `a browser opening /ui ended at ${page.url()}`,
+    );
+  }
 
   check(problems.length === 0, problems.join("\n"));
   console.log("ui.e2e: all steps passed");

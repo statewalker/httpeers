@@ -27,6 +27,8 @@
  *     and the path rewritten to `/<moduleId>/...`, the shape the mesh mount
  *     hands the same handler. The query string is kept, the body streamed.
  *   - `/hub/api` and `/hub/api/...` -> the admin API, when one is given.
+ *   - `/ui` and `/ui/...` -> 307 to `/peers/<hubPeerId>/llm/ui/...`: the root
+ *     rescue, see `rescueDashboardPath`.
  *   - everything else -> the UI: `init.ui` when given, otherwise the built-in
  *     static server over `dist-ui/` next to this file (Task 6's admin page,
  *     `apps/hub/ui/` built by `build:ui`). 404 when even that has nothing.
@@ -204,6 +206,56 @@ export function createDoorGate(
   };
 }
 
+/** Where the LiteLLM dashboard lives under a hub's mesh path. */
+const DASHBOARD_PREFIX = "/ui";
+
+/**
+ * The root rescue: the mesh path for a `/ui...` request that arrived at the
+ * ORIGIN ROOT, or `undefined` when this request is not one.
+ *
+ * WHY. LiteLLM's exported dashboard is a client-routed app, and its router
+ * knows nothing about `SERVER_ROOT_PATH` (which only rewrites the exported
+ * asset paths). Measured on 2026-09-20, one browser, one URL, the `token`
+ * cookie the only difference: opened at `/peers/<id>/llm/ui/login/` WITHOUT
+ * the cookie it stays on the login page; WITH it, the router sends the browser
+ * to `/ui` at the origin root -- off the mesh path, and the door answered 404.
+ * Reproduced identically through this door and over the mesh, so it is the
+ * dashboard's doing, not the mesh edge's.
+ *
+ * The link now points at `/peers/<id>/llm/ui/` (`services/llm/openapi.ts`,
+ * `ui/main.ts`), which does not escape. This is the second half: a browser
+ * that escapes anyway -- an old bookmark, a stale page, a route we have not
+ * measured -- is sent back under the prefix instead of meeting a 404. The door
+ * serves exactly ONE hub, so `/ui` at its root is unambiguous.
+ *
+ * NARROW ON PURPOSE:
+ *   - only `/ui` and `/ui/...`; never `/uix`, `/ui.txt` or any other path that
+ *     merely starts with those letters. `/ui.txt` and the rest of Next's RSC
+ *     probes are deliberately NOT rescued: they are data fetches made by a
+ *     page, not navigations, and once the page itself has been rescued they are
+ *     issued under the prefix and never reach the root. Answering one with a
+ *     307 to an HTML document would hand a payload fetch the wrong thing, and
+ *     it would shadow the hub's own static UI namespace for no measured gain.
+ *   - only GET and HEAD: an escaped navigation is always a GET.
+ *   - never a request already under `/peers/`, which is what makes a loop
+ *     impossible -- the rescue's own target is under `/peers/`.
+ */
+export function rescueDashboardPath(
+  hubPeerId: string,
+  method: string,
+  pathname: string,
+  search: string,
+): string | undefined {
+  if (method !== "GET" && method !== "HEAD") return undefined;
+  if (pathname.startsWith("/peers/")) return undefined;
+  if (pathname !== DASHBOARD_PREFIX && !pathname.startsWith(`${DASHBOARD_PREFIX}/`)) {
+    return undefined;
+  }
+  // A bare `/ui` becomes `/ui/`: LiteLLM would only redirect again for it.
+  const rest = pathname === DASHBOARD_PREFIX ? `${DASHBOARD_PREFIX}/` : pathname;
+  return `/peers/${hubPeerId}/llm${rest}${search}`;
+}
+
 /** The door's routing, as a plain handler: what `startLocalDoor` serves. */
 export function createLocalDoorHandler(init: LocalDoorInit): Handler {
   const gate = createDoorGate(init);
@@ -247,6 +299,11 @@ export function createLocalDoorHandler(init: LocalDoorInit): Handler {
 
     if (path === "/hub/api" || path.startsWith("/hub/api/")) {
       return init.adminApi != null ? init.adminApi(request) : notFound(path);
+    }
+
+    const rescue = rescueDashboardPath(init.hubPeerId, request.method, path, url.search);
+    if (rescue != null) {
+      return new Response(null, { status: 307, headers: { location: rescue } });
     }
 
     return (init.ui ?? builtInUiHandler())(request);
