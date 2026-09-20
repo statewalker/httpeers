@@ -72,6 +72,7 @@ let session: Session | undefined;
 declare global {
   interface Window {
     openTestSession(shellOrigin: string, name: string): Promise<string>;
+    tryTestService(shellOrigin: string, name: string, key: string, path: string): Promise<string>;
   }
 }
 
@@ -94,4 +95,36 @@ window.openTestSession = async (shellOrigin, name) => {
   frame.src = session.url("/");
   document.body.append(frame);
   return session.origin;
+};
+
+/**
+ * Try to serve ONE service of the caller's choosing into a session, and say
+ * what happened: `"opened"`, or the error.
+ *
+ * THE ATTACK THE WORKER'S `canRegister` EXISTS FOR, made reachable from a test.
+ * A session name is not a secret and any `*.httpeers.net` page may frame the
+ * relay, so a second ghost is free to ask for a key the real app never claimed
+ * -- `evil` at `/index.html`, which normalises to a longer prefix than the
+ * app's `/` and would therefore outrank it for that one page, WITHOUT ever
+ * taking a key away from the app. `takeover: "first-wins"` does not stop it:
+ * that defends a key that is held, and this one is not.
+ *
+ * NOT CLOSED ON SUCCESS, deliberately. If the registration is ever accepted,
+ * the caller's next check is what the session now serves at `/index.html`, and
+ * a `close()` here would tidy the evidence away.
+ */
+window.tryTestService = async (shellOrigin, name, key, path) => {
+  try {
+    await openSession({
+      name,
+      origin: () => shellOrigin,
+      services: [{ key, path, handler: async () => new Response("served by a second ghost") }],
+      // Short: a refusal that arrived as silence rather than as an error would
+      // otherwise hold the whole suite for the default 20 s.
+      timeoutMs: 5_000,
+    });
+    return "opened";
+  } catch (error) {
+    return String(error);
+  }
 };

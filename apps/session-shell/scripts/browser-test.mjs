@@ -291,6 +291,31 @@ for (const browserName of wanted) {
       hijack,
     );
 
+    // A KEY THE APP NEVER CLAIMED is the other half of the refusal, and the
+    // half `takeover: "first-wins"` does not cover -- see `tryTestService`.
+    // `/index.html` normalises to a longer prefix than the app's `/`, so an
+    // accepted registration here would serve the session's own index page.
+    const rogue = await context.newPage();
+    await rogue.goto(`${GHOST}/ghost.html`);
+    const offAllowlist = await rogue
+      .evaluate((s) => window.tryTestService(s, "alpha", "evil", "/index.html"), SHELL)
+      .catch(String);
+    check(
+      browserName,
+      "a second app cannot register a key outside the session's allowlist",
+      offAllowlist.includes('may not register "evil"'),
+      offAllowlist,
+    );
+
+    const indexAfterRogue = await bodyOf(inner, "/index.html");
+    check(
+      browserName,
+      "and /index.html is still the app's",
+      indexAfterRogue.includes("hello from the app"),
+      indexAfterRogue.slice(0, 48),
+    );
+    await rogue.close();
+
     // A top-level visit carries no referrer; the worker refuses to serve it.
     const top = await context.newPage();
     const response = await top.goto(`${SHELL}/`);
