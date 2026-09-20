@@ -28,7 +28,9 @@ import type { FetchHandler, MeshView, PeerIdStr } from "@statewalker/httpeers-co
 import { pinnedPeer } from "@statewalker/httpeers-ghost";
 import { createGateway } from "@statewalker/httpeers-member";
 import {
+  APP_SERVICE_KEY,
   MESH_PREFIX,
+  MESH_SERVICE_KEY,
   openSession,
   type Session,
   type SessionService,
@@ -121,8 +123,8 @@ export function meshAppServices(init: OpenMeshAppInit): SessionService[] {
     edgeKey: EDGE_KEY,
   });
   return [
-    { key: "app", path: "/", handler: withDeadline(app, deadlineMs) },
-    { key: "mesh", path: MESH_PREFIX, handler: withDeadline(mesh, deadlineMs) },
+    { key: APP_SERVICE_KEY, path: "/", handler: withDeadline(app, deadlineMs) },
+    { key: MESH_SERVICE_KEY, path: MESH_PREFIX, handler: withDeadline(mesh, deadlineMs) },
   ];
 }
 
