@@ -185,8 +185,9 @@ async function openApp(): Promise<void> {
       appPath: `/${ad.id}`,
       member: {
         peerId: live.peerId,
-        fetch: live.fetch,
-        // Read the handle PER REQUEST: after a reconnect the old one is dead.
+        // Read the handle PER REQUEST, all four: after a reconnect the old
+        // one is dead, and `handle` is reassigned wholesale, not mutated.
+        fetch: () => handle?.fetch ?? null,
         meshView: () => handle?.meshView() ?? null,
         token: () => handle?.token() ?? "",
       },

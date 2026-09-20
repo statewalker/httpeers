@@ -40,8 +40,16 @@ import { EDGE_KEY } from "./policy.js";
 /** What a session needs of this page's membership, read per request. */
 export interface MeshMember {
   peerId: PeerIdStr;
-  /** The proven edge dispatch: `/{edgeKey}/{peerId}/{path}` in, mesh call out. */
-  fetch: FetchHandler;
+  /**
+   * The proven edge dispatch: `/{edgeKey}/{peerId}/{path}` in, mesh call out.
+   * A READER, not a value -- `session.ts` replaces the whole `MemberHandle`
+   * object on every reconnect (a new `startMember()`, a new `fetch` closure
+   * bound to a new libp2p node) and sets it to `null` on disconnect. A
+   * snapshot taken once, when the session opens, would point at a stopped
+   * node for the life of the iframe and never recover, because nothing
+   * reassigns it. `null` is how "this page has left the mesh" is expressed.
+   */
+  fetch: () => FetchHandler | null;
   /** Read per request -- a peer that joined a second ago must be reachable. */
   meshView: () => MeshView | null;
   /** This page's membership token. The app never sees it. */
@@ -104,16 +112,29 @@ export function withDeadline(
 /** What a session serves for a mesh app: the app at `/`, the mesh at `/peers/`. */
 export function meshAppServices(init: OpenMeshAppInit): SessionService[] {
   const deadlineMs = init.deadlineMs ?? 20_000;
+
+  // READ PER REQUEST, NEVER CAPTURED. `session.ts` replaces the whole
+  // MemberHandle on every reconnect, so a snapshot taken when the session
+  // opened points at a stopped node for the life of the iframe -- and would
+  // never recover, because nothing reassigns it.
+  const dispatch: FetchHandler = async (request) => {
+    const live = init.member.fetch();
+    if (live == null) {
+      return new Response("this page left the mesh", { status: 503 });
+    }
+    return await live(request);
+  };
+
   const app = pinnedPeer({
     landing: { peerId: init.peerId, appPath: init.appPath },
     basePath: "/",
     token: init.member.token,
-    remote: callThroughMember(init.member.fetch, EDGE_KEY),
+    remote: callThroughMember(dispatch, EDGE_KEY),
   });
   const mesh = createGateway({
     source: {
       peerId: init.member.peerId,
-      fetch: init.member.fetch,
+      fetch: dispatch,
       meshView: init.member.meshView,
     },
     // The library does NOT strip the mount prefix, and createGateway strips

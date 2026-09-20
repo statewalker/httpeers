@@ -2,7 +2,7 @@
  * The session demo, minus the browser: the hub's app and the pinned handler
  * a session's requests land in, wired as the app page wires them.
  */
-import { MESH_TOKEN_HEADER } from "@statewalker/httpeers-core";
+import { type FetchHandler, MESH_TOKEN_HEADER } from "@statewalker/httpeers-core";
 import { pinnedPeer } from "@statewalker/httpeers-ghost";
 import { beforeEach, describe, expect, it } from "vitest";
 import { createDemoSpa, SPA_ADVERTISEMENT } from "../src/shared/demo-spa.js";
@@ -113,10 +113,16 @@ beforeEach(() => {
  * The fake member answers HUB's own app through the demo SPA (so the pinned
  * service's response is real) and answers any other peer with a bare 200
  * (the mesh test only needs to see the gateway reach it, not what it serves).
+ *
+ * `member.fetch` is a READER over a swappable `current` -- `setFetch` stands
+ * in for `session.ts` reassigning the whole `MemberHandle` on a reconnect
+ * (a new value, never mutated in place) or clearing it to `null` on a
+ * disconnect ("this page left the mesh"). A captured `FetchHandler` value
+ * instead of a reader would not be able to model either.
  */
 function wireServices() {
   const spa = createDemoSpa();
-  const memberFetch = async (request: Request): Promise<Response> => {
+  let current: FetchHandler | null = async (request) => {
     const url = new URL(request.url);
     seenPaths.push(`${url.pathname}${url.search}`);
     // The member's edge: /peers/<peer>/<rest> -> that peer's handler.
@@ -128,7 +134,7 @@ function wireServices() {
   };
   const member: MeshMember = {
     peerId: HUB,
-    fetch: memberFetch,
+    fetch: () => current,
     meshView: () => null,
     token: () => "TOKEN",
   };
@@ -141,7 +147,12 @@ function wireServices() {
     member,
     container: {} as HTMLElement,
   });
-  return { services };
+  return {
+    services,
+    setFetch(next: FetchHandler | null) {
+      current = next;
+    },
+  };
 }
 
 describe("a session's two services", () => {
@@ -172,6 +183,36 @@ describe("a session's two services", () => {
     const mesh = services.find((s) => s.path === "/peers/");
     await mesh?.handler(new Request(`https://abc.p.httpeers.net/peers/${OTHER}/llm/v1?x=1`));
     expect(seenPaths[0]).toContain(`/${OTHER}/`);
+  });
+
+  // THE REGRESSION THIS GUARDS AGAINST: `member.fetch` captured as a VALUE at
+  // session-open time would keep answering through the stopped node forever,
+  // because `session.ts` REPLACES the whole MemberHandle on a reconnect
+  // rather than mutating it -- nothing would ever reassign a captured value.
+  it("reaches the newly live handle after a reconnect, not the stopped one", async () => {
+    const { services, setFetch } = wireServices();
+    const app = services.find((s) => s.path === "/");
+
+    setFetch(async () => new Response("A"));
+    const first = await app?.handler(new Request("https://abc.p.httpeers.net/api/hello"));
+    expect(await first?.text()).toBe("A");
+
+    // The reconnect: a brand-new handle, not a mutation of the old one.
+    setFetch(async () => new Response("B"));
+    const second = await app?.handler(new Request("https://abc.p.httpeers.net/api/hello"));
+    expect(await second?.text()).toBe("B");
+  });
+
+  // Not a 502 from a dead node's dispatch and not a 504 from the deadline --
+  // an explicit, legible refusal the moment the member has no live handle.
+  it("answers 503 once the page has left the mesh", async () => {
+    const { services, setFetch } = wireServices();
+    const app = services.find((s) => s.path === "/");
+
+    setFetch(null);
+    const res = await app?.handler(new Request("https://abc.p.httpeers.net/api/hello"));
+    expect(res?.status).toBe(503);
+    expect(await res?.text()).toBe("this page left the mesh");
   });
 });
 
