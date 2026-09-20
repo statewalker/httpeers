@@ -229,7 +229,7 @@ with LiteLLM's `token` cookie as the only difference:
 | Entry | No `token` cookie | With a `token` cookie |
 | --- | --- | --- |
 | `…/llm/ui/login/` | stays on the login page | **router navigates to `/ui` at the origin root** — off the mesh path |
-| `…/llm/ui/` | login page, prefixed absolute `?redirect_to=…` | login page, prefixed absolute `?redirect_to=…` |
+| `…/llm/ui/` | login page, prefixed absolute `?redirect_to=…` | straight to the dashboard at `…/llm/ui/` |
 
 So an admin who had ever logged in was thrown to the origin root and got a
 404 — on the local door and, identically, over the mesh
@@ -252,9 +252,13 @@ issued by an already-rescued page and reach the root only if something is
 wrong), and it sits behind the door's usual gate, so it is reached through
 Traefik's basic auth like any other root path.
 
-The **mesh** origin (`llm-chat.httpeers.net`) has no such rescue: it is a
-static bucket plus the page's ServiceWorker, and its root is the chat app
-itself.
+The **mesh** origin (`llm-chat.httpeers.net`) gets no such rescue, and cannot:
+it is a static bucket plus the page's ServiceWorker, with no server-side
+logic. Measured — `https://llm-chat.httpeers.net/assets/` answers 404, so the
+static server resolves a directory index at the site root only, and it serves
+no extensionless URL, which is exactly the shape (`/ui`) an escape lands on.
+The link on `mesh.html` points at `…/llm/ui/`, which does not escape; that is
+the whole defence there.
 
 ### Known risk: the dashboard on an app origin
 
