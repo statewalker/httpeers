@@ -194,7 +194,11 @@ Four ways to mint one:
 
   Runs Node inside a stock `node:22-alpine` with this repo bind-mounted, the
   same pattern `bin/prepare.sh` uses, so the operator needs only Docker and
-  a clone. `invites/` is gitignored: nothing minted here is ever committed.
+  a clone. Unlike `bin/prepare.sh` (stdlib only), its **first** run needs
+  outbound registry access — it installs `packages/httpeers-qr`'s own
+  `qrcode-generator`/`jsqr` at the versions that package's `package.json`
+  declares, then caches them for every run after. `invites/` is gitignored:
+  nothing minted here is ever committed.
 - **The admin UI**: mint an invitation (with a QR code of the blob) and
   send its link, or the blob itself, to the new member.
 - **The door directly**: `POST /hub/api/invitations {"roles":["member"]}`

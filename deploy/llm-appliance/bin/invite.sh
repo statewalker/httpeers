@@ -24,6 +24,10 @@
 # and verifies the QR by running Node inside a stock node:22-alpine with this
 # repo bind-mounted -- the same pattern bin/prepare.sh uses -- so the
 # operator needs only Docker and a clone, never a host Node/pnpm install.
+# UNLIKE bin/prepare.sh (stdlib only), its FIRST run needs outbound registry
+# access: bin/qr-deps.ts installs packages/httpeers-qr's own qrcode-generator
+# and jsqr from npm, at the versions that package.json declares, once, and
+# caches them in this repo's own node_modules for every run after.
 set -euo pipefail
 cd "$(dirname "$0")/.."
 REPO_ROOT="$(cd ../.. && pwd)"
@@ -99,21 +103,7 @@ docker run --rm --network host \
   -e "EXPECTED_HUB_PEER_ID=${HUB_PEER_ID:-}" \
   node:22-alpine sh -c '
     set -e
-    # qrcode-generator and jsqr are packages/httpeers-qr'"'"'s own PRODUCTION
-    # dependencies (see its package.json) -- installed here, once, into an
-    # ancestor node_modules of that package'"'"'s src/ (Node'"'"'s ESM resolver only
-    # walks UP from the importing file, so this has to land at /work/node_modules,
-    # not in some unrelated scratch directory). A neutral cwd with no
-    # package.json of its own is used for the actual `npm install`: /work'"'"'s
-    # own package.json uses pnpm'"'"'s "catalog:" protocol, which plain npm does
-    # not understand and refuses outright.
-    if [ ! -d /work/node_modules/qrcode-generator ] || [ ! -d /work/node_modules/jsqr ]; then
-      mkdir -p /tmp/qr-deps
-      npm install --prefix /tmp/qr-deps --no-audit --no-fund --silent qrcode-generator@2.0.4 jsqr@1.4.0
-      mkdir -p /work/node_modules
-      cp -r /tmp/qr-deps/node_modules/qrcode-generator /work/node_modules/
-      cp -r /tmp/qr-deps/node_modules/jsqr /work/node_modules/
-    fi
+    node --experimental-strip-types bin/qr-deps.ts
     node --experimental-strip-types bin/invite.ts
   '
 
