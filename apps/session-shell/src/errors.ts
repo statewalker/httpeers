@@ -1,11 +1,19 @@
 /**
- * What a session shows when the relay itself has to answer.
+ * What a session shows when THE RELAY ITSELF has to answer.
  *
  * The library's relay worker answers a failure with a JSON envelope, which is
  * right for a `fetch()` caller and useless in a visible iframe -- a session's
  * `index.html` IS a navigation, and a viewer reading raw JSON has been told
  * nothing. So a failure a human will look at becomes a page, and everything
  * else is left exactly as the library made it.
+ *
+ * "THE RELAY ITSELF" IS THE WHOLE DIFFICULTY. `decorateResponse` runs on every
+ * answer the relay carries, and most of them are the APP's -- the relay is a
+ * pipe, not the origin of what flows through it. A rule of "not ok" would have
+ * the shell overwrite an app's own 404 page with its own words, and, because a
+ * rewrite builds a new `Response`, silently drop the `Location` off a 302 and
+ * break every app-level redirect. So this rewrites only what carries the
+ * envelope's own content type, and never a 3xx at all.
  *
  * THE STATUS IS NOT REWRITTEN. The library decides what went wrong; this only
  * decides how it reads.
@@ -25,6 +33,19 @@ const EXPLAINED: Record<number, { title: string; text: string }> = {
 
 const NULL_BODY = [204, 205, 304];
 
+/**
+ * The content type the relay's own envelope carries -- `serve()`'s catch
+ * builds it as `JSON.stringify(errorOptions)` with `Content-Type:
+ * application/json`. It is the only signal available here that tells the
+ * relay's failure from the app's answer, because both arrive as a plain
+ * `Response` through the same `decorateResponse` hook.
+ */
+const ENVELOPE_TYPE = "application/json";
+
+function isRelayEnvelope(response: Response): boolean {
+  return (response.headers.get("content-type") ?? "").includes(ENVELOPE_TYPE);
+}
+
 function wantsHtml(request: Request): boolean {
   if (request.mode === "navigate") return true;
   return (request.headers.get("accept") ?? "").includes("text/html");
@@ -37,9 +58,26 @@ function escapeHtml(value: string): string {
   );
 }
 
+/**
+ * The shell's page for `response`, or `null` to leave `response` exactly as it
+ * is -- which is the answer for everything except the relay's own envelope.
+ *
+ * THE RESIDUAL, STATED PLAINLY. An app that answers a NAVIGATION with a JSON
+ * error body is indistinguishable here from the relay's envelope, and gets the
+ * shell's page instead of its JSON. That is a deliberate trade: a JSON body is
+ * not something a viewer can read either way, and the alternative -- a private
+ * marker header the relay does not send -- would mean the relay's own failures
+ * stayed raw JSON in an iframe, which is the whole problem this file exists
+ * for. An app that wants its own error rendered should answer with HTML.
+ */
 export function sessionErrorPage(response: Response, request: Request): Response | null {
+  // FIRST AND UNCONDITIONAL. A redirect is not an error to re-render, and
+  // rebuilding the response is exactly what would drop its `Location`.
+  if (response.status >= 300 && response.status < 400) return null;
   if (response.ok) return null;
   if (NULL_BODY.includes(response.status)) return null;
+  // Only what the relay made. The app's own error keeps its own body.
+  if (!isRelayEnvelope(response)) return null;
   if (!wantsHtml(request)) return null;
 
   const known = EXPLAINED[response.status];

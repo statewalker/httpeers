@@ -51,7 +51,8 @@ these is enforced by code in `src/`, tested in a real browser:
 | A page that is not on `httpeers.net` or one label under it cannot frame a session | `frame-ancestors`, from Caddy on the shell's files and from the worker on everything it answers | A worker-made response carries only the headers the worker gives it |
 | **Another session** cannot hand a relay its port | `relay.ts` → `isAllowedParentOrigin` | Every session is itself under `httpeers.net`, so `frame-ancestors` lets it frame another; CSP cannot say "except" |
 | A second ghost app cannot take over a live session | `sw.ts` → `takeover: "first-wins"` | The relay worker's default lets any client re-register a key; here the first live registrant keeps it until its relay page is gone |
-| Only `/relay.html` may register the app | `sw.ts` → `canRegister` | Anything else on the origin is the app itself |
+| Only `/relay.html` may register the app | `sw.ts` → `canRegister` → `canRegisterService` | Anything else on the origin is the app itself |
+| A ghost cannot invent a service key | `policy.ts` → `SESSION_SERVICE_KEYS` | `first-wins` defends a key that is *held*; a key nobody asked for could otherwise be mounted deeper than the app's root and outrank it |
 | A navigation must come from the session itself or a ghost-app origin | `sw.ts` → `navigationAllowed` (the `Referer`) | A page can withhold a referrer but not forge one; so a top-level visit, or a form posted from a foreign site, is refused with 403 instead of reaching the app with the viewer's credentials |
 
 What a session **may** do is whatever the ghost's `handler` allows. That is the whole of
@@ -70,13 +71,16 @@ this file used to hand-roll is gone. What is left is what the library cannot kno
 - **The refusals above**, as the worker's options: `exclude` keeps the shell's own files
   off the app's root mount, `canRegister` limits registration to `/relay.html`,
   `takeover: "first-wins"` keeps a live session with its app, and `decorateResponse`
-  stamps `frame-ancestors` on every answer the relay makes.
+  stamps `frame-ancestors` on every answer the relay makes. `canRegister` also checks
+  the KEY against `SESSION_SERVICE_KEYS`: a session names its services.
 - **The navigation check is the shell's own `fetch` listener, registered before the
   library's.** It needs `request.mode` and `request.referrer`, which `exclude` (a URL)
   and `decorateResponse` (after the answer) cannot see, and it must refuse before the
   request crosses the port. The first listener to call `respondWith` owns the request.
 - **A relay failure a human will read becomes a page** (`src/errors.ts`), not the
-  library's JSON envelope — a session's `index.html` is a navigation.
+  library's JSON envelope — a session's `index.html` is a navigation. Only the relay's
+  *own* envelope is rewritten: `decorateResponse` also carries the app's answers, so an
+  app's own 404 page and its redirects pass through untouched.
 - **The relay page talks to `registration.active`, not `navigator.serviceWorker.controller`.**
   Measured in Firefox 155: the first relay page on an origin is claimed and controlled,
   but a later one — a second tab, or the same ghost reloaded — loads with the worker

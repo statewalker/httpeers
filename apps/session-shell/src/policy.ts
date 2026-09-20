@@ -55,6 +55,50 @@ export const DEFAULT_SERVICE_KEY = "session";
  */
 export const MESH_PREFIX = "/peers/";
 
+/** The session's app, mounted at the origin root. */
+export const APP_SERVICE_KEY = "app";
+
+/** The mesh, mounted at `MESH_PREFIX`. */
+export const MESH_SERVICE_KEY = "mesh";
+
+/**
+ * Every service key a session will accept -- an ALLOWLIST, and the reason is
+ * the mount table.
+ *
+ * `takeover: "first-wins"` defends a key that is already held; it says nothing
+ * about a key nobody asked for. Any `*.httpeers.net` page may frame this
+ * relay, and the name of a session is not a secret, so without this a second
+ * ghost could register a key of its own -- `evil` at `/index.html` -- and beat
+ * the app's root mount on longest-prefix, serving one page of the session
+ * without ever taking the app's key from it.
+ *
+ * "Keys are the caller's" is the LIBRARY's rule, and right for a library. A
+ * session is a host with a threat model, so it names its services. Adding one
+ * is a one-line change here, which is the point: visible, rather than open.
+ */
+export const SESSION_SERVICE_KEYS: ReadonlySet<string> = new Set([
+  APP_SERVICE_KEY,
+  MESH_SERVICE_KEY,
+  DEFAULT_SERVICE_KEY,
+]);
+
+/**
+ * May the page at `clientUrl` register `key`? BOTH halves, or neither.
+ *
+ * The worker passes this to the relay's `canRegister`. It lives here, taking a
+ * URL string rather than a `Client`, so the rule can be tested as arithmetic
+ * instead of through a ServiceWorker -- the worker itself is a bundle with
+ * top-level side effects and cannot be imported by a test.
+ */
+export function canRegisterService(clientUrl: string, key: string): boolean {
+  if (!SESSION_SERVICE_KEYS.has(key)) return false;
+  try {
+    return new URL(clientUrl).pathname === RELAY_PATH;
+  } catch {
+    return false;
+  }
+}
+
 /**
  * Who may frame a session. Also written in `deploy/Caddyfile` for the shell's
  * own files -- a test compares the two.

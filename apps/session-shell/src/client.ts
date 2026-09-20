@@ -29,10 +29,12 @@ import {
 } from "./policy.js";
 
 export {
+  APP_SERVICE_KEY,
   DEFAULT_SERVICE_KEY,
   FRAME_ANCESTORS,
   isSessionName,
   MESH_PREFIX,
+  MESH_SERVICE_KEY,
   RELAY_PATH,
   randomSessionName,
   SESSION_ZONE,

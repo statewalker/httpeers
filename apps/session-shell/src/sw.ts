@@ -20,10 +20,10 @@
 import { startRelayServiceWorker } from "@statewalker/webrun-http-browser/relay-worker";
 import { sessionErrorPage } from "./errors.js";
 import {
+  canRegisterService,
   frameAncestorsFor,
   isShellPath,
   navigationAllowed,
-  RELAY_PATH,
   withFrameAncestors,
 } from "./policy.js";
 
@@ -67,8 +67,11 @@ startRelayServiceWorker(self, {
   // from it or the session cannot bootstrap at all.
   exclude: (url) => isShellPath(url.pathname),
   // THE NAME OF A SESSION IS NOT A SECRET, so a page on this origin proves
-  // nothing by existing: only the relay page may register.
-  canRegister: (client) => new URL(client.url).pathname === RELAY_PATH,
+  // nothing by existing: only the relay page may register, and only one of the
+  // services a session serves. Both halves matter -- `takeover` defends a key
+  // that is held, not a key nobody asked for, and a key of the registrant's
+  // own choosing can be mounted deeper than the app's root and outrank it.
+  canRegister: (client, key) => canRegisterService(client.url, key),
   // A live app keeps its session; a second relay page cannot take it over.
   takeover: "first-wins",
   decorateResponse: (response, request) =>
