@@ -3,7 +3,7 @@
  * shell's client, exactly as a real ghost app does, with no mesh behind it.
  * Driven by `scripts/browser-test.mjs`.
  */
-import { openSession, type Session } from "../../src/client.js";
+import { APP_SERVICE_KEY, openSession, type Session } from "../../src/client.js";
 
 const APP_HTML =
   '<!doctype html><meta charset="utf-8"><title>test app</title>' +
@@ -41,7 +41,12 @@ declare global {
 }
 
 window.openTestSession = async (shellOrigin, name) => {
-  session = await openSession({ name, origin: () => shellOrigin, handler, timeoutMs: 15_000 });
+  session = await openSession({
+    name,
+    origin: () => shellOrigin,
+    services: [{ key: APP_SERVICE_KEY, path: "/", handler }],
+    timeoutMs: 15_000,
+  });
   const frame = document.createElement("iframe");
   frame.id = "session";
   frame.src = session.url("/");
