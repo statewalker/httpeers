@@ -148,19 +148,69 @@ long-running service `healthy` once it's ready.
   provider, paste its API key, save. It's stored in Postgres
   (`STORE_MODEL_IN_DB=True`), so it survives a restart. Members then see it
   in `GET /peers/<id>/llm/v1/models` (their key needs no reconfiguration).
-- **Inviting a member**: mint an invitation in the admin UI (or
-  `POST /hub/api/invitations {"roles":["member"]}` through the door), send
-  them the link. They open it and join. A member **cannot mint a LiteLLM
-  key** (the hub answers 403); an admin gives them one — see "LLM keys" below.
-- **Inviting from the mesh page**: an admin on `mesh.html` opens the "Mesh"
-  menu, then **Invite someone**. They pick Member or Admin and an expiry
-  (1 hour, 1 day or 7 days), then share the link, show its QR code, or copy
-  it. Pending invitations are listed there too. It is the same
-  `POST /hub/api/invitations`, made over the mesh with the admin's own token,
-  so it needs no tunnel. An **admin** invitation hands over full control
-  (inviting, revoking, keys), and the page warns before making one. Members
-  never see the section. The widget's README has the details
+
+### Inviting
+
+**An invitation is a blob, not a link.** `POST /hub/api/invitations
+{"roles":["member"]}` returns `{ id, expiresAt, blob, link }`. `blob` is a
+credential for joining this mesh — whoever holds it can redeem it, however
+it travels: pasted as text, scanned from a QR code, or read out of a
+`?join=` URL. It is not tied to the chat app, or to any one application:
+`readJoinInputFromText` (`packages/httpeers-member/src/join-blob.ts`)
+accepts a bare `eyJ…` blob, a bare invitation id, or a whole join URL
+interchangeably, and needed no change to do it — that acceptance is already
+how the join form works.
+
+`link` is one convenience way to *use* the blob: `HUB_JOIN_PAGE_URL` with the
+blob attached as `?join=` — the same URL whether the invitation was minted
+through the admin door, `bin/invite.sh`, or the mesh page's own invite panel
+(below), because all three call the same `createInvitation`. Changing
+`HUB_JOIN_PAGE_URL` only changes which page that link opens — it has no
+bearing on what the blob is or what can redeem it.
+
+Once a client has joined with the blob, it does not need to be told what
+services this hub offers — it **discovers** them from the hub's own
+advertisements and OpenAPI document. `apps/llm-chat/src/mesh/discover.ts`
+is the chat app doing exactly that: the LLM service's base URL, its API key
+header and its dashboard URL all come from `GET
+/peers/<hubPeerId>/llm/openapi.json` (`servers[0].url`,
+`components.securitySchemes.llmKey.name`, an `x-httpeers-entry` extension),
+nothing is hard-coded. So an invitation is good for whatever the hub
+advertises, not just the chat — a shell, or an application not written yet,
+redeems the same blob the same way.
+
+Four ways to mint one:
+
+- **The command line**: `./bin/invite.sh --roles member --ttl-days 7`, run
+  from `deploy/llm-appliance` with the appliance already up. Writes
+  `invites/<date>-<roles>/`:
+  - `blob.txt` — the blob alone, no trailing newline, **the primary
+    artifact**;
+  - `blob.png` — a QR code of that same blob (never of the link), rendered
+    and then decoded back through `packages/httpeers-qr` before the script
+    exits, so a code that would not scan is a failure, not a surprise;
+  - `link.txt` — the convenience link, labelled as one way to use the blob
+    above it.
+
+  Runs Node inside a stock `node:22-alpine` with this repo bind-mounted, the
+  same pattern `bin/prepare.sh` uses, so the operator needs only Docker and
+  a clone. `invites/` is gitignored: nothing minted here is ever committed.
+- **The admin UI**: mint an invitation (with a QR code of the blob) and
+  send its link, or the blob itself, to the new member.
+- **The door directly**: `POST /hub/api/invitations {"roles":["member"]}`
+  (see the curl example under "On the httpeers.net server").
+- **From the mesh page**: an admin on `mesh.html` opens the "Mesh" menu,
+  then **Invite someone**. They pick Member or Admin and an expiry (1 hour,
+  1 day or 7 days), then share the link, show its QR code, or copy it.
+  Pending invitations are listed there too. It is the same
+  `POST /hub/api/invitations`, made over the mesh with the admin's own
+  token, so it needs no tunnel. An **admin** invitation hands over full
+  control (inviting, revoking, keys), and the page warns before making one.
+  Members never see the section. The widget's README has the details
   (`packages/httpeers-join`, "Invite").
+
+However it was minted, a member **cannot mint a LiteLLM key** (the hub
+answers 403); an admin gives them one — see "LLM keys" below.
 
 ## LLM keys
 
