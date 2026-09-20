@@ -2,11 +2,7 @@
  * The session demo, minus the browser: the hub's app and the pinned handler
  * a session's requests land in, wired as the app page wires them.
  */
-import {
-  type FetchHandler,
-  MESH_TOKEN_HEADER,
-  PEER_ID_HEADER,
-} from "@statewalker/httpeers-core";
+import { type FetchHandler, MESH_TOKEN_HEADER, PEER_ID_HEADER } from "@statewalker/httpeers-core";
 import { pinnedPeer } from "@statewalker/httpeers-ghost";
 import { beforeEach, describe, expect, it } from "vitest";
 import { createDemoSpa, SPA_ADVERTISEMENT } from "../src/shared/demo-spa.js";
