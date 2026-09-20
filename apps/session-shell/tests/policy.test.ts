@@ -2,11 +2,13 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import {
+  DEFAULT_SERVICE_KEY,
   FRAME_ANCESTORS,
   frameAncestorsFor,
   isAllowedParentOrigin,
   isSessionName,
   isShellPath,
+  MESH_PREFIX,
   navigationAllowed,
   RELAY_PATH,
   randomSessionName,
@@ -137,5 +139,29 @@ describe("frame-ancestors", () => {
   it("matches the header the Caddyfile sets on the shell's own files", () => {
     const caddyfile = readFileSync(join(__dirname, "../../../deploy/Caddyfile"), "utf8");
     expect(caddyfile).toContain(`frame-ancestors ${FRAME_ANCESTORS}`);
+  });
+});
+
+describe("the session's reserved namespace", () => {
+  // The member edge's own shape, so an app written for a member origin runs
+  // unchanged in a session. An app cannot own this prefix.
+  it("reserves /peers/ for the mesh", () => {
+    expect(MESH_PREFIX).toBe("/peers/");
+  });
+
+  it("keeps a default service key for a session that registers only an app", () => {
+    expect(DEFAULT_SERVICE_KEY).toBe("session");
+  });
+
+  // isShellPath decides what `exclude` hands back to the network. A root mount
+  // claims everything else, so anything missing here becomes unreachable.
+  it.each(["/relay.html", "/relay-sw.js", "/_shell/x.js"])("keeps %s the shell's", (path) => {
+    expect(isShellPath(path)).toBe(true);
+  });
+
+  it("does not reserve the app's own paths", () => {
+    for (const path of ["/", "/index.html", "/app.js", "/peers/12D3Koo/llm"]) {
+      expect(isShellPath(path)).toBe(false);
+    }
   });
 });

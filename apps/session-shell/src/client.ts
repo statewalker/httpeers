@@ -21,19 +21,20 @@
 
 import { initHttpService, newRemoteRelayChannel } from "@statewalker/webrun-http-browser";
 import {
+  DEFAULT_SERVICE_KEY,
   isSessionName,
   RELAY_PATH,
   randomSessionName,
-  SESSION_SERVICE_KEY,
   sessionOrigin,
 } from "./policy.js";
 
 export {
+  DEFAULT_SERVICE_KEY,
   FRAME_ANCESTORS,
   isSessionName,
+  MESH_PREFIX,
   RELAY_PATH,
   randomSessionName,
-  SESSION_SERVICE_KEY,
   SESSION_ZONE,
   sessionOrigin,
 } from "./policy.js";
@@ -85,7 +86,7 @@ export async function openSession(options: OpenSessionOptions): Promise<Session>
   let stop: () => void;
   try {
     stop = await Promise.race([
-      initHttpService(options.handler, { key: SESSION_SERVICE_KEY, port: connection.port }),
+      initHttpService(options.handler, { key: DEFAULT_SERVICE_KEY, port: connection.port }),
       new Promise<never>((_, reject) => {
         timer = setTimeout(
           () =>

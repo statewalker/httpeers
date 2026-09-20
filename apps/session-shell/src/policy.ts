@@ -36,11 +36,24 @@ export const WORKER_PATH = "/relay-sw.js";
 export const SHELL_PREFIX = "/_shell/";
 
 /**
- * The one service a session serves. `initHttpService` takes a key because the
- * relay protocol supports several; a session is one app, so the worker accepts
- * exactly this one and routes every non-shell path to it.
+ * The name a session's app registers under when nobody chooses one.
+ *
+ * A DEFAULT, NOT A LIMIT. Since `webrun-http-browser` 0.6.0 a service claims a
+ * path prefix, so a session serves as many services as its app registers --
+ * the app at the root, the mesh under `MESH_PREFIX`. This is only the key the
+ * root app takes when the caller gives none.
  */
-export const SESSION_SERVICE_KEY = "session";
+export const DEFAULT_SERVICE_KEY = "session";
+
+/**
+ * The mesh's namespace inside a session, reserved.
+ *
+ * The same shape the member edge serves (`/{edgeKey}/{peerId}/{path}`), so an
+ * app written against a member origin runs unchanged in a session. The cost is
+ * that an app can never own a path under `/peers/`; it is documented in the
+ * README beside `/_shell/` and `/relay.html`.
+ */
+export const MESH_PREFIX = "/peers/";
 
 /**
  * Who may frame a session. Also written in `deploy/Caddyfile` for the shell's

@@ -32,11 +32,13 @@ hand it is the snippet in the relay-mode README, with the service key fixed to
 | `/relay.html` | Framed, hidden, by the ghost app. Registers the worker and bridges the ghost's port to it. |
 | `/relay-sw.js` | The worker. Answers every path below, over the port. |
 | `/_shell/*` | The relay page's script. Content-hashed. |
+| `/peers/*` | Reserved for the mesh (`MESH_PREFIX`), the same shape the member edge serves. Never the app's. |
 | `/index.html` | A fallback that says nothing is connected. The network serves it only when no worker is installed — with a connected session the worker answers `/index.html` from the app like any other path. |
 | `.site/config.json` | `{ "notFound": "/index.html" }` for the sites app. Never served. |
 
 **Everything else belongs to the app.** An app cannot serve `/relay.html`,
-`/relay-sw.js` or anything under `/_shell/`; those three are the shell's whole footprint.
+`/relay-sw.js`, anything under `/_shell/`, or anything under `/peers/`; that is the
+shell's whole footprint.
 
 ## What the shell refuses
 
@@ -48,8 +50,8 @@ these is enforced by code in `src/`, tested in a real browser:
 |---|---|---|
 | A page that is not on `httpeers.net` or one label under it cannot frame a session | `frame-ancestors`, from Caddy on the shell's files and from the worker on everything it answers | A worker-made response carries only the headers the worker gives it |
 | **Another session** cannot hand a relay its port | `relay.ts` → `isAllowedParentOrigin` | Every session is itself under `httpeers.net`, so `frame-ancestors` lets it frame another; CSP cannot say "except" |
-| A second ghost app cannot take over a live session | `sw.ts`, `REGISTER` | The library's relay worker lets any client re-register a key; here the first live registrant keeps it until its relay page is gone |
-| Only `/relay.html` may register the app | `sw.ts`, `REGISTER` | Anything else on the origin is the app itself |
+| A second ghost app cannot take over a live session | `sw.ts` → `takeover: "first-wins"` | The relay worker's default lets any client re-register a key; here the first live registrant keeps it until its relay page is gone |
+| Only `/relay.html` may register the app | `sw.ts` → `canRegister` | Anything else on the origin is the app itself |
 | A navigation must come from the session itself or a ghost-app origin | `sw.ts` → `navigationAllowed` (the `Referer`) | A page can withhold a referrer but not forge one; so a top-level visit, or a form posted from a foreign site, is refused with 403 instead of reaching the app with the viewer's credentials |
 
 What a session **may** do is whatever the ghost's `handler` allows. That is the whole of
@@ -58,19 +60,28 @@ app can reach the one peer that serves it and nothing else.
 
 ## How it differs from the library's relay worker
 
-It speaks the same protocol (`REGISTER` / `UNREGISTER` / `CONNECT` over `callChannel`,
-then `sendHttpRequest`), so the ghost side is the unmodified library. What differs:
+It **is** the library's relay worker: `src/sw.ts` calls `startRelayServiceWorker` from
+`@statewalker/webrun-http-browser/relay-worker`, so registration, the client registry
+(kept in IndexedDB, because a browser stops an idle worker after about thirty seconds),
+routing and the `REGISTER` / `UNREGISTER` / `CONNECT` plumbing are all the library's.
+Since 0.6.0 a service claims a path prefix — the origin root included — so the routing
+this file used to hand-roll is gone. What is left is what the library cannot know:
 
-- **Routing.** The library worker serves only `/~<key>/...` URLs — and finds the `~`
-  anywhere in the URL, query string included. A session serves one app at its root.
-- **The refusals above.** The library worker has none of them.
+- **The refusals above**, as the worker's options: `exclude` keeps the shell's own files
+  off the app's root mount, `canRegister` limits registration to `/relay.html`,
+  `takeover: "first-wins"` keeps a live session with its app, and `decorateResponse`
+  stamps `frame-ancestors` on every answer the relay makes.
+- **The navigation check is the shell's own `fetch` listener, registered before the
+  library's.** It needs `request.mode` and `request.referrer`, which `exclude` (a URL)
+  and `decorateResponse` (after the answer) cannot see, and it must refuse before the
+  request crosses the port. The first listener to call `respondWith` owns the request.
+- **A relay failure a human will read becomes a page** (`src/errors.ts`), not the
+  library's JSON envelope — a session's `index.html` is a navigation.
 - **The relay page talks to `registration.active`, not `navigator.serviceWorker.controller`.**
   Measured in Firefox 155: the first relay page on an origin is claimed and controlled,
   but a later one — a second tab, or the same ghost reloaded — loads with the worker
   active and `controller` null. The library's relay page waits for a `controllerchange`
   that never comes, and the ghost's `REGISTER` is never answered.
-- **The registration survives the worker being stopped.** It is kept in IndexedDB,
-  because a browser stops an idle worker after about thirty seconds.
 
 ## Build, test, publish
 

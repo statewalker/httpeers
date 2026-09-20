@@ -324,9 +324,6 @@ importers:
       '@statewalker/webrun-http-browser':
         specifier: ^0.6.0
         version: 0.6.0
-      idb-keyval:
-        specifier: ^6.3.0
-        version: 6.3.0
     devDependencies:
       '@biomejs/biome':
         specifier: 'catalog:'
