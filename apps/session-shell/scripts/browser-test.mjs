@@ -29,12 +29,14 @@ if (!existsSync(join(site, "relay-sw.js"))) throw new Error("run `pnpm run build
 // `dist/site`, never against `src`, so an edited worker that was not rebuilt
 // gives a full green run about the previous version of the shell -- which is
 // how a mutation check quietly "proves" that a mutation is harmless.
-const worker = statSync(join(site, "relay-sw.js")).mtimeMs;
+const builtAt = statSync(join(site, "relay-sw.js")).mtimeMs;
 const src = join(root, "src");
 const newest = readdirSync(src, { recursive: true })
   .map((name) => statSync(join(src, name)).mtimeMs)
   .reduce((newest, at) => Math.max(newest, at), 0);
-if (newest > worker) throw new Error("`src` is newer than `dist/site`: run `pnpm run build` first");
+if (newest > builtAt) {
+  throw new Error("`src` is newer than `dist/site`: run `pnpm run build` first");
+}
 
 // THE CONSTANTS, NOT LITERALS. The mount paths and service keys asserted below
 // are the shell's own, read from the built library -- a harness that spelled

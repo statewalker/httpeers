@@ -37,7 +37,6 @@ import {
   RELAY_PATH,
   randomSessionName,
   SESSION_SERVICE_KEYS,
-  SHELL_PREFIX,
   sessionOrigin,
 } from "./policy.js";
 
@@ -80,7 +79,11 @@ export function servicesOf(services: SessionService[]): SessionService[] {
       throw new Error(`two services with the same key ("${service.key}") on one session`);
     }
     seen.add(service.key);
-    if (isShellPath(service.path) || service.path.startsWith(SHELL_PREFIX)) {
+    // `isShellPath` is the WHOLE rule -- `/relay.html`, `/relay-sw.js` and
+    // everything under `SHELL_PREFIX`. The `startsWith(SHELL_PREFIX)` that
+    // used to be ORed in here was the third of those three, restated: a second
+    // spelling of one rule, which is how the two drift apart.
+    if (isShellPath(service.path)) {
       throw new Error(`"${service.path}" is reserved by the session shell`);
     }
   }

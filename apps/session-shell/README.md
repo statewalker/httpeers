@@ -131,6 +131,16 @@ these is enforced by code in `src/`, tested in a real browser:
 | A second ghost cannot take an allowlisted key the app left unused | `client.ts` → `reservedPlaceholders` | `openSession` holds every key it is not using, with a refusing handler and no path — see [Why the keys are an allowlist](#why-the-keys-are-an-allowlist-and-why-the-unused-ones-are-still-held) |
 | A navigation must come from the session itself or a ghost-app origin | `sw.ts` → `navigationAllowed` (the `Referer`) | A page can withhold a referrer but not forge one; so a top-level visit, or a form posted from a foreign site, is refused with 403 instead of reaching the app with the viewer's credentials |
 
+**"Only `/relay.html` may register" is hygiene, not the defence.** `canRegisterService`
+checks the registering client's path — and the app can satisfy that check by framing
+`/relay.html` itself, since that page is served from the session's own origin and nothing
+stops it from being framed a second time. What actually holds is the **key allowlist plus
+the live placeholders** (the next two rows): a registration is refused unless its key is in
+`SESSION_SERVICE_KEYS`, and `openSession` already holds every allowlisted key it is not
+using with a refusing handler, so `first-wins` has something to defend for all of them.
+Read the path check as keeping an honest app's own pages from registering by accident,
+never as a boundary.
+
 What a session **may** do is whatever its services' handlers allow. That is the whole of
 its authority: in the demo the root is `httpeers-ghost`'s `pinnedPeer`, which reaches the
 one peer that serves the app and cannot be steered off it, and `/peers/` is

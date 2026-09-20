@@ -35,9 +35,15 @@ describe("the services a session is opened with", () => {
     expect(() => servicesOf([])).toThrow(/at least one/i);
   });
 
-  it("refuses a path that is the shell's own", () => {
-    expect(() => servicesOf([{ key: "app", path: "/_shell/", handler }])).toThrow(/reserved/i);
-  });
+  // EVERY path `isShellPath` claims, not just the prefix. `servicesOf` used to
+  // restate the `_shell/` half of that rule as a second condition beside it;
+  // these cases pin the rule itself, so the one remaining call is enough.
+  it.each(["/_shell/", "/_shell/main-abc123.js", "/relay.html", "/relay-sw.js"])(
+    "refuses %s, which is the shell's own",
+    (path) => {
+      expect(() => servicesOf([{ key: "app", path, handler }])).toThrow(/reserved/i);
+    },
+  );
 });
 
 // A HELD KEY IS ONE A HOSTILE GHOST CANNOT TAKE. `openSession` itself needs a
