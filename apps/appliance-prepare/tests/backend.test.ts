@@ -61,4 +61,34 @@ describe("chooseBackend", () => {
     expect(() => chooseBackend(probe, "rocm")).toThrow(/rocm/);
     expect(() => chooseBackend(probe, "rocm")).toThrow(/cpu, cuda, vulkan, intel, musa/);
   });
+
+  // Every fixture above matches exactly one rule in the table, so none of the
+  // tests above would fail if the table's order were shuffled — they prove
+  // each rule fires, not that it outranks the others. `multi-gpu` is a
+  // physically implausible probe that satisfies all four GPU rules (cuda,
+  // musa, intel, vulkan) simultaneously; deriving cpu/mtgpu/runtime variants
+  // from it by spreading is the only way to pin "first match wins" down to a
+  // test that would actually fail if the order in src/backend.ts changed.
+  describe("rule ordering (first match wins)", () => {
+    it("cuda outranks musa, intel and vulkan when a machine somehow matches all four", async () => {
+      const probe = await load("multi-gpu");
+      expect(chooseBackend(probe).backend).toBe("cuda");
+    });
+
+    it("musa outranks intel and vulkan once the nvidia runtime is unavailable", async () => {
+      const probe = await load("multi-gpu");
+      const withoutNvidiaRuntime = { ...probe, dockerRuntimes: ["runc"] };
+      expect(chooseBackend(withoutNvidiaRuntime).backend).toBe("musa");
+    });
+
+    it("intel outranks vulkan once neither nvidia runtime nor mtgpu node remain", async () => {
+      const probe = await load("multi-gpu");
+      const gpuOnlyRenderNode = {
+        ...probe,
+        dockerRuntimes: ["runc"],
+        deviceNodes: { ...probe.deviceNodes, mtgpu: [] },
+      };
+      expect(chooseBackend(gpuOnlyRenderNode).backend).toBe("intel");
+    });
+  });
 });
