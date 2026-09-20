@@ -13,7 +13,7 @@
  * from localhost (`isAllowedParentOrigin`); the deployed rule is unchanged.
  */
 
-import { createReadStream, existsSync, statSync } from "node:fs";
+import { createReadStream, existsSync, readdirSync, statSync } from "node:fs";
 import { createServer } from "node:http";
 import { dirname, extname, join, normalize } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
@@ -24,6 +24,17 @@ const here = dirname(fileURLToPath(import.meta.url));
 const root = join(here, "..");
 const site = join(root, "dist", "site");
 if (!existsSync(join(site, "relay-sw.js"))) throw new Error("run `pnpm run build` first");
+
+// AND A STALE BUILD IS WORSE THAN A MISSING ONE. Everything below runs against
+// `dist/site`, never against `src`, so an edited worker that was not rebuilt
+// gives a full green run about the previous version of the shell -- which is
+// how a mutation check quietly "proves" that a mutation is harmless.
+const worker = statSync(join(site, "relay-sw.js")).mtimeMs;
+const src = join(root, "src");
+const newest = readdirSync(src, { recursive: true })
+  .map((name) => statSync(join(src, name)).mtimeMs)
+  .reduce((newest, at) => Math.max(newest, at), 0);
+if (newest > worker) throw new Error("`src` is newer than `dist/site`: run `pnpm run build` first");
 
 // THE CONSTANTS, NOT LITERALS. The mount paths and service keys asserted below
 // are the shell's own, read from the built library -- a harness that spelled
