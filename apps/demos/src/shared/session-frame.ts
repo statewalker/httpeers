@@ -8,32 +8,54 @@
  * and rewrote the viewer's DOM, and the ghost's CSP stopped none of it. An
  * origin is one trust domain, and the frame was inside it.
  *
- * Here the app gets an origin of its own. It keeps what the ghost gave it --
- * one peer, reached through `pinnedPeer`, so it still cannot walk the mesh --
- * and loses what it should never have had: the viewer's storage, DOM and
- * worker are now cross-origin to it. Its only channel back is the port, and
- * every request on it lands in `pinnedPeer`, which can name one peer.
+ * Here the app gets an origin of its own. Its only channel back is the port,
+ * and a session now serves it TWO things on that one connection: the app
+ * itself, pinned to the one peer that serves it (`pinnedPeer`, at `/`), and
+ * the mesh, mounted at `MESH_PREFIX` (`createGateway`). The app still cannot
+ * walk the mesh THROUGH ITS OWN ROOT -- `pinnedPeer` holds that peer id, not
+ * the URL -- but it can address any peer the parent can see under `/peers/`,
+ * which is the decision spec §3.2 records: the app calls any peer as the
+ * viewer, bounded by each target peer's own ingress policy, and never sees
+ * the membership token because the parent's edge attaches it after the
+ * request has left the app.
  *
  * AND ROOT-ABSOLUTE URLs NOW WORK. Inside the session, `/app.js` is the
  * session's own path and reaches the app's peer; on the viewer's origin it
  * was the viewer's file -- the escape `contain` existed to stop.
  */
 
-import type { PeerIdStr } from "@statewalker/httpeers-core";
+import type { FetchHandler, MeshView, PeerIdStr } from "@statewalker/httpeers-core";
 import { pinnedPeer } from "@statewalker/httpeers-ghost";
-import { openSession, type Session } from "@statewalker/httpeers-session-shell/client";
+import { createGateway } from "@statewalker/httpeers-member";
+import {
+  MESH_PREFIX,
+  openSession,
+  type Session,
+  type SessionService,
+} from "@statewalker/httpeers-session-shell/client";
+import { EDGE_KEY } from "./policy.js";
 
-export interface OpenAppInit {
-  /** The peer serving the app. The only peer the app will be able to reach. */
+/** What a session needs of this page's membership, read per request. */
+export interface MeshMember {
   peerId: PeerIdStr;
-  /** The app's mount on that peer, e.g. `/spa`. */
-  appPath: string;
-  /** Call a peer through this page's member -- `handle.fetch` behind the edge. */
-  call: (peerId: PeerIdStr, request: Request) => Promise<Response>;
-  /** This page's membership token, read per request. */
+  /** The proven edge dispatch: `/{edgeKey}/{peerId}/{path}` in, mesh call out. */
+  fetch: FetchHandler;
+  /** Read per request -- a peer that joined a second ago must be reachable. */
+  meshView: () => MeshView | null;
+  /** This page's membership token. The app never sees it. */
   token: () => string;
+}
+
+export interface OpenMeshAppInit {
+  /** The peer serving the app shown at the session's root. */
+  peerId: PeerIdStr;
+  /** That app's mount on that peer, e.g. `/spa`. */
+  appPath: string;
+  member: MeshMember;
   /** Where the visible iframe goes. */
   container: HTMLElement;
+  /** How long a handler may take before the session gets a 504. Default 20 s. */
+  deadlineMs?: number;
 }
 
 export interface OpenedApp {
@@ -42,16 +64,70 @@ export interface OpenedApp {
   close(): void;
 }
 
-export async function openAppInSession(init: OpenAppInit): Promise<OpenedApp> {
-  const handler = pinnedPeer({
-    landing: { peerId: init.peerId, appPath: init.appPath },
-    // The whole session origin is the app's: `/` there is `appPath/` on the peer.
-    basePath: "/",
-    token: init.token,
-    remote: init.call,
-  });
+/**
+ * A bound on how long a session's app may take to answer.
+ *
+ * The relay has no timeout of its own, so a handler that never settles leaves
+ * the iframe waiting forever with nothing to show. The parent is the party
+ * that knows what the app is, so the bound lives here.
+ */
+export function withDeadline(
+  handler: (request: Request) => Promise<Response>,
+  ms: number,
+): (request: Request) => Promise<Response> {
+  return async (request) => {
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    try {
+      return await Promise.race([
+        handler(request),
+        new Promise<Response>((resolve) => {
+          timer = setTimeout(
+            () =>
+              resolve(
+                new Response(`the app did not answer within ${ms} ms`, {
+                  status: 504,
+                  headers: { "content-type": "text/plain; charset=utf-8" },
+                }),
+              ),
+            ms,
+          );
+        }),
+      ]);
+    } finally {
+      clearTimeout(timer);
+    }
+  };
+}
 
-  const session = await openSession({ handler, container: init.container });
+/** What a session serves for a mesh app: the app at `/`, the mesh at `/peers/`. */
+export function meshAppServices(init: OpenMeshAppInit): SessionService[] {
+  const deadlineMs = init.deadlineMs ?? 20_000;
+  const app = pinnedPeer({
+    landing: { peerId: init.peerId, appPath: init.appPath },
+    basePath: "/",
+    token: init.member.token,
+    remote: callThroughMember(init.member.fetch, EDGE_KEY),
+  });
+  const mesh = createGateway({
+    source: {
+      peerId: init.member.peerId,
+      fetch: init.member.fetch,
+      meshView: init.member.meshView,
+    },
+    // The library does NOT strip the mount prefix, and createGateway strips
+    // this one itself -- so the two line up exactly, and stripping here too
+    // would send the edge a path with no peer in it.
+    basePath: MESH_PREFIX.replace(/\/$/, ""),
+    edgeKey: EDGE_KEY,
+  });
+  return [
+    { key: "app", path: "/", handler: withDeadline(app, deadlineMs) },
+    { key: "mesh", path: MESH_PREFIX, handler: withDeadline(mesh, deadlineMs) },
+  ];
+}
+
+export async function openMeshApp(init: OpenMeshAppInit): Promise<OpenedApp> {
+  const session = await openSession({ services: meshAppServices(init), container: init.container });
 
   const frame = document.createElement("iframe");
   frame.src = session.url("/");

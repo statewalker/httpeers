@@ -4,10 +4,15 @@
  */
 import { MESH_TOKEN_HEADER } from "@statewalker/httpeers-core";
 import { pinnedPeer } from "@statewalker/httpeers-ghost";
-import { describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it } from "vitest";
 import { createDemoSpa, SPA_ADVERTISEMENT } from "../src/shared/demo-spa.js";
 import { meshRules } from "../src/shared/policy.js";
-import { callThroughMember } from "../src/shared/session-frame.js";
+import {
+  callThroughMember,
+  type MeshMember,
+  meshAppServices,
+  withDeadline,
+} from "../src/shared/session-frame.js";
 
 const HUB = "12D3KooWPbzaA61nmJyktyUaszpxftMLqrCh7Yd1UvJ9ZuQJYnBZ";
 const OTHER = "12D3KooWGzeWbY26SR3HC7tYBf9BNkJp6vyT5CevAJiZQVE29fFa";
@@ -85,5 +90,102 @@ describe("a session's requests, as the app page routes them", () => {
     const res = await handler(new Request(`https://abc.p.httpeers.net/${OTHER}/spa/`));
     expect(res.status).toBe(403);
     expect(seen).toEqual([]);
+  });
+});
+
+/**
+ * Everything a call through the fake member touches lands here, keyed by the
+ * forwarded request's path -- modelled on `wire()`'s `seen`, but shared
+ * across the two services `wireServices()` builds so a test can see which
+ * service dispatched where.
+ */
+let seenPaths: string[] = [];
+
+beforeEach(() => {
+  seenPaths = [];
+});
+
+/**
+ * What `openMeshApp` would register for a session, without opening one: the
+ * app pinned to HUB and the mesh gateway, both wired to the same fake member
+ * as `wire()` wires its single pinned handler.
+ *
+ * The fake member answers HUB's own app through the demo SPA (so the pinned
+ * service's response is real) and answers any other peer with a bare 200
+ * (the mesh test only needs to see the gateway reach it, not what it serves).
+ */
+function wireServices() {
+  const spa = createDemoSpa();
+  const memberFetch = async (request: Request): Promise<Response> => {
+    const url = new URL(request.url);
+    seenPaths.push(`${url.pathname}${url.search}`);
+    // The member's edge: /peers/<peer>/<rest> -> that peer's handler.
+    const [, , peer, ...rest] = url.pathname.split("/");
+    if (peer === HUB) {
+      return spa(new Request(`http://peer.local/${rest.join("/")}${url.search}`, request));
+    }
+    return new Response("ok", { status: 200 });
+  };
+  const member: MeshMember = {
+    peerId: HUB,
+    fetch: memberFetch,
+    meshView: () => null,
+    token: () => "TOKEN",
+  };
+  // meshAppServices never touches the container -- only openMeshApp does, to
+  // append the iframe -- so a real DOM element is not needed to build and
+  // test the two services in Node.
+  const services = meshAppServices({
+    peerId: HUB,
+    appPath: "/spa",
+    member,
+    container: {} as HTMLElement,
+  });
+  return { services };
+}
+
+describe("a session's two services", () => {
+  it("gives the app's own requests to the pinned peer", async () => {
+    const { services } = wireServices();
+    const app = services.find((s) => s.path === "/");
+    const res = await app?.handler(new Request("https://abc.p.httpeers.net/api/hello"));
+    expect(res?.status).toBe(200);
+    expect(seenPaths).toEqual([`/peers/${HUB}/spa/api/hello`]);
+  });
+
+  // THE WHOLE MESH, BY DESIGN (spec §3.2): an app in a session may call any
+  // peer the parent can see, bounded by that peer's own ingress policy.
+  it("gives a /peers/ request to the gateway, which reaches the named peer", async () => {
+    const { services } = wireServices();
+    const mesh = services.find((s) => s.path === "/peers/");
+    const res = await mesh?.handler(
+      new Request(`https://abc.p.httpeers.net/peers/${OTHER}/llm/v1`),
+    );
+    expect(res?.status).toBe(200);
+    expect(seenPaths).toEqual([`/peers/${OTHER}/llm/v1`]);
+  });
+
+  // The un-stripped mount prefix is createGateway's basePath. Stripping twice
+  // would send `/llm/v1` to the edge with no peer in it.
+  it("does not strip the prefix twice", async () => {
+    const { services } = wireServices();
+    const mesh = services.find((s) => s.path === "/peers/");
+    await mesh?.handler(new Request(`https://abc.p.httpeers.net/peers/${OTHER}/llm/v1?x=1`));
+    expect(seenPaths[0]).toContain(`/${OTHER}/`);
+  });
+});
+
+describe("withDeadline", () => {
+  it("passes a prompt answer through untouched", async () => {
+    const guarded = withDeadline(async () => new Response("ok"), 50);
+    expect(await (await guarded(new Request("http://x/"))).text()).toBe("ok");
+  });
+
+  // A HANDLER THAT NEVER ANSWERS WOULD HANG THE IFRAME FOREVER. The relay has
+  // no timeout of its own, so the party that knows the app sets the bound.
+  it("answers 504 when the handler does not", async () => {
+    const guarded = withDeadline(() => new Promise<Response>(() => {}), 20);
+    const res = await guarded(new Request("http://x/"));
+    expect(res.status).toBe(504);
   });
 });
