@@ -104,6 +104,13 @@ healthcheck should use: reserved, or lost for less than two minutes. Every
 transition logs one line naming the relay and the reason; the old
 implementation swallowed all of them.
 
+`scripts/probe-hub.mjs <hubPeerId>` answers the same question from OUTSIDE, as
+a member would: it dials `<relay>/p2p-circuit/p2p/<hub>` with an independent
+libp2p client and prints one JSON line. Run it from this package's directory so
+its dependencies resolve. That probe is how the incident was confirmed to be
+real rather than a member-side fault, and it is the check to run first next
+time.
+
 **A refused reservation says which refusal it was.** libp2p reports every
 failed reservation alike ("Some configured addresses failed to be listened
 on"), with the relay's status only in the text. `reserveOnHub` reads it out and
