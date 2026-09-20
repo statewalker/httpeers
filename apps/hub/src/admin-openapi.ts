@@ -67,6 +67,37 @@ const invitationSchema = {
   },
 };
 
+/**
+ * The relay supervisor's view (`superviseRelay(...).state()`) plus the hub's
+ * verdict on it. `healthy` is the one field a healthcheck needs; everything
+ * else is for a person reading the page.
+ */
+const relaySchema = {
+  type: "object",
+  required: ["status", "relayAddr", "relayPeerId", "healthy"],
+  properties: {
+    status: {
+      enum: ["reserved", "lost", "stopped"],
+      description:
+        "As the RELAY last answered, not as the node's own address list believes -- " +
+        "the two disagreed for hours during the 2026-09-19 incident.",
+    },
+    relayAddr: { type: "string" },
+    relayPeerId: { type: ["string", "null"] },
+    verifiedAt: { type: ["number", "null"], description: "When the relay last confirmed it." },
+    expiresAt: { type: ["number", "null"], description: "When the relay says it expires." },
+    lostSince: { type: ["number", "null"], description: "When the loss was first noticed." },
+    consecutiveFailures: { type: "number" },
+    renewals: { type: "number" },
+    restores: { type: "number" },
+    lastError: { type: ["string", "null"] },
+    healthy: {
+      type: "boolean",
+      description: "Reserved, or lost for less than the grace period (two minutes).",
+    },
+  },
+};
+
 /** Build the admin API's OpenAPI 3.1 document. */
 export function buildAdminOpenApi(): OpenApiDocument {
   return {
@@ -109,7 +140,35 @@ export function buildAdminOpenApi(): OpenApiDocument {
                 hubPeerId: { type: "string" },
                 relayAddrs: { type: "array", items: { type: "string" } },
                 services: { type: "array", items: { type: "string" } },
+                relay: relaySchema,
               },
+            }),
+          },
+        },
+      },
+      "/hub/api/relay": {
+        get: {
+          operationId: "getRelay",
+          summary: "This hub's circuit-relay reservation, as the relay itself last answered.",
+          responses: { "200": jsonResponse("The reservation's state", relaySchema) },
+        },
+      },
+      "/hub/api/health": {
+        get: {
+          operationId: "getHealth",
+          summary:
+            "Whether this hub is reachable through its relay. 503 once the reservation has " +
+            "been lost for longer than the grace period.",
+          responses: {
+            "200": jsonResponse("Healthy", {
+              type: "object",
+              required: ["ok", "relay"],
+              properties: { ok: { const: true }, relay: relaySchema },
+            }),
+            "503": jsonResponse("Unreachable through the relay", {
+              type: "object",
+              required: ["ok", "relay"],
+              properties: { ok: { const: false }, relay: relaySchema },
             }),
           },
         },

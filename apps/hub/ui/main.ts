@@ -22,6 +22,20 @@ interface MeshInfo {
   hubPeerId: string;
   relayAddrs: string[];
   services: string[];
+  relay: RelayReport;
+}
+
+/** `GET /hub/api/relay` — the supervisor's view, plus the hub's verdict on it. */
+interface RelayReport {
+  status: "reserved" | "lost" | "stopped";
+  relayPeerId: string | null;
+  verifiedAt: number | null;
+  expiresAt: number | null;
+  lostSince: number | null;
+  consecutiveFailures: number;
+  renewals: number;
+  lastError: string | null;
+  healthy: boolean;
 }
 
 interface MemberView {
@@ -43,6 +57,15 @@ interface InvitationResult {
 /** How often the members table is re-read. Matches the demos page. */
 const MEMBERS_POLL_INTERVAL_MS = 2_000;
 
+/**
+ * How often the reservation line is re-read.
+ *
+ * Slower than the members poll on purpose: it changes on a half-hour cadence,
+ * and the one moment it changes fast -- a loss and its recovery -- is the one
+ * an operator is watching the page for, which ten seconds still catches.
+ */
+const RELAY_POLL_INTERVAL_MS = 10_000;
+
 const el = <T extends HTMLElement>(id: string): T => {
   const found = document.querySelector<T>(`#${id}`);
   if (found == null) throw new Error(`hub admin UI: no #${id} in the markup`);
@@ -62,6 +85,7 @@ const linkInput = el<HTMLInputElement>("link");
 const expiresEl = el("expires");
 const qrEl = el("qr");
 const membersBody = el("members");
+const reservationEl = el("reservation");
 const adminStatusEl = el("admin-status");
 
 function showError(message: string): void {
@@ -89,6 +113,39 @@ function connectionOf(link: MemberView["link"]): string {
   if (link === "direct") return "direct";
   if (link === "relay") return "relay";
   return "not connected";
+}
+
+/**
+ * One line about the reservation: what the relay last said, and when.
+ *
+ * `verifiedAt` is deliberately on the page even when everything is fine. "Is
+ * this number moving?" is the question the incident could not be answered
+ * with, because nothing anywhere recorded the last time the relay had agreed.
+ */
+function renderReservation(relay: RelayReport): void {
+  const parts: string[] = [relay.healthy ? relay.status : `${relay.status} (UNHEALTHY)`];
+  if (relay.lostSince != null) {
+    parts.push(`since ${new Date(relay.lostSince).toLocaleTimeString()}`);
+  }
+  if (relay.verifiedAt != null) {
+    parts.push(`relay confirmed ${new Date(relay.verifiedAt).toLocaleTimeString()}`);
+  }
+  if (relay.expiresAt != null) {
+    parts.push(`expires ${new Date(relay.expiresAt).toLocaleTimeString()}`);
+  }
+  parts.push(`${relay.renewals} renewals`);
+  if (relay.consecutiveFailures > 0) parts.push(`${relay.consecutiveFailures} failures in a row`);
+  if (relay.lastError != null) parts.push(relay.lastError);
+  reservationEl.textContent = parts.join(" · ");
+  reservationEl.className = relay.healthy ? "" : "err";
+}
+
+async function loadReservation(): Promise<void> {
+  try {
+    renderReservation(await getJson<RelayReport>("/hub/api/relay"));
+  } catch (err) {
+    reservationEl.textContent = `unknown: ${String(err)}`;
+  }
 }
 
 function renderMembers(members: MemberView[], onRevoke: (peerId: string) => void): void {
@@ -185,6 +242,8 @@ async function main(): Promise<void> {
   meshIdEl.textContent = mesh.hubPeerId;
   relayEl.textContent = mesh.relayAddrs.join(", ");
   servicesEl.textContent = mesh.services.length > 0 ? mesh.services.join(", ") : "none";
+  renderReservation(mesh.relay);
+  setInterval(() => void loadReservation(), RELAY_POLL_INTERVAL_MS);
 
   if (mesh.services.includes("llm")) {
     dashboardLink.href = `/peers/${mesh.hubPeerId}/llm/ui/login/`;

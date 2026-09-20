@@ -106,6 +106,14 @@ export interface RelayConnection {
 /**
  * Reserve on the first relay address that works, and keep the reservation.
  * The addresses are tried in order; the error names every one that failed.
+ *
+ * THE SUPERVISOR IT RETURNS IS THE HUB'S HEALTH SIGNAL, not merely its
+ * repair. `supervisor.state()` is what `GET /hub/api/relay` and
+ * `GET /hub/api/health` answer from, and what the container healthcheck
+ * therefore acts on -- see `superviseRelay`'s own header for why the relay,
+ * rather than `getMultiaddrs()`, is the authority. Its default timers are the
+ * global ones, which is correct for a daemon; a hub in a browser tab would
+ * pass `worker-timers` here (`httpeers-libp2p`'s `./timers.ts`).
  */
 export async function connectRelay(node: Libp2p, relayAddrs: string[]): Promise<RelayConnection> {
   const failures: string[] = [];

@@ -396,8 +396,64 @@ snapshot that has newer key/model data tied to a different `HUB_PEER_ID`
 under `STORE_MODEL_IN_DB`) is at worst a cosmetic mismatch, not data loss —
 LiteLLM's own tables aren't keyed by `HUB_PEER_ID`.
 
+## When the relay reservation is lost
+
+The hub is reachable to anyone not on this host only while `relay.httpeers.net`
+holds a **circuit-relay reservation** for it. On **2026-09-19** it did not, for
+hours: the hub had been up since the previous evening, its websocket to the
+relay was still `ESTABLISHED`, and every member got
+`InvalidMessageError: failed to connect via relay with status NO_RESERVATION`.
+Restarting the container fixed it. The cause on the relay's side was never
+identified — five hours of five-minute probes afterwards showed no repeat, and
+the libp2p debug logs were lost when a CI deploy recreated the container.
+
+Three things came out of that, and all three are in the running appliance:
+
+1. **The hub renews its reservation against the relay**, roughly every 22–30
+   minutes (a quarter of the two-hour TTL the relay grants, jittered), by
+   sending a circuit-relay v2 `HOP RESERVE` over the connection it already
+   holds. The relay's reservation store is keyed by peer, so that one request
+   renews an entry that exists and re-creates one that does not — the incident
+   now heals on the next renewal, without anything having to notice it. It
+   reuses the same slot and does not disturb live circuits.
+2. **Every transition is logged**, one line each: `relay: reserved on <peer>`,
+   `renewed`, `renewal-failed -- <reason>`, `lost`, `restoring`, `restored`.
+   `docker compose logs hub | grep '^relay:'` is the history. Before this
+   change the supervisor swallowed every error, which is why the incident left
+   no trace in the hub's own output.
+3. **It is visible and it fails the healthcheck.**
+   `GET /hub/api/relay` reports what the relay last answered (status,
+   `verifiedAt`, `expiresAt`, `lostSince`, failure counts, last error), the
+   admin UI shows it on its `reservation` line, and `GET /hub/api/health`
+   answers **503** once the reservation has been lost for more than two
+   minutes. The container healthcheck asks that route, and `scripts/health.sh`
+   — which gates every deploy — checks it too.
+
+**Docker does not restart an unhealthy container**, and the hub deliberately
+does **not** exit when it cannot get its reservation back. With no relay at
+all the appliance still serves LiteLLM locally through Traefik on
+`127.0.0.1:8080`, and a restart loop would take that away in order to "fix" a
+remote-reachability problem a restart may not fix. So an unhealthy hub is a
+signal to act on, not an automatic recovery:
+
+```sh
+# On the server. What does the relay say?
+curl -s -u "$ADMIN_USER:$ADMIN_PASSWORD" http://127.0.0.1:8080/hub/api/relay | jq
+docker compose logs hub --since 1h | grep '^relay:'
+# Still lost after several minutes, with the relay itself up:
+docker compose restart hub
+```
+
+If a lost reservation is ever seen to persist past several renewal cycles, the
+next step is an `autoheal`-style sidecar (restart on unhealthy) rather than
+making the hub exit itself — recorded here so the decision is argued rather
+than rediscovered.
+
 ## Troubleshooting
 
+- **Members cannot reach the hub: `NO_RESERVATION`.** See "When the relay
+  reservation is lost" above — check `GET /hub/api/relay` first; it says
+  whether the relay agrees the hub is reserved.
 - **A chat reply just stops after ~30s with no error.** LiteLLM (like most
   proxies) times out a request; a **non-streaming** call slower than that
   gets a 502 at the mesh edge. Streaming (`stream: true`) has no such limit

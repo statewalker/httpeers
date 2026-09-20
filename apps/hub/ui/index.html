@@ -26,6 +26,10 @@
   <dt>mesh id</dt><dd class="mono" id="mesh-id">…</dd>
   <dt>relay</dt><dd class="mono" id="relay">…</dd>
   <dt>services</dt><dd class="mono" id="services">…</dd>
+  <!-- Whether the RELAY still holds this hub's reservation. A hub whose door
+       answers but whose reservation is gone is unreachable to every member,
+       and used to look entirely healthy from here. -->
+  <dt>reservation</dt><dd id="reservation">…</dd>
 </dl>
 
 <!-- The real href (`/peers/<hubPeerId>/llm/ui/login/`) is set by main.ts before this row is shown. -->

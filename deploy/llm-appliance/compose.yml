@@ -59,11 +59,32 @@ services:
       # once. Empty means the hub's default (4096); see .env.example.
       - HUB_MAX_RESERVATIONS=${HUB_MAX_RESERVATIONS:-}
     healthcheck:
-      # Both halves of "the hub is up": its identity is written (`hub.env`,
-      # apps/hub/src/identity.ts) AND the local door answers. `node:http`, not
-      # `fetch`: the door answers only an allowed Host (the one Traefik passes
-      # through), and `fetch` cannot set Host. No `$` in this script -- compose
-      # would interpolate it.
+      # THREE halves of "the hub is up", and the third is the one that was
+      # missing. Its identity is written (`hub.env`, apps/hub/src/identity.ts),
+      # its local door answers, AND the relay still holds its reservation.
+      #
+      # `/hub/api/health`, NOT `/hub/api/mesh`. On 2026-09-19 the hub ran all
+      # night with an ESTABLISHED websocket to the relay and no reservation on
+      # it: every member got NO_RESERVATION, and this healthcheck -- which
+      # asked for the mesh view and accepted any 200 -- reported the container
+      # healthy throughout. `/hub/api/health` answers 503 once the reservation
+      # has been gone for longer than its grace period (two minutes,
+      # `RESERVATION_LOSS_GRACE_MS`), so a hub nobody can reach now READS as
+      # unhealthy.
+      #
+      # DOCKER WILL NOT RESTART IT. An unhealthy container stays running;
+      # `restart: unless-stopped` only covers a process that EXITS. What this
+      # buys is that the state is visible -- in `docker compose ps`, in
+      # `scripts/health.sh`, and so in the deploy gate -- rather than silent.
+      # The hub deliberately does not exit on a lost reservation: the appliance
+      # still serves LiteLLM locally through Traefik with no relay at all, and
+      # a restart loop would take that away to fix a remote-reachability
+      # problem a restart may not fix. See README's "When the relay
+      # reservation is lost".
+      #
+      # `node:http`, not `fetch`: the door answers only an allowed Host (the
+      # one Traefik passes through), and `fetch` cannot set Host. No `$` in
+      # this script -- compose would interpolate it.
       test:
         - CMD
         - node
@@ -77,7 +98,7 @@ services:
               {
                 host: "127.0.0.1",
                 port: 8787,
-                path: "/hub/api/mesh",
+                path: "/hub/api/health",
                 headers: { host, "x-hub-door-secret": process.env.HUB_DOOR_SECRET },
                 timeout: 4000,
               },

@@ -39,7 +39,12 @@ import {
 } from "@statewalker/httpeers-core";
 import { createHub, type Hub, usesTransportIdentity } from "@statewalker/httpeers-hub";
 import { fileStorage } from "@statewalker/httpeers-hub/node";
-import { releaseReservation, servePeer, signerOf } from "@statewalker/httpeers-libp2p";
+import {
+  type RelayReservationState,
+  releaseReservation,
+  servePeer,
+  signerOf,
+} from "@statewalker/httpeers-libp2p";
 import { createAdminApi } from "./admin-api.js";
 import type { HubConfig } from "./config.js";
 import { loadOrCreateIdentity } from "./identity.js";
@@ -72,6 +77,8 @@ export interface Daemon {
   relayAddrs: string[];
   /** The relay address this hub holds its reservation on. */
   relayAddr: string;
+  /** The relay supervisor's current view -- what `GET /hub/api/relay` reports. */
+  relayState(): RelayReservationState;
   localDoorPort: number;
   /** The address the local door actually bound. */
   localDoorAddress: string;
@@ -201,6 +208,10 @@ export async function startDaemon(config: HubConfig, modules: ServiceModule[]): 
       rules,
       services: modules.map((m) => m.id),
       linkOf: (peerId) => linkOf(node, peerId),
+      // LIVE, not a snapshot: the supervisor's state changes under the daemon,
+      // and `/hub/api/health` is only worth anything if it reads the current
+      // one (see `admin-api.ts`'s `relayReport`).
+      relayState: () => supervisor.state(),
       // The whole job, durably: `DELETE /hub/api/members/:peerId` awaits this
       // before answering, so it never reports a revocation a crash could
       // still lose (see `Daemon.revocationsFlushed`'s own comment).
@@ -252,6 +263,7 @@ export async function startDaemon(config: HubConfig, modules: ServiceModule[]): 
       rules,
       relayAddrs,
       relayAddr,
+      relayState: () => supervisor.state(),
       localDoorPort: door.port,
       localDoorAddress: door.address,
       revocationsFlushed: () => revocations.flushed(),

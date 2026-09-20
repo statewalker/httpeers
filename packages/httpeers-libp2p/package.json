@@ -46,6 +46,7 @@
     "@libp2p/interface": "3.2.5",
     "@libp2p/peer-id": "6.0.14",
     "@libp2p/tcp": "11.0.26",
+    "@libp2p/utils": "7.4.1",
     "@libp2p/webrtc": "6.0.29",
     "@libp2p/websockets": "10.1.19",
     "@multiformats/multiaddr": "13.0.3",

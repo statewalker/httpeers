@@ -60,6 +60,38 @@ else
 fi
 rm -f /tmp/health-mesh.json
 
+# 3b. THE RESERVATION, which is what makes the hub reachable to anyone who is
+# not on this host. `/hub/api/health` is 503 once it has been lost for longer
+# than the grace period; `/hub/api/relay` says what the relay last answered.
+# This is the check the 2026-09-19 incident had nothing to fail on: the hub
+# was up, its door answered, and no member could reach it for hours.
+STATUS=$(curl -s -o /tmp/health-relay.json -w '%{http_code}' -u "$AUTH" "$BASE/hub/api/relay")
+if [ "$STATUS" = "200" ] && grep -q '"status":"reserved"' /tmp/health-relay.json 2>/dev/null; then
+  pass "GET /hub/api/relay: the relay confirms this hub's reservation"
+else
+  fail "GET /hub/api/relay -> $STATUS $(cat /tmp/health-relay.json 2>/dev/null) (expected 200 with status \"reserved\")"
+fi
+rm -f /tmp/health-relay.json
+
+STATUS=$(curl -s -o /tmp/health-hub.json -w '%{http_code}' -u "$AUTH" "$BASE/hub/api/health")
+if [ "$STATUS" = "200" ]; then
+  pass "GET /hub/api/health through Traefik (200)"
+else
+  fail "GET /hub/api/health -> $STATUS $(cat /tmp/health-hub.json 2>/dev/null) (expected 200; 503 means the relay reservation is lost)"
+fi
+rm -f /tmp/health-hub.json
+
+# 3c. And the container's own healthcheck, which now asks the same question.
+# A running-but-unhealthy hub is exactly the state Docker will NOT act on by
+# itself, so the deploy gate has to.
+HUB_HEALTH=$(docker inspect -f '{{if .State.Health}}{{.State.Health.Status}}{{else}}none{{end}}' \
+  "$(docker compose ps -q hub 2>/dev/null)" 2>/dev/null)
+if [ "$HUB_HEALTH" = "healthy" ]; then
+  pass "the hub container reports healthy"
+else
+  fail "the hub container reports \"$HUB_HEALTH\" (expected healthy)"
+fi
+
 # 4. LiteLLM readiness, under the mesh root path, through the door. LiteLLM's
 # paths carry NO basic auth (traefik/dynamic.yml's `litellm` router): only
 # LiteLLM's own authentication. So no -u here.

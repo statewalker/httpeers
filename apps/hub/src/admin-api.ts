@@ -24,11 +24,23 @@
 import type { RuleSet } from "@statewalker/httpeers-access";
 import { roleNames, validateRoles } from "@statewalker/httpeers-access";
 import type { Hub } from "@statewalker/httpeers-hub";
+import {
+  RESERVATION_LOSS_GRACE_MS,
+  type RelayReservationState,
+  reservationHealthy,
+} from "@statewalker/httpeers-libp2p";
 import { encodeJoinBlob, type JoinBlob, joinUrl } from "@statewalker/httpeers-member";
 import { buildAdminOpenApi } from "./admin-openapi.js";
 import type { MemberLink } from "./member-link.js";
 
 export const DEFAULT_INVITATION_TTL_MS = 24 * 60 * 60 * 1000;
+
+/**
+ * What `GET /hub/api/relay` answers, and what `GET /hub/api/mesh` carries
+ * under `relay`: the supervisor's own state plus the one derived bit an
+ * operator (or a container healthcheck) actually acts on.
+ */
+export type RelayReport = RelayReservationState & { healthy: boolean };
 
 export interface AdminApiInit {
   hub: Hub;
@@ -41,6 +53,15 @@ export interface AdminApiInit {
   services: string[];
   /** `GET /hub/api/members`'s per-member `link`, from the hub's live connections (`member-link.ts`). */
   linkOf(peerId: string): MemberLink;
+  /**
+   * The relay supervisor's view -- `superviseRelay(...).state()`, read fresh
+   * on every request rather than captured, so a route never answers from a
+   * snapshot taken when the daemon started.
+   */
+  relayState(): RelayReservationState;
+  /** How long a lost reservation may go unrepaired before the hub calls itself unhealthy. */
+  relayLossGraceMs?: number;
+  now?: () => number;
   /**
    * Remove and revoke a member, durably. What this calls does the whole job
    * — `memberStore.remove` + `revocations.revoke` + awaiting the revocation
@@ -83,6 +104,19 @@ function isStringArray(value: unknown): value is string[] {
 /** The handler both mounts serve — see the module comment. */
 export function createAdminApi(init: AdminApiInit): Handler {
   const openapi = buildAdminOpenApi();
+  const now = init.now ?? Date.now;
+  const graceMs = init.relayLossGraceMs ?? RESERVATION_LOSS_GRACE_MS;
+
+  /**
+   * THE RELAY REPORT IS COMPUTED PER REQUEST, never cached: `healthy` is a
+   * function of how long ago the loss was, so a value computed once would go
+   * stale in exactly the direction that matters -- reporting a hub healthy
+   * for as long as nobody restarted it.
+   */
+  function relayReport(): RelayReport {
+    const state = init.relayState();
+    return { ...state, healthy: reservationHealthy(state, graceMs, now()) };
+  }
 
   async function createInvitation(request: Request): Promise<Response> {
     const body = await readJsonObject(request);
@@ -129,7 +163,30 @@ export function createAdminApi(init: AdminApiInit): Handler {
         hubPeerId: init.hubPeerId,
         relayAddrs: init.relayAddrs,
         services: init.services,
+        relay: relayReport(),
       });
+    }
+
+    // READ-ONLY, AND SEPARATE FROM `/hub/api/mesh`, because a container
+    // healthcheck should not have to build and parse a whole mesh view -- and
+    // because "is this hub reachable through the relay" is a different
+    // question from "who is in the mesh", asked by different callers.
+    if (pathname === "/hub/api/relay" && method === "GET") {
+      return Response.json(relayReport());
+    }
+
+    /**
+     * THE HUB'S OWN VERDICT ON ITSELF, and the reason this route exists at
+     * all. The appliance's healthcheck used to ask for `/hub/api/mesh` and
+     * accept any 200 -- which the hub answered happily throughout the
+     * 2026-09-19 incident, while no member could reach it. A hub whose
+     * reservation has been gone for longer than the grace period is NOT
+     * healthy, and says so with a status code a healthcheck reads without
+     * parsing anything.
+     */
+    if (pathname === "/hub/api/health" && method === "GET") {
+      const relay = relayReport();
+      return Response.json({ ok: relay.healthy, relay }, { status: relay.healthy ? 200 : 503 });
     }
 
     if (pathname === "/hub/api/roles" && method === "GET") {

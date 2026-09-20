@@ -29,6 +29,17 @@ export {
   serveDuplex,
 } from "./duplex.js";
 export {
+  decodeHopAnswer,
+  HOP_RESERVE_TIMEOUT_MS,
+  HOP_STATUS_NAMES,
+  HOP_STATUS_OK,
+  type HopAnswer,
+  RelayNotConnectedError,
+  type RelayReservationGrant,
+  RelayReservationRefusedError,
+  requestRelayReservation,
+} from "./hop-reserve.js";
+export {
   HubReservationError,
   type HubReservationRefusal,
   hubRoute,
@@ -66,10 +77,21 @@ export { lastPeerIdOf } from "./multiaddr-parts.js";
 export {
   type CircuitAddrs,
   circuitAddrs,
+  DEFAULT_RENEWAL_INTERVAL_MS,
   dialRelay,
+  MAX_RENEWAL_INTERVAL_MS,
+  MIN_RENEWAL_INTERVAL_MS,
+  RESERVATION_LOSS_GRACE_MS,
   RESERVATION_POLL_ATTEMPTS,
   RESERVATION_POLL_INTERVAL_MS,
+  type RelayLog,
+  type RelayReservationEvent,
+  type RelayReservationState,
+  type RelayReservationStatus,
   type RelaySupervisor,
+  renewalDelayMs,
+  renewalIntervalMs,
+  reservationHealthy,
   retryDelayMs,
   type SuperviseRelayInit,
   superviseRelay,
@@ -77,6 +99,7 @@ export {
   waitForCircuitReservation,
 } from "./reservation.js";
 export { type Peer, type ServePeerInit, servePeer } from "./serve-peer.js";
+export { globalTimers, type TimerHandle, type Timers } from "./timers.js";
 export {
   type CreateNodeInit,
   type CreateRemoteInit,

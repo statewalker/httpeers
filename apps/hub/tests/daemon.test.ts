@@ -207,6 +207,43 @@ describe("startDaemon", () => {
     expect(second.hubPeerId).toBe(first.hubPeerId);
   }, 90_000);
 
+  it("reports its relay reservation, and the RELAY is what confirms it", async () => {
+    const daemon = await start(await configFor());
+    const door = `http://127.0.0.1:${daemon.localDoorPort}`;
+
+    // Straight after start the supervisor has not yet had an answer, so what
+    // this waits for is the relay itself agreeing -- the daemon's own belief
+    // is exactly what proved worthless on 2026-09-19.
+    const deadline = Date.now() + 15_000;
+    while (daemon.relayState().verifiedAt == null) {
+      if (Date.now() > deadline) throw new Error("the relay never confirmed the reservation");
+      await new Promise((resolve) => setTimeout(resolve, 100));
+    }
+
+    const state = daemon.relayState();
+    expect(state.status).toBe("reserved");
+    expect(state.relayPeerId).toBe(relay.node.peerId.toString());
+    expect(state.expiresAt).toBeGreaterThan(Date.now());
+
+    const health = await doorFetch(`${door}/hub/api/health`);
+    expect(health.status).toBe(200);
+    expect(await health.json()).toMatchObject({ ok: true, relay: { healthy: true } });
+
+    const report = await doorFetch(`${door}/hub/api/relay`);
+    expect(report.status).toBe(200);
+    expect(await report.json()).toMatchObject({
+      status: "reserved",
+      healthy: true,
+      relayPeerId: relay.node.peerId.toString(),
+    });
+
+    // And the same report rides along on the mesh view the UI already reads.
+    const mesh = (await (await doorFetch(`${door}/hub/api/mesh`)).json()) as {
+      relay: { status: string };
+    };
+    expect(mesh.relay.status).toBe("reserved");
+  }, 90_000);
+
   it("refuses to start without a door secret, before creating anything", async () => {
     const config = await configFor();
     const { doorSecret: _omitted, ...withoutSecret } = config;
