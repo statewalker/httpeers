@@ -162,3 +162,83 @@ export function renderComposeModels(plan: ComposePlan): string {
 
   return `${out.join("\n")}\n`;
 }
+
+// llama-swap bundles its own llama-server binary at this fixed path in every
+// `ghcr.io/mostlygeek/llama-swap:<backend>` image (verified by inspecting the
+// `:vulkan` image directly: `/app/llama-server`, `WorkingDir /app`,
+// entrypoint `/app/llama-swap -config /app/config.yaml -watch-config`) --
+// unlike `compose.models.yml`, there is no separate `image:` per model here,
+// so the binary path is a constant, not derived from `plan.image`.
+const LLAMA_SWAP_SERVER_BIN = "/app/llama-server";
+
+/**
+ * Renders one llama-swap `models.<id>` entry: a `cmd:` block flag-compatible
+ * with `renderService`'s own llama-server invocation (same `--ctx-size`,
+ * `--host`, `--alias`, and the same GPU-vs-CPU flag choice), except the port
+ * is llama-swap's own `${PORT}` macro (assigned per model at load time, not
+ * the fixed `8080` every `compose.models.yml` service publishes only on the
+ * "appliance" network) and there is no `--port` value to quote -- llama-swap
+ * substitutes it into the command line itself. `proxy:` is deliberately
+ * omitted: its documented default (`http://localhost:${PORT}`) is exactly
+ * right whenever `${PORT}` is used in `cmd`, which it always is here.
+ */
+function renderLlamaSwapModel(
+  plan: ComposePlan,
+  model: { entry: ModelEntry; service: string },
+): string[] {
+  const { entry } = model;
+  const modelPath = `/models/${entry.id}/${entry.file}`;
+
+  const cmd: string[] = [
+    LLAMA_SWAP_SERVER_BIN,
+    // Escaped so JS never interpolates it -- this is llama-swap's OWN macro,
+    // substituted by llama-swap itself when it spawns this command, not a
+    // value this module ever knows.
+    `--port \${PORT}`,
+    `--model ${modelPath}`,
+    `--alias ${entry.id}`,
+    "--host 0.0.0.0",
+    `--ctx-size ${entry.ctx}`,
+  ];
+  if (isGpuBackend(plan.backend)) {
+    cmd.push("--n-gpu-layers 999", "--verbosity 4");
+  } else {
+    cmd.push(`--threads ${plan.threads}`);
+  }
+
+  const lines: string[] = [];
+  // The model's own id is the key llama-swap's `models:` map (and so, via
+  // LiteLLM's `model: openai/<id>`, litellm.ts's local-model routing) is
+  // matched by -- never `service` (the Compose service name), which has no
+  // meaning inside the single `llamaswap` container.
+  lines.push(`${entry.id}:`);
+  lines.push("  cmd: |");
+  for (const line of cmd) {
+    lines.push(`    ${line}`);
+  }
+  return lines;
+}
+
+/**
+ * Renders llama-swap's `config.yaml`: the banner, then one `models.<id>`
+ * entry per model in `plan.models`, each with its own `llama-server` command
+ * line under llama-swap's single process. No `routing:`/`groups:` section is
+ * emitted -- llama-swap's own undeclared default (one exclusive, swapping
+ * group containing every model) is exactly the property this overlay exists
+ * to buy: at most one model resident at a time, verified against the bundled
+ * `ghcr.io/mostlygeek/llama-swap:vulkan` image's own `config.yaml` example,
+ * whose comment on `group1` reads "reproduces llama-swap's default
+ * behaviour: only one model runs at a time across the entire instance."
+ */
+export function renderLlamaSwapConfig(plan: ComposePlan): string {
+  const out: string[] = [BANNER, "", "models:"];
+
+  plan.models.forEach((model, index) => {
+    if (index > 0) {
+      out.push("");
+    }
+    out.push(...indent(renderLlamaSwapModel(plan, model), 2));
+  });
+
+  return `${out.join("\n")}\n`;
+}

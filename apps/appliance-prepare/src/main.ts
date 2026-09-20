@@ -19,7 +19,7 @@ import { chmodSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, isAbsolute, join, resolve as resolvePath } from "node:path";
 import { fileURLToPath } from "node:url";
 import { type Backend, type BackendChoice, chooseBackend } from "./backend.ts";
-import { type ComposePlan, renderComposeModels } from "./compose.ts";
+import { type ComposePlan, renderComposeModels, renderLlamaSwapConfig } from "./compose.ts";
 import { ensureModel, type Lock, type LockEntry } from "./download.ts";
 import { parseEnvFile, planSecrets, renderEnvFile } from "./env.ts";
 import { type LitellmPlan, renderLitellmConfig } from "./litellm.ts";
@@ -36,6 +36,7 @@ export interface Args {
   backend?: string;
   tier?: string;
   skipDownload: boolean;
+  llamaswap: boolean;
 }
 
 export interface PrepareReport {
@@ -57,7 +58,12 @@ export interface Io {
 }
 
 const FLAGS_WITH_VALUE = new Set(["--raw-probe", "--appliance", "--models", "--backend", "--tier"]);
-const FLAGS_BOOLEAN = new Set(["--probe-only", "--rotate-secrets", "--skip-download"]);
+const FLAGS_BOOLEAN = new Set([
+  "--probe-only",
+  "--rotate-secrets",
+  "--skip-download",
+  "--llamaswap",
+]);
 
 /**
  * Parses `bin/prepare.sh`'s CLI arguments. Throws, naming the offending
@@ -71,6 +77,7 @@ export function parseArgs(argv: string[]): Args {
     probeOnly: false,
     rotateSecrets: false,
     skipDownload: false,
+    llamaswap: false,
   };
   let hasAppliance = false;
 
@@ -80,6 +87,7 @@ export function parseArgs(argv: string[]): Args {
       if (flag === "--probe-only") args.probeOnly = true;
       else if (flag === "--rotate-secrets") args.rotateSecrets = true;
       else if (flag === "--skip-download") args.skipDownload = true;
+      else if (flag === "--llamaswap") args.llamaswap = true;
       continue;
     }
     if (FLAGS_WITH_VALUE.has(flag)) {
@@ -464,9 +472,27 @@ export async function run(args: Args, io: Io): Promise<PrepareReport> {
   io.writeFile(composeModelsPath, renderComposeModels(composePlan));
   wrote.push(composeModelsPath);
 
+  // --llamaswap: compose.models.yml above is written unconditionally either
+  // way (prepare does not special-case it away -- see compose.llamaswap.yml's
+  // own header on why that is fine to reference but never start). This is
+  // the one place behaviour actually branches: llamaswap/config.yaml is
+  // written ONLY under --llamaswap, and every local model's LiteLLM entry
+  // below is routed at the single "llamaswap" service instead of its own
+  // "llamacpp-<id>" one -- LitellmPlan already takes {id, service} per
+  // model, so this needs no interface change, only a different `service`
+  // value per entry.
+  if (args.llamaswap) {
+    const llamaswapConfigPath = join(args.appliance, "llamaswap", "config.yaml");
+    io.writeFile(llamaswapConfigPath, renderLlamaSwapConfig(composePlan));
+    wrote.push(llamaswapConfigPath);
+  }
+
   const openrouter = (previousEnv.get("OPENROUTER_API_KEY") ?? "").trim() !== "";
   const litellmPlan: LitellmPlan = {
-    models: modelsWithService.map(({ entry, service }) => ({ id: entry.id, service })),
+    models: modelsWithService.map(({ entry, service }) => ({
+      id: entry.id,
+      service: args.llamaswap ? "llamaswap" : service,
+    })),
     openrouter,
   };
   const litellmPath = join(args.appliance, "litellm", "config.local.yaml");
