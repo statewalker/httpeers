@@ -11,7 +11,22 @@
  * `cpu` has no signature: there is nothing to prove, so it always passes.
  * Every GPU backend's signature is distinct and checked exactly -- one
  * backend's signature is never accepted as proof of another (a `cuda`
- * container whose log only shows `ggml_vulkan:` did NOT run on CUDA).
+ * container whose log only shows `using device Vulkan0` did NOT run on
+ * CUDA).
+ *
+ * `intel` and `vulkan`'s signatures were corrected during Task 11's real
+ * bring-up on an Intel Iris Xe: the `ggml_sycl`/`ggml_vulkan:` strings this
+ * table shipped with (spec-era placeholders, never run against real
+ * hardware) do not appear anywhere in `ghcr.io/ggml-org/llama.cpp:server-
+ * intel`/`:server-vulkan` (build 11058) output, at any verbosity -- that
+ * build's SYCL/Vulkan backends log through a different, device-name-keyed
+ * format (`llama_prepare_model_devices: using device SYCL0 ...` /
+ * `... using device Vulkan0 ...`), with no `ggml_sycl`/`ggml_vulkan:`
+ * substring anywhere in the output. Confirmed genuine (not a logging
+ * fluke) by cross-checking the same run's `load_tensors: offloaded N/N
+ * layers to GPU` line and non-zero `SYCL0`/`Vulkan0 model buffer size` --
+ * see `deploy/llm-appliance/BACKENDS.md`. `cuda` and `musa`'s signatures
+ * are untouched: no hardware here to check them against.
  */
 
 import type { Backend } from "./backend.ts";
@@ -19,8 +34,8 @@ import type { Backend } from "./backend.ts";
 export const BACKEND_SIGNATURES: Record<Backend, string | null> = {
   cpu: null,
   cuda: "ggml_cuda_init",
-  vulkan: "ggml_vulkan:",
-  intel: "ggml_sycl",
+  vulkan: "using device Vulkan0",
+  intel: "using device SYCL0",
   musa: "ggml_musa",
 };
 

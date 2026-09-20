@@ -25,6 +25,19 @@
  * only) a few directories over in `compose.yml` -- the two lessons look
  * alike but the binaries available are not the same, so each healthcheck
  * was verified independently rather than copied.
+ *
+ * GPU backends also get `--verbosity 4`: verified on real Intel/Iris Xe
+ * hardware (Task 11) that llama-server's *default* verbosity (3) emits
+ * nothing at all about which device it initialised -- not the signature
+ * `scripts/verify-backend.sh` looks for, not even the device's name. At
+ * `--verbosity 4` the log gains exactly the lines that prove (or disprove)
+ * real GPU use -- `llama_prepare_model_devices: using device <Name> ...`
+ * and `load_tensors: offloaded N/N layers to GPU` -- without the firehose
+ * of per-layer/per-token debug output `-lv 99` turns on. Without this flag,
+ * `verify-backend.sh` cannot ever pass or fail correctly on a GPU backend;
+ * it would just find an empty log. `cpu` keeps its default verbosity: its
+ * signature check is a no-op (`BACKEND_SIGNATURES.cpu === null`), so there
+ * is nothing here for extra verbosity to prove.
  */
 
 import type { Backend } from "./backend.ts";
@@ -102,6 +115,8 @@ function renderService(plan: ComposePlan, model: { entry: ModelEntry; service: s
   if (isGpuBackend(plan.backend)) {
     lines.push("    - --n-gpu-layers");
     lines.push('    - "999"');
+    lines.push("    - --verbosity");
+    lines.push('    - "4"');
   } else {
     lines.push("    - --threads");
     lines.push(`    - "${plan.threads}"`);

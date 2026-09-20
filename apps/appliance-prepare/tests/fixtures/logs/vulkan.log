@@ -1,8 +1,15 @@
-llamacpp-qwen2-5-3b-instruct  | build: 3950 (a1b2c3d4) with cc (Ubuntu 13.2.0-23ubuntu4) 13.2.0 for x86_64-linux-gnu
-llamacpp-qwen2-5-3b-instruct  | ggml_vulkan: Found 1 Vulkan devices:
-llamacpp-qwen2-5-3b-instruct  | ggml_vulkan: 0 = AMD Radeon RX 7900 XTX (RADV NAVI31) | uma: 0 | fp16: 1 | warp size: 64
-llamacpp-qwen2-5-3b-instruct  | llama_model_loader: loaded meta data with 29 key-value pairs and 291 tensors from /models/qwen2.5-3b-instruct/qwen2.5-3b-instruct-q4_k_m.gguf
-llamacpp-qwen2-5-3b-instruct  | load_tensors: offloading 36 repeating layers to GPU
-llamacpp-qwen2-5-3b-instruct  | load_tensors:    Vulkan0 model buffer size =  1918.35 MiB
-llamacpp-qwen2-5-3b-instruct  | llama_context: n_ctx = 4096
-llamacpp-qwen2-5-3b-instruct  | main: server is listening on http://0.0.0.0:8080 - starting the main loop
+llamacpp-qwen2-5-3b-instruct  | 0.00.000.220 I srv  llama_server: initializing ...
+llamacpp-qwen2-5-3b-instruct  | 0.00.028.503 I cmn  common_param: build 11058 (f072b1037) with GNU 15.2.0 for Linux x86_64
+llamacpp-qwen2-5-3b-instruct  | 0.00.028.506 I cmn  common_param: device_info:
+llamacpp-qwen2-5-3b-instruct  | 0.00.028.646 I cmn  common_param:   - Vulkan0 : AMD Radeon RX 7900 XTX (RADV NAVI31) (24560 MiB, 24248 MiB free)
+llamacpp-qwen2-5-3b-instruct  | 0.00.028.649 I cmn  common_param:   - CPU     : 11th Gen Intel(R) Core(TM) i7-1165G7 @ 2.80GHz (31792 MiB, 31792 MiB free)
+llamacpp-qwen2-5-3b-instruct  | 0.00.289.879 I llama_model_loader: loaded meta data with 29 key-value pairs and 291 tensors from /models/qwen2.5-3b-instruct/qwen2.5-3b-instruct-q4_k_m.gguf
+llamacpp-qwen2-5-3b-instruct  | 0.00.324.023 I llama_prepare_model_devices: using device Vulkan0 (AMD Radeon RX 7900 XTX (RADV NAVI31)) (0000:03:00.0) - 24248 MiB free
+llamacpp-qwen2-5-3b-instruct  | 0.00.443.162 I load_tensors: offloading output layer to GPU
+llamacpp-qwen2-5-3b-instruct  | 0.00.443.163 I load_tensors: offloading 35 repeating layers to GPU
+llamacpp-qwen2-5-3b-instruct  | 0.00.443.163 I load_tensors: offloaded 36/36 layers to GPU
+llamacpp-qwen2-5-3b-instruct  | 0.00.443.166 I load_tensors:      Vulkan0 model buffer size =  1918.35 MiB
+llamacpp-qwen2-5-3b-instruct  | 0.01.028.686 I llama_kv_cache:    Vulkan0 KV buffer size =    28.00 MiB
+llamacpp-qwen2-5-3b-instruct  | 0.01.041.015 I sched_reserve:    Vulkan0 compute buffer size =    76.50 MiB
+llamacpp-qwen2-5-3b-instruct  | 0.01.147.660 I srv  llama_server: model loaded
+llamacpp-qwen2-5-3b-instruct  | 0.01.147.663 I srv  llama_server: listening on http://0.0.0.0:8080

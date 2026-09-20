@@ -32,13 +32,25 @@ describe("backendRan", () => {
   });
 
   it("accepts vulkan, intel and musa on their own signatures", () => {
-    expect(backendRan("vulkan", "ggml_vulkan: Found 1 Vulkan devices:\n").ok).toBe(true);
-    expect(backendRan("intel", "[SYCL] ggml_sycl_init: found 1 SYCL devices\n").ok).toBe(true);
+    expect(
+      backendRan(
+        "vulkan",
+        "llama_prepare_model_devices: using device Vulkan0 (RADV NAVI31) - 24248 MiB free\n",
+      ).ok,
+    ).toBe(true);
+    expect(
+      backendRan(
+        "intel",
+        "llama_prepare_model_devices: using device SYCL0 (Intel(R) Iris(R) Xe Graphics)\n",
+      ).ok,
+    ).toBe(true);
     expect(backendRan("musa", "ggml_musa: using MUSA device 0\n").ok).toBe(true);
   });
 
   it("does not accept one GPU backend's signature as proof of another", () => {
-    expect(backendRan("cuda", "ggml_vulkan: Found 1 Vulkan devices:\n").ok).toBe(false);
+    expect(
+      backendRan("cuda", "llama_prepare_model_devices: using device Vulkan0 (RADV NAVI31)\n").ok,
+    ).toBe(false);
   });
 
   it("accepts each backend against its own realistic, multi-line llama-server log", () => {

@@ -21,6 +21,8 @@ services:
       - "4096"
       - --n-gpu-layers
       - "999"
+      - --verbosity
+      - "4"
     deploy:
       resources:
         reservations:
@@ -55,6 +57,8 @@ services:
       - "8192"
       - --n-gpu-layers
       - "999"
+      - --verbosity
+      - "4"
     deploy:
       resources:
         reservations:
