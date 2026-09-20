@@ -68,7 +68,9 @@ that:
 
 | Module | What it does |
 |---|---|
-| `reservation` | `dialRelay`, `waitForCircuitReservation`, `circuitAddrs`, `superviseRelay` |
+| `reservation` | `dialRelay`, `waitForCircuitReservation`, `circuitAddrs`, `superviseRelay` (+ `reservationHealthy`, `renewalIntervalMs`) |
+| `hop-reserve` | `requestRelayReservation` — ask the relay itself, in its own protocol |
+| `timers` | the injectable `Timers` seam (`worker-timers` in a background tab) |
 | `hub-link` | `reachHub`, `reachHubRelayed`, `reserveOnHub` (+ `HubReservationError`), `leaveRelay`, `superviseHubReservation` |
 | `hub-relay` | `hubRelayService`, `membershipGater`, `releaseReservation` — a hub relaying for **its own members and nobody else** |
 | `identity` | `generateKey`, `peerIdOf`, `signerOf`, the persisted `identityStore` |
@@ -79,6 +81,28 @@ that:
 the protocol; the `/webrtc`-suffixed one is the one to publish. `circuitAddrs`
 returns both, labelled, so nobody has to rediscover which is which by pasting
 the wrong one.
+
+**Only the relay knows whether you are reserved.** `node.getMultiaddrs()` is
+the node's own belief, and on 2026-09-19 a deployed hub held that belief for
+hours while the relay held no reservation at all: the websocket was still up,
+every member got `NO_RESERVATION`, and the supervisor — which decided from that
+address list — saw nothing wrong. So `superviseRelay` asks the relay, on a
+schedule derived from the TTL the relay itself granted (`renewalIntervalMs`: a
+quarter of it, jittered down into its upper quarter; 22.5–30 minutes against a
+two-hour TTL). The request is a circuit-relay v2 `HOP RESERVE` over the
+existing connection (`requestRelayReservation`) — libp2p's own `addRelay` short
+-circuits on its cached entry, is not reachable from `Libp2p`, and blacklists a
+relay locally on failure. Because a relay's reservation store is keyed by peer,
+that one request renews an entry that exists and re-creates one that does not,
+reusing the slot and leaving live circuits alone.
+
+The address list now proves a **loss** (it is gone) and never proves health (it
+is there). `supervisor.state()` carries the whole picture — status,
+`verifiedAt`, `expiresAt`, `lostSince`, consecutive failures, renewal and
+restore counts, last error — and `reservationHealthy(state)` is the rule a
+healthcheck should use: reserved, or lost for less than two minutes. Every
+transition logs one line naming the relay and the reason; the old
+implementation swallowed all of them.
 
 **A refused reservation says which refusal it was.** libp2p reports every
 failed reservation alike ("Some configured addresses failed to be listened

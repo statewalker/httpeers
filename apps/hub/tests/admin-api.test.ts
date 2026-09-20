@@ -16,7 +16,12 @@ import { type RuleSet, ruleSet, withAccess } from "@statewalker/httpeers-access"
 import { mintToken } from "@statewalker/httpeers-access/issuer";
 import { ANONYMOUS, MESH_TOKEN_HEADER, registerPeer } from "@statewalker/httpeers-core";
 import { createHub, type Hub, memoryStorage } from "@statewalker/httpeers-hub";
-import { peerIdOf, signerOf } from "@statewalker/httpeers-libp2p";
+import {
+  peerIdOf,
+  RESERVATION_LOSS_GRACE_MS,
+  type RelayReservationState,
+  signerOf,
+} from "@statewalker/httpeers-libp2p";
 import { describe, expect, it } from "vitest";
 import { createAdminApi } from "../src/admin-api.js";
 import { linkOf, type MemberLink } from "../src/member-link.js";
@@ -37,10 +42,31 @@ const RULES: RuleSet = ruleSet({
 
 const stubMintToken = async (sub: string, roles: string[]) => `token:${sub}:${roles.join("+")}`;
 
+const RELAY_PEER_ID = "12D3KooWRelayAdminApiTestAAAAAAAAAAAAAAAAAAAAAAAAAAA";
+
+/** A supervisor state the test can move: reserved by default. */
+function relayState(over: Partial<RelayReservationState> = {}): RelayReservationState {
+  return {
+    status: "reserved",
+    relayAddr: `/dns4/relay.test/tcp/443/tls/ws/p2p/${RELAY_PEER_ID}`,
+    relayPeerId: RELAY_PEER_ID,
+    verifiedAt: 1_700_000_000_000,
+    expiresAt: 1_700_000_000_000 + 7_200_000,
+    lostSince: null,
+    consecutiveFailures: 0,
+    renewals: 3,
+    restores: 0,
+    lastError: null,
+    ...over,
+  };
+}
+
 interface Setup {
   hub: Hub;
   now: () => number;
   api: (request: Request) => Promise<Response>;
+  /** Replace what the admin API reads as the relay supervisor's view. */
+  setRelay(state: RelayReservationState): void;
 }
 
 async function setup(
@@ -54,10 +80,13 @@ async function setup(
     storage: memoryStorage(),
     now,
   });
+  let relay = relayState();
   const api = createAdminApi({
     hub,
     hubPeerId: HUB_PEER_ID,
     relayAddrs: RELAY_ADDRS,
+    relayState: () => relay,
+    now,
     joinPageUrl: JOIN_PAGE_URL,
     rules: RULES,
     services: ["echo"],
@@ -67,7 +96,14 @@ async function setup(
       hub.revocations.revoke(subject);
     },
   });
-  return { hub, now, api };
+  return {
+    hub,
+    now,
+    api,
+    setRelay: (state) => {
+      relay = state;
+    },
+  };
 }
 
 function req(method: string, path: string, body?: unknown): Request {
@@ -94,6 +130,87 @@ describe("createAdminApi", () => {
     expect(body.version).toBe(hub.meshView().version);
     expect(body.members).toEqual([]);
     expect(body.advertisements).toEqual([]);
+  });
+
+  describe("the relay reservation", () => {
+    it("GET /hub/api/relay: the supervisor's own view, plus the health verdict", async () => {
+      const { api } = await setup();
+      const res = await api(req("GET", "/hub/api/relay"));
+      expect(res.status).toBe(200);
+      expect(await res.json()).toEqual({ ...relayState(), healthy: true });
+    });
+
+    it("GET /hub/api/mesh carries the same relay report", async () => {
+      const { api } = await setup();
+      const body = (await (await api(req("GET", "/hub/api/mesh"))).json()) as {
+        relay: unknown;
+      };
+      expect(body.relay).toEqual({ ...relayState(), healthy: true });
+    });
+
+    it("reports a loss, and says how long it has lasted", async () => {
+      const T = 1_700_000_000_000;
+      const { api, setRelay } = await setup(() => T);
+      setRelay(
+        relayState({
+          status: "lost",
+          lostSince: T - 30_000,
+          consecutiveFailures: 2,
+          lastError: "Error: reservation failed with status NO_RESERVATION",
+        }),
+      );
+      const body = (await (await api(req("GET", "/hub/api/relay"))).json()) as {
+        status: string;
+        lostSince: number;
+        healthy: boolean;
+        lastError: string;
+      };
+      expect(body.status).toBe("lost");
+      expect(body.lostSince).toBe(T - 30_000);
+      expect(body.lastError).toContain("NO_RESERVATION");
+      // Thirty seconds is well inside the grace period: recovery takes seconds.
+      expect(body.healthy).toBe(true);
+    });
+  });
+
+  describe("GET /hub/api/health", () => {
+    it("is 200 while the reservation is held", async () => {
+      const { api } = await setup();
+      const res = await api(req("GET", "/hub/api/health"));
+      expect(res.status).toBe(200);
+      expect(await res.json()).toMatchObject({ ok: true, relay: { status: "reserved" } });
+    });
+
+    it("stays 200 through a short loss -- a restore normally takes seconds", async () => {
+      const T = 1_700_000_000_000;
+      const { api, setRelay } = await setup(() => T);
+      setRelay(relayState({ status: "lost", lostSince: T - 5_000 }));
+      expect((await api(req("GET", "/hub/api/health"))).status).toBe(200);
+    });
+
+    it("FAILS once the reservation has been lost longer than the grace period", async () => {
+      // The incident: the hub is up, its door answers, and it is unreachable
+      // through the relay. The old healthcheck called that healthy.
+      const T = 1_700_000_000_000;
+      const { api, setRelay } = await setup(() => T);
+      setRelay(
+        relayState({
+          status: "lost",
+          lostSince: T - RESERVATION_LOSS_GRACE_MS - 1,
+          consecutiveFailures: 6,
+          lastError: "Error: reservation failed with status NO_RESERVATION",
+        }),
+      );
+      const res = await api(req("GET", "/hub/api/health"));
+      expect(res.status).toBe(503);
+      expect(await res.json()).toMatchObject({ ok: false, relay: { healthy: false } });
+    });
+
+    it("fails once the supervisor has stopped", async () => {
+      const { api, setRelay } = await setup();
+      setRelay(relayState({ status: "stopped" }));
+      expect((await api(req("GET", "/hub/api/health"))).status).toBe(503);
+    });
   });
 
   it("GET /hub/api/roles: roleNames(rules)", async () => {
@@ -242,6 +359,8 @@ describe("createAdminApi", () => {
     expect(Object.keys(doc.paths).sort()).toEqual(
       [
         "/hub/api/mesh",
+        "/hub/api/relay",
+        "/hub/api/health",
         "/hub/api/roles",
         "/hub/api/invitations",
         "/hub/api/members",
