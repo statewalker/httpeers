@@ -24,7 +24,7 @@
  */
 
 import { createWriteStream } from "node:fs";
-import { mkdir, readFile, rename, rm, stat, writeFile } from "node:fs/promises";
+import { mkdir, rename, rm, stat } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { Readable } from "node:stream";
 import { pipeline } from "node:stream/promises";
@@ -113,35 +113,30 @@ export function isUpToDate(
 }
 
 /**
- * The sidecar path that records what `ensureModel` believes is on disk at
- * `targetPath`: the size and sha256 it verified (from HF's tree API) at the
- * moment it finished writing the file there.
+ * Cross-checks the caller-supplied `previous` lock entry (read from
+ * `manifest.lock.json` by Task 9's CLI, which owns that file — this module
+ * does no lock-file I/O of its own) against what is actually on disk right
+ * now.
  *
- * There is no cheap way to recompute a sha256 for a multi-GB file on every
- * run without re-reading the whole thing, which would defeat the point of
- * skipping the download. Trusting a small sidecar written right after our
- * own successful write-then-rename is safe: it can only exist because this
- * function itself created it immediately after the bytes at `targetPath`
- * were confirmed complete.
+ * `previous` alone is not trustworthy: the file it describes could have
+ * been deleted, truncated, or replaced since the lock was written. So this
+ * only trusts `previous.sha256` when a fresh `stat` of `targetPath` still
+ * reports the same size `previous` recorded. That is a cheap check — no
+ * re-hashing of a multi-GB file — that still catches truncation or
+ * deletion between runs. A `null`/missing `previous` (no prior knowledge)
+ * or a size mismatch both fall through to "nothing usable on disk", which
+ * is the safe direction: it forces a download rather than risking a stale
+ * or truncated file being served.
  */
-function sidecarPathOf(targetPath: string): string {
-  return `${targetPath}.meta.json`;
-}
-
-async function existingFile(
+async function verifiedOnDisk(
   targetPath: string,
+  previous: LockEntry | null,
 ): Promise<{ size: number; sha256: string | null } | null> {
+  if (previous === null) return null;
   try {
     const info = await stat(targetPath);
-    const sidecarRaw = await readFile(sidecarPathOf(targetPath), "utf8");
-    const sidecar = JSON.parse(sidecarRaw) as { size: number; sha256: string | null };
-    // The sidecar is only trustworthy while it agrees with the file it
-    // describes. If the model file was replaced or truncated by something
-    // outside this tool since the sidecar was written, its size will no
-    // longer match `stat` — treat that as "nothing usable on disk" rather
-    // than trusting stale metadata.
-    if (sidecar.size !== info.size) return null;
-    return { size: info.size, sha256: sidecar.sha256 };
+    if (info.size !== previous.size) return null;
+    return { size: info.size, sha256: previous.sha256 };
   } catch {
     return null;
   }
@@ -150,10 +145,22 @@ async function existingFile(
 /**
  * Downloads (or skips, if already present and matching) one model's GGUF
  * file, and returns the lock entry describing it.
+ *
+ * `opts.previous` is the prior run's `LockEntry` for this model, as Task 9's
+ * CLI reads it back from `manifest.lock.json` — this module never reads or
+ * writes that file itself, only consumes what it's handed. It defaults to
+ * `null` ("no prior knowledge"), and `null` always means "download": a
+ * caller that forgets to pass it pays for a redundant download, never risks
+ * serving a stale or truncated file.
  */
 export async function ensureModel(
   entry: ModelEntry,
-  opts: { dir: string; fetch: typeof globalThis.fetch; log: (s: string) => void },
+  opts: {
+    dir: string;
+    fetch: typeof globalThis.fetch;
+    log: (s: string) => void;
+    previous?: LockEntry | null;
+  },
 ): Promise<LockEntry> {
   const modelDir = join(opts.dir, entry.id);
   const targetPath = join(modelDir, entry.file);
@@ -164,7 +171,7 @@ export async function ensureModel(
   const treeJson = await treeResponse.json();
   const remote = pickRemoteFile(treeJson, entry.file);
 
-  const onDisk = await existingFile(targetPath);
+  const onDisk = await verifiedOnDisk(targetPath, opts.previous ?? null);
   if (isUpToDate(onDisk, remote)) {
     opts.log(`${entry.id}: already up to date (${remote.size} bytes), skipping download`);
     return {
@@ -210,12 +217,6 @@ export async function ensureModel(
 
     await pipeline(nodeBody, writeStream);
     await rename(partPath, targetPath);
-    // Written only after the rename succeeds, so the sidecar and the file
-    // it describes never disagree about whether the download completed.
-    await writeFile(
-      sidecarPathOf(targetPath),
-      JSON.stringify({ size: remote.size, sha256: remote.sha256 }),
-    );
   } catch (err) {
     // Write-then-rename's other half: on ANY failure, delete the partial
     // file before rethrowing, so a retry starts clean and nothing truncated

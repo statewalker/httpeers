@@ -93,12 +93,17 @@ describe("ensureModel", () => {
       if (!String(url).includes("/api/models/")) downloads += 1;
       return fakeFetch("hello")(url as never);
     }) as unknown as typeof globalThis.fetch;
-    await ensureModel(entry, { dir, fetch: counting, log: () => {} });
-    await ensureModel(entry, { dir, fetch: counting, log: () => {} });
+    const first = await ensureModel(entry, { dir, fetch: counting, log: () => {} });
+    // `previous` is what Task 9's CLI would read back from
+    // `manifest.lock.json` on a later run and hand to `ensureModel` -- this
+    // module never persists it itself. Passing the prior call's own
+    // `LockEntry` here is exactly that contract: "the last run recorded
+    // this size and sha256 for this model."
+    await ensureModel(entry, { dir, fetch: counting, log: () => {}, previous: first });
     expect(downloads).toBe(1);
   });
 
-  it("leaves no partial file behind when the download fails mid-stream", async () => {
+  it("leaves no partial file behind when the fetch itself fails before streaming starts", async () => {
     const dir = await mkdtemp(join(tmpdir(), "models-"));
     const failing = (async (url: string | URL) => {
       if (String(url).includes("/api/models/")) return fakeFetch("hello")(url as never);
@@ -108,5 +113,37 @@ describe("ensureModel", () => {
       /connection reset/,
     );
     await expect(stat(join(dir, "tiny", "tiny.gguf"))).rejects.toMatchObject({ code: "ENOENT" });
+    await expect(stat(join(dir, "tiny", "tiny.gguf.part"))).rejects.toMatchObject({
+      code: "ENOENT",
+    });
+  });
+
+  it("leaves no partial file behind when the connection drops mid-stream, after bytes have already landed on disk", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "models-"));
+    // This is the scenario the brief calls out as the one that matters: a
+    // `Response` is returned successfully and some bytes are actually
+    // written to the `.part` file before the body stream errors out. The
+    // earlier "fetch throws" test never reaches `createWriteStream`, so it
+    // cannot exercise the cleanup of an ALREADY-PARTIALLY-WRITTEN file --
+    // this one does.
+    const droppingMidStream = (async (url: string | URL) => {
+      if (String(url).includes("/api/models/")) return fakeFetch("hello")(url as never);
+      return new Response(
+        new ReadableStream({
+          start(controller) {
+            controller.enqueue(new TextEncoder().encode("partial"));
+            controller.error(new Error("connection reset"));
+          },
+        }),
+        { headers: { "content-length": "5" } },
+      );
+    }) as unknown as typeof globalThis.fetch;
+    await expect(
+      ensureModel(entry, { dir, fetch: droppingMidStream, log: () => {} }),
+    ).rejects.toThrow(/connection reset/);
+    await expect(stat(join(dir, "tiny", "tiny.gguf"))).rejects.toMatchObject({ code: "ENOENT" });
+    await expect(stat(join(dir, "tiny", "tiny.gguf.part"))).rejects.toMatchObject({
+      code: "ENOENT",
+    });
   });
 });
