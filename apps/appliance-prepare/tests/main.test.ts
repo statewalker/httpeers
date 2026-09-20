@@ -288,6 +288,57 @@ describe("run", () => {
     // directory; an absolute, container-resolved path here is exactly the
     // Task 10 bring-up bug (see main.ts's long comment on modelsDirSetting).
     expect(env).toContain("APPLIANCE_MODELS_DIR=./models");
+    // Default door port and its ALWAYS-derived allowlist (compose.yml's
+    // own default, so an operator who sets nothing gets today's behaviour).
+    expect(env).toContain("APPLIANCE_DOOR_PORT=8080");
+    expect(env).toContain("HUB_DOOR_ALLOWED_HOSTS=127.0.0.1:8080,localhost:8080");
+  });
+
+  it("preserves an operator's APPLIANCE_DOOR_PORT and derives HUB_DOOR_ALLOWED_HOSTS from it", async () => {
+    const previousEnvText = "APPLIANCE_DOOR_PORT=8081\n";
+    const { io, files } = fakeIo({
+      ...GOOD_RAW_PROBE,
+      "/a/models.json": MODELS_JSON,
+      "/a/.env": previousEnvText,
+    });
+    const args = parseArgs([
+      "--raw-probe",
+      "/probe",
+      "--appliance",
+      "/a",
+      "--backend",
+      "cpu",
+      "--tier",
+      "small",
+      "--skip-download",
+    ]);
+    await run(args, io);
+    const env = files.get("/a/.env") as string;
+    expect(env).toContain("APPLIANCE_DOOR_PORT=8081");
+    // Never preserved on its own -- always recomputed from the (possibly
+    // operator-set) port, so the two can never silently drift apart.
+    expect(env).toContain("HUB_DOOR_ALLOWED_HOSTS=127.0.0.1:8081,localhost:8081");
+  });
+
+  it("refuses a non-numeric APPLIANCE_DOOR_PORT, naming it", async () => {
+    const previousEnvText = "APPLIANCE_DOOR_PORT=not-a-port\n";
+    const { io } = fakeIo({
+      ...GOOD_RAW_PROBE,
+      "/a/models.json": MODELS_JSON,
+      "/a/.env": previousEnvText,
+    });
+    const args = parseArgs([
+      "--raw-probe",
+      "/probe",
+      "--appliance",
+      "/a",
+      "--backend",
+      "cpu",
+      "--tier",
+      "small",
+      "--skip-download",
+    ]);
+    await expect(run(args, io)).rejects.toThrow(/APPLIANCE_DOOR_PORT.*not-a-port/);
   });
 
   it("rewrites LLAMA_BACKEND/LLAMA_IMAGE on a later run with a different --backend (they are derived, not preserved)", async () => {

@@ -381,24 +381,56 @@ export async function run(args: Args, io: Io): Promise<PrepareReport> {
     wrote.push(lockPath);
   }
 
-  // Step 6: .env -- plan the nine secrets, add the five derived,
-  // non-secret keys spec §8 also requires (LLAMA_BACKEND, LLAMA_IMAGE,
-  // LLAMA_TIER, LLAMA_THREADS, APPLIANCE_MODELS_DIR), and write mode 600.
-  // Print the admin password only when it was freshly generated.
+  // APPLIANCE_DOOR_PORT: preserved like APPLIANCE_MODELS_DIR -- an
+  // operator's own choice, never derived from the probe/backend/tier --
+  // defaulting to 8080 (today's behaviour when an operator sets nothing).
+  // compose.local.yml's `traefik.ports` reads it with the same default, so
+  // an unset value publishes the door exactly where it always has.
   //
-  // The five derived keys are NOT secrets: planSecrets' preserve-unless-
-  // --rotate-secrets rule does not apply to them. They describe THIS run's
-  // selection and are rewritten every run -- otherwise re-running prepare
-  // after picking a different --backend/--tier would leave .env describing
-  // the previous run, and Task 10's verify-backend.sh (which reads
-  // LLAMA_BACKEND straight out of .env) would check against a stale value.
-  // APPLIANCE_MODELS_DIR is the one exception: `modelsDirSetting` above
-  // already preserved whatever the operator had set (or defaulted to
-  // "./models"), so writing it back here is a no-op unless this is the
-  // first run. It is written back as the RELATIVE setting, never the
-  // resolved `modelsDir` -- see the long comment above `modelsDirSetting`
-  // for why an absolute, container-resolved path in .env breaks docker
-  // compose on the host.
+  // Validated as an integer in 1-65535 here, not left for `docker compose
+  // up` to reject three steps later with a much less legible error.
+  const doorPortSetting = (previousEnv.get("APPLIANCE_DOOR_PORT") ?? "").trim() || "8080";
+  const doorPort = Number.parseInt(doorPortSetting, 10);
+  if (!/^\d+$/.test(doorPortSetting) || doorPort < 1 || doorPort > 65535) {
+    throw new Error(
+      `APPLIANCE_DOOR_PORT="${doorPortSetting}" is not a valid port -- it must be an integer ` +
+        "between 1 and 65535.",
+    );
+  }
+  // HUB_DOOR_ALLOWED_HOSTS is the opposite of APPLIANCE_DOOR_PORT: it is
+  // ALWAYS derived from the resolved port, never preserved on its own.
+  // compose.yml gates the hub's local door on this allowlist (defaulting to
+  // 127.0.0.1:8080,localhost:8080 -- see compose.yml's `hub.environment`);
+  // if the published port moved but this allowlist did not follow, Traefik
+  // would forward a Host the door refuses, and the failure would look like
+  // a broken door rather than what it actually is: two values that must
+  // agree, silently drifting apart. Keeping them derived from one
+  // `doorPort` here is the same discipline as APPLIANCE_MODELS_DIR/
+  // modelsDir above, applied to the second instance of it this branch
+  // turned up.
+  const doorAllowedHosts = `127.0.0.1:${doorPort},localhost:${doorPort}`;
+
+  // Step 6: .env -- plan the nine secrets, add the derived, non-secret keys
+  // spec §8 also requires (LLAMA_BACKEND, LLAMA_IMAGE, LLAMA_TIER,
+  // LLAMA_THREADS, APPLIANCE_MODELS_DIR, APPLIANCE_DOOR_PORT,
+  // HUB_DOOR_ALLOWED_HOSTS), and write mode 600. Print the admin password
+  // only when it was freshly generated.
+  //
+  // LLAMA_BACKEND/LLAMA_IMAGE/LLAMA_TIER/LLAMA_THREADS/HUB_DOOR_ALLOWED_HOSTS
+  // are NOT secrets: planSecrets' preserve-unless---rotate-secrets rule does
+  // not apply to them. They describe THIS run's selection (or, for
+  // HUB_DOOR_ALLOWED_HOSTS, are derived from one that does) and are
+  // rewritten every run -- otherwise re-running prepare after picking a
+  // different --backend/--tier would leave .env describing the previous
+  // run, and Task 10's verify-backend.sh (which reads LLAMA_BACKEND
+  // straight out of .env) would check against a stale value.
+  // APPLIANCE_MODELS_DIR and APPLIANCE_DOOR_PORT are the exceptions:
+  // `modelsDirSetting`/`doorPortSetting` above already preserved whatever
+  // the operator had set (or defaulted), so writing them back here is a
+  // no-op unless this is the first run. APPLIANCE_MODELS_DIR is written
+  // back as the RELATIVE setting, never the resolved `modelsDir` -- see the
+  // long comment above `modelsDirSetting` for why an absolute,
+  // container-resolved path in .env breaks docker compose on the host.
   const secretPlan = planSecrets(previousEnv, { rotate: args.rotateSecrets });
   const envValues = new Map(secretPlan.values);
   envValues.set("LLAMA_BACKEND", backend.backend);
@@ -406,6 +438,8 @@ export async function run(args: Args, io: Io): Promise<PrepareReport> {
   envValues.set("LLAMA_TIER", tier.tier);
   envValues.set("LLAMA_THREADS", String(threads));
   envValues.set("APPLIANCE_MODELS_DIR", modelsDirSetting);
+  envValues.set("APPLIANCE_DOOR_PORT", String(doorPort));
+  envValues.set("HUB_DOOR_ALLOWED_HOSTS", doorAllowedHosts);
   const envText = renderEnvFile(envValues, previousEnvText);
   io.writeFile(envPath, envText, 0o600);
   wrote.push(envPath);

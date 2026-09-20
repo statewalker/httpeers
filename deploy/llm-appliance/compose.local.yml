@@ -11,3 +11,21 @@ services:
       - ./litellm/config.local.yaml:/app/config.yaml:ro
       - ./litellm-entrypoint.sh:/litellm-entrypoint.sh:ro
       - ${APPLIANCE_DATA_DIR:-./data}/hub:/data/hub:ro
+
+  traefik:
+    # LOCAL ONLY. compose.yml publishes the door on a fixed 127.0.0.1:8080.
+    # `!override` REPLACES that inherited list rather than merging into it --
+    # a plain (untagged) key here would APPEND, publishing both 8080 and the
+    # configured port, and the original conflict would remain.
+    #
+    # VERIFIED against this exact scenario (2026-09-21): `!reset` -- the tag
+    # the obvious reading of "reset the port mapping" reaches for -- does NOT
+    # do this. `docker compose config` showed `!reset` (with or without a
+    # list following it) clears the field to nothing at all: traefik would
+    # publish no port whatsoever, not the new one. `!override` is the tag
+    # that means "replace the merged value with this one, don't merge it".
+    #
+    # Needs Compose >= 2.24 (2.35.1 here); this file is never used on the
+    # server, which deploys compose.server.yml.
+    ports: !override
+      - "127.0.0.1:${APPLIANCE_DOOR_PORT:-8080}:8080"
