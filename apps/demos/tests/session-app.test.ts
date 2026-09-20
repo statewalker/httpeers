@@ -18,7 +18,7 @@ const HUB = "12D3KooWPbzaA61nmJyktyUaszpxftMLqrCh7Yd1UvJ9ZuQJYnBZ";
 const OTHER = "12D3KooWGzeWbY26SR3HC7tYBf9BNkJp6vyT5CevAJiZQVE29fFa";
 
 describe("the hub's demo app", () => {
-  const spa = createDemoSpa();
+  const spa = createDemoSpa({ selfPeerId: () => HUB });
 
   it.each([
     ["/spa", "text/html"],
@@ -31,6 +31,29 @@ describe("the hub's demo app", () => {
     const res = await spa(new Request(`http://peer.local${path}`));
     expect(res.status).toBe(200);
     expect(res.headers.get("content-type")).toContain(type);
+  });
+
+  // The page addresses a peer EXPLICITLY under `/peers/`, and the only peer it
+  // can be sure of is the one that just answered. So `/api/hello` names it.
+  it("names the peer that answered, which is what the page addresses", async () => {
+    const res = await spa(new Request("http://peer.local/spa/api/hello"));
+    expect((await res.json()).peer).toBe(HUB);
+  });
+
+  // THE FIREFOX CASE, at the one end of it this can reach without a browser:
+  // whatever body arrives comes back with its length, so a body lost on the
+  // way is a mismatch rather than an empty string nobody looks at.
+  it("echoes a POSTed body, with its length", async () => {
+    const sent = JSON.stringify({ from: "abc.p.httpeers.net", nonce: "1" });
+    const res = await spa(
+      new Request("http://peer.local/spa/api/echo", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: sent,
+      }),
+    );
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({ echoed: sent, bytes: sent.length, method: "POST" });
   });
 
   it("is advertised under the mount it is served at", () => {
@@ -50,7 +73,7 @@ describe("the hub's demo app", () => {
 describe("a session's requests, as the app page routes them", () => {
   function wire() {
     const seen: string[] = [];
-    const spa = createDemoSpa();
+    const spa = createDemoSpa({ selfPeerId: () => HUB });
     const memberFetch = async (request: Request): Promise<Response> => {
       const url = new URL(request.url);
       // The MEMBERSHIP token, in its own header: `Authorization` belongs to the
@@ -121,7 +144,7 @@ beforeEach(() => {
  * instead of a reader would not be able to model either.
  */
 function wireServices() {
-  const spa = createDemoSpa();
+  const spa = createDemoSpa({ selfPeerId: () => HUB });
   let current: FetchHandler | null = async (request) => {
     const url = new URL(request.url);
     seenPaths.push(`${url.pathname}${url.search}`);
@@ -174,6 +197,26 @@ describe("a session's two services", () => {
     );
     expect(res?.status).toBe(200);
     expect(seenPaths).toEqual([`/peers/${OTHER}/llm/v1`]);
+  });
+
+  // THE WHOLE POINT OF TASK 8, minus the browser: a POST addressed through
+  // `/peers/` reaches the named peer WITH ITS BODY. `createGateway` reads the
+  // body with core's `bodyOf` precisely because Firefox has no
+  // `Request.prototype.body`; there the body used to arrive empty and silent.
+  it("carries a POSTed body through /peers/ to the named peer", async () => {
+    const { services } = wireServices();
+    const mesh = services.find((s) => s.path === "/peers/");
+    const sent = JSON.stringify({ from: "abc.p.httpeers.net", nonce: "1" });
+    const res = await mesh?.handler(
+      new Request(`https://abc.p.httpeers.net/peers/${HUB}/spa/api/echo`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: sent,
+      }),
+    );
+    expect(res?.status).toBe(200);
+    expect(await res?.json()).toEqual({ echoed: sent, bytes: sent.length, method: "POST" });
+    expect(seenPaths).toEqual([`/peers/${HUB}/spa/api/echo`]);
   });
 
   // The un-stripped mount prefix is createGateway's basePath. Stripping twice

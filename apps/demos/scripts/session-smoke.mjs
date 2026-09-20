@@ -11,6 +11,13 @@
  *   - the app rendered, from the mesh, inside each session frame;
  *   - each session's worker served it (not the shell's static fallback);
  *   - a root-absolute `/api/hello` reached the hub;
+ *   - a GET and a POST addressed to a peer EXPLICITLY, through the session's
+ *     mesh mount -- `/peers/<peerId>/spa/api/...` -- reached that peer, and
+ *     the POST arrived with its body. That last one is the whole reason this
+ *     stage exists: in Firefox there is no `Request.prototype.body`, so a
+ *     gateway that streamed the body forwarded an empty one and said nothing;
+ *   - a path under `/peers/` naming something that is not a member is
+ *     REFUSED, promptly, rather than hanging until the session's deadline;
  *   - localStorage, cookies, IndexedDB and the worker registration of one
  *     session are invisible to the other, and to the app page;
  *   - the app page's own storage is invisible to both sessions;
@@ -88,6 +95,32 @@ async function readSession(frame) {
       worker: t("worker"),
       api: t("api"),
     };
+  });
+}
+
+/**
+ * The three mesh rows, once each has settled.
+ *
+ * SEPARATE FROM `readSession`, deliberately: these calls are two mesh
+ * round-trips further out than `/api/hello`, and folding them into that wait
+ * would make a mesh failure report itself as the pinned root failing -- the
+ * regression net this smoke has been since 2026-09-18.
+ *
+ * Every row settles to something (`demo-spa.ts`'s `fail`), so a timeout here
+ * means the page never ran, not that a call is slow.
+ */
+async function readMesh(frame) {
+  await frame.waitForFunction(
+    () =>
+      ["mesh-get", "mesh-post", "mesh-missing"].every(
+        (id) => (document.getElementById(id)?.textContent ?? "…") !== "…",
+      ),
+    null,
+    { timeout: 60_000 },
+  );
+  return frame.evaluate(() => {
+    const t = (id) => document.getElementById(id)?.textContent ?? "";
+    return { get: t("mesh-get"), post: t("mesh-post"), missing: t("mesh-missing") };
   });
 }
 
@@ -221,6 +254,46 @@ for (const browserName of wanted) {
       check(`[${browserName}] session ${n}: its own first visit`, s.visits === "1", s.visits);
     }
     check(`[${browserName}] the two sessions are different origins`, s1.origin !== s2.origin);
+
+    // THE SCENARIO STAGE B1 EXISTS FOR, minus the chat: the app addresses a
+    // peer EXPLICITLY, in the path, through the session's `/peers/` mount --
+    // not through the pinned root, which resolves to one peer and refuses to
+    // be steered. `demo-spa.ts` reads the peer id out of `/api/hello`, so the
+    // peer it names is the one that just answered.
+    const mesh = await readMesh(frames[0]).catch((e) => ({ error: String(e) }));
+    console.log(`  session 1 mesh: ${JSON.stringify(mesh)}`);
+    check(
+      `[${browserName}] session 1: an explicit /peers/<peer>/ GET reaches the peer`,
+      mesh.get?.startsWith("hello from the hub, over the mesh") === true,
+      mesh.get ?? mesh.error,
+    );
+    // IN FIREFOX THIS IS THE CHECK THAT WOULD HAVE FAILED BEFORE TASK 2: no
+    // `Request.prototype.body`, so the body arrived empty and silent. Both
+    // halves matter -- the echo carries this session's own hostname (so it is
+    // this body, not a cached one) and its byte count equals what was sent (so
+    // it is the whole body, not a truncated one).
+    const host = s1.origin?.replace(/^https:\/\//, "") ?? "";
+    const bytes = /(\d+) bytes of (\d+) sent/.exec(mesh.post ?? "");
+    check(
+      `[${browserName}] session 1: a POST through /peers/ arrives with its body`,
+      host !== "" &&
+        mesh.post?.includes(host) === true &&
+        bytes != null &&
+        bytes[1] === bytes[2] &&
+        Number(bytes[1]) > 0,
+      mesh.post ?? mesh.error,
+    );
+    // REFUSED, NOT HUNG. The status itself is the member's to choose -- its
+    // access guard answers before its empty mount table does -- so what is
+    // asserted is that there IS an answer, that it is an error, and that it
+    // came back nowhere near the session's 20 s deadline. A hang would show up
+    // here as `threw after …` or as `readMesh` timing out, never as a pass.
+    const missing = /^(\d+) in (\d+) ms$/.exec(mesh.missing ?? "");
+    check(
+      `[${browserName}] session 1: a path under /peers/ naming a peer that is not in the mesh is refused, not hung`,
+      missing != null && Number(missing[1]) >= 400 && Number(missing[2]) < 10_000,
+      mesh.missing ?? mesh.error,
+    );
 
     // Isolation: write a marker in session 1 and on the app page, look from everywhere.
     await probe(frames[0], "one");

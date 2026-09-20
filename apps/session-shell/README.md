@@ -12,18 +12,93 @@ it: a mesh app shown in a session cannot read the ghost app's storage, identity 
 DOM, which a same-origin iframe could (see `docs/security-model.md`).
 
 ```ts
-import { openSession } from "@statewalker/httpeers-session-shell/client";
+import {
+  APP_SERVICE_KEY,
+  MESH_PREFIX,
+  MESH_SERVICE_KEY,
+  openSession,
+} from "@statewalker/httpeers-session-shell/client";
 
-const session = await openSession({ handler: (request) => serveTheApp(request) });
+const session = await openSession({
+  services: [
+    { key: APP_SERVICE_KEY, path: "/", handler: serveTheApp },
+    { key: MESH_SERVICE_KEY, path: MESH_PREFIX, handler: serveTheMesh },
+  ],
+});
 iframe.src = session.url("/"); // https://<random>.p.httpeers.net/
 ```
 
 `openSession` is `@statewalker/webrun-http-browser`'s
 [relay mode](https://github.com/statewalker/webrun-wire/tree/main/packages/webrun-http-browser#relay-mode--cross-origin)
 and nothing more: `newRemoteRelayChannel` frames `https://<name>.p.httpeers.net/relay.html`
-and `initHttpService` registers `handler` as the session's one service. Written out by
-hand it is the snippet in the relay-mode README, with the service key fixed to
-`"session"`.
+and `initHttpService` registers each service under its key, mounted at its path. Written
+out by hand it is the snippet in the relay-mode README, once per service.
+
+## What a session serves
+
+A session serves **the services its app registers**, each at a path the app chooses, and
+all of them over **one** relay connection. That is what `webrun-http-browser` 0.6.0
+changed: a `CONNECT` reaches only the service its key names, so a second service needs no
+second port, no second worker and no second origin. The demo registers two:
+
+| Mounted at | Key | What it is |
+|---|---|---|
+| `/` | `APP_SERVICE_KEY` (`app`) | The app. `/` is the origin root, which is why the app's **root-absolute** URLs — `/app.js`, `/api/hello` — reach the peer that serves it instead of the viewer's own origin. |
+| `/peers/` | `MESH_SERVICE_KEY` (`mesh`) | The mesh (`MESH_PREFIX`), in the member edge's own shape: `/peers/<peerId>/<path>`. **Reserved — an app can never own it.** |
+
+Three properties of that arrangement are easy to get wrong:
+
+- **The mount prefix is not stripped.** A handler mounted at `/peers/` is called with
+  `/peers/<peerId>/...`, not `/<peerId>/...`. That is exactly what
+  `createGateway({ basePath: "/peers" })` expects, because the gateway strips the prefix
+  itself; stripping it at the mount as well would hand the member's edge a path with no
+  peer in it. `tests/browser/ghost.ts` asserts it in a real browser by answering with the
+  pathname its handler was given.
+- **Longest prefix wins**, after a trailing slash is normalised away. `/peers/` outranks
+  the app's `/` — and so would *any* mount deeper than `/`, which is why the set of keys
+  is closed (below).
+- **The shell's own paths are excluded from every mount.** `/relay.html`, `/relay-sw.js`
+  and `/_shell/...` come from the network with Caddy's headers, even though the app's
+  mount at `/` claims every path. Without that exclusion a session could not bootstrap
+  itself at all.
+
+What a session can *do* is whatever its services' handlers allow, and nothing else. In
+the demo (`apps/demos/src/shared/session-frame.ts`) that is: the pinned peer, through
+`httpeers-ghost`'s `pinnedPeer` at `/`, which holds the peer id itself so the app cannot
+steer the root anywhere; and any peer the ghost app can see, through `createGateway` at
+`/peers/`, bounded by each target peer's own ingress policy. The app never sees the
+membership token — the ghost's edge attaches it after the request has left the session.
+
+### Why the keys are an allowlist, and why the unused ones are still held
+
+This is the least obvious thing in the design, and both halves of it are load-bearing.
+
+A session name is **not a secret**, and `frame-ancestors` lets any `*.httpeers.net` page
+frame a session's `relay.html`. So a second, hostile ghost app can reach a live session's
+relay and ask it to register something.
+
+- `canRegisterService` (`src/policy.ts`) refuses any key outside `SESSION_SERVICE_KEYS` —
+  `app`, `mesh`, and the default `session`. "Keys are the caller's" is the *library's*
+  rule, and right for a library; a session is a host with a threat model, so it names its
+  services. Adding one is a one-line change, which is the point: visible rather than open.
+- `openSession` then **reserves the whole key space**: for every allowlisted key the
+  caller did not use, it registers a live placeholder that refuses everything with `410`,
+  deliberately with **no path** — `initHttpService` mounts a service only when it is given
+  one, so a placeholder is reachable at `/~<key>/` and nowhere else and can never compete
+  with a real mount.
+
+The reservation exists because `takeover: "first-wins"` defends a key that is *held* and
+says nothing about a key nobody asked for. An app that registered only `app` would leave
+`mesh` unheld; a second ghost could take `mesh`, mount it at `/index.html` — which
+normalises to a longer prefix than the app's `/` — and serve the session's own index page
+without ever taking a key away from the app. Holding the key defeats that exactly as a
+real registration would, without asking every caller to remember to do it.
+What is tested where: the **allowlist** is measured in a real browser — a second ghost
+asking for `evil` at `/index.html` is refused, and `/index.html` is still the app's
+(`scripts/browser-test.mjs`). The **reservation** is unit-tested instead
+(`tests/client.test.ts`): `reservedPlaceholders` is a pure function of the requested
+services and the allowlist, and `openSession` itself needs a browser while that function
+does not.
 
 ## What is in the shell
 
@@ -53,11 +128,14 @@ these is enforced by code in `src/`, tested in a real browser:
 | A second ghost app cannot take over a live session | `sw.ts` → `takeover: "first-wins"` | The relay worker's default lets any client re-register a key; here the first live registrant keeps it until its relay page is gone |
 | Only `/relay.html` may register the app | `sw.ts` → `canRegister` → `canRegisterService` | Anything else on the origin is the app itself |
 | A ghost cannot invent a service key | `policy.ts` → `SESSION_SERVICE_KEYS` | `first-wins` defends a key that is *held*; a key nobody asked for could otherwise be mounted deeper than the app's root and outrank it |
+| A second ghost cannot take an allowlisted key the app left unused | `client.ts` → `reservedPlaceholders` | `openSession` holds every key it is not using, with a refusing handler and no path — see [Why the keys are an allowlist](#why-the-keys-are-an-allowlist-and-why-the-unused-ones-are-still-held) |
 | A navigation must come from the session itself or a ghost-app origin | `sw.ts` → `navigationAllowed` (the `Referer`) | A page can withhold a referrer but not forge one; so a top-level visit, or a form posted from a foreign site, is refused with 403 instead of reaching the app with the viewer's credentials |
 
-What a session **may** do is whatever the ghost's `handler` allows. That is the whole of
-its authority, and it is why the demo's handler is `httpeers-ghost`'s `pinnedPeer`: the
-app can reach the one peer that serves it and nothing else.
+What a session **may** do is whatever its services' handlers allow. That is the whole of
+its authority: in the demo the root is `httpeers-ghost`'s `pinnedPeer`, which reaches the
+one peer that serves the app and cannot be steered off it, and `/peers/` is
+`httpeers-member`'s `createGateway`, which reaches any peer the ghost app can see —
+bounded there by each target peer's own ingress policy, not by the session.
 
 ## How it differs from the library's relay worker
 
@@ -87,6 +165,16 @@ this file used to hand-roll is gone. What is left is what the library cannot kno
   active and `controller` null. The library's relay page waits for a `controllerchange`
   that never comes, and the ghost's `REGISTER` is never answered.
 
+**What the shell no longer does, and where it went.** `src/sw.ts` used to hand-roll a
+client registry, the `REGISTER` / `UNREGISTER` / `CONNECT` messages, and the routing that
+decided which client answered a path — all of it because the library's relay could only
+serve `/~<key>/` and a session needs the origin root. Since
+`@statewalker/webrun-http-browser` **0.6.0** a service claims a path prefix, the root
+included, and a `CONNECT` reaches only the service its key names. So all of that is the
+library's again, in `@statewalker/webrun-http-browser/relay-worker`, and `src/sw.ts` is
+one `startRelayServiceWorker` call plus the httpeers policy above. Every httpeers package
+names `@statewalker/webrun-http-browser@^0.6.0`; nothing here reimplements a part of it.
+
 ## Build, test, publish
 
 ```sh
@@ -98,10 +186,12 @@ node scripts/deploy.mjs --root <bucket-dir>
 pnpm run live-check       # DNS, TLS, HTTP and the refusals, on fresh names of the real domain
 ```
 
-`browser-test` runs the real protocol with the built worker: an app served into a
-session, a root-absolute script and a POST with a body, a stopped worker restarting
-(Chromium), the shell's own files bypassing the app, a second ghost refused, a top-level
-visit refused, and the session freed once its ghost is gone. It serves every session
+`browser-test` runs the real protocol with the built worker: **two services over one
+connection** — the app at `/` and a stand-in for the mesh at `/peers/`, each answering
+with which of them got the request and with the un-stripped pathname it was given — a
+root-absolute script and a POST with a body, a stopped worker restarting (Chromium), the
+shell's own files bypassing the app, a second ghost refused, a key outside the allowlist
+refused, a top-level visit refused, and the session freed once its ghost is gone. It serves every session
 name from ONE local origin, so it proves the protocol, not the per-name isolation. A
 shell served from `localhost` accepts `localhost` parents; the deployed rule never does.
 
