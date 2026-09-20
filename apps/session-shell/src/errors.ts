@@ -31,8 +31,6 @@ const EXPLAINED: Record<number, { title: string; text: string }> = {
   },
 };
 
-const NULL_BODY = [204, 205, 304];
-
 /**
  * The content type the relay's own envelope carries -- `serve()`'s catch
  * builds it as `JSON.stringify(errorOptions)` with `Content-Type:
@@ -74,8 +72,14 @@ export function sessionErrorPage(response: Response, request: Request): Response
   // FIRST AND UNCONDITIONAL. A redirect is not an error to re-render, and
   // rebuilding the response is exactly what would drop its `Location`.
   if (response.status >= 300 && response.status < 400) return null;
+  // AND THIS IS THE NULL-BODY GUARD TOO. Every status that may not carry a
+  // body is either 2xx or 3xx -- 204 and 205 are `ok`, 304 is caught above --
+  // so an explicit list of them next to these two lines is unreachable by
+  // construction, whichever order it is written in. There was one; removing it
+  // changed no behaviour and no test. `tests/errors.test.ts` pins 204 and 205
+  // here so that a later narrowing of this line cannot quietly start giving a
+  // null-body status a body.
   if (response.ok) return null;
-  if (NULL_BODY.includes(response.status)) return null;
   // Only what the relay made. The app's own error keeps its own body.
   if (!isRelayEnvelope(response)) return null;
   if (!wantsHtml(request)) return null;

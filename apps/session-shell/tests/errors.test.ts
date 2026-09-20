@@ -28,6 +28,16 @@ const envelope = (status: number, statusText?: string): Response =>
     headers: { "content-type": "application/json" },
   });
 
+/**
+ * The envelope's content type on a status that may carry NO body. A relay
+ * cannot put the JSON there (`new Response("{}", { status: 204 })` throws),
+ * but the content type is what `sessionErrorPage` discriminates on, so this is
+ * the shape that gets furthest: every check after the status guards would say
+ * "rewrite this".
+ */
+const nullBodyEnvelope = (status: number): Response =>
+  new Response(null, { status, headers: { "content-type": "application/json" } });
+
 const navigationByMode = (accept?: string): ServiceWorkerRequestStub => ({
   mode: "navigate",
   headers: {
@@ -73,10 +83,15 @@ describe("the page a session shows when the relay cannot answer", () => {
     expect(text).toContain("&lt;script&gt;");
   });
 
-  it("does not give a null-body status a body (Accept: text/html)", () => {
-    expect(
-      sessionErrorPage(new Response(null, { status: 304 }), acceptHeaderNavigation()),
-    ).toBeNull();
+  // A NULL-BODY STATUS MUST NOT BE GIVEN A BODY, and the only cases where that
+  // is a question are the ones that are NOT 3xx: 204 and 205 carry the relay's
+  // own content type on a navigation, so the discriminator and `wantsHtml`
+  // both say "rewrite this" and the ONLY thing that stops it is `ok`. The case
+  // that used to stand here was a 304, which returns through the 3xx guard --
+  // so it stayed green when the null-body line was deleted, which is how that
+  // line survived unreachable. 304 itself is covered by the 3xx loop below.
+  it.each([204, 205])("does not give %i a body, though it looks rewritable", (status) => {
+    expect(sessionErrorPage(nullBodyEnvelope(status), acceptHeaderNavigation())).toBeNull();
   });
 
   // The mode-based branch: a ServiceWorker navigation request that lacks
