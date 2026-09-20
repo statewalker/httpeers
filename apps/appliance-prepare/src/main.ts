@@ -16,7 +16,7 @@
  */
 
 import { chmodSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
-import { dirname, join, resolve as resolvePath } from "node:path";
+import { dirname, isAbsolute, join, resolve as resolvePath } from "node:path";
 import { fileURLToPath } from "node:url";
 import { type Backend, type BackendChoice, chooseBackend } from "./backend.ts";
 import { type ComposePlan, renderComposeModels } from "./compose.ts";
@@ -295,12 +295,49 @@ export async function run(args: Args, io: Io): Promise<PrepareReport> {
   // pair pointed at a second disk), decides where downloads land. Reading it
   // late enough to only affect step 6's own write would leave step 5
   // downloading to the wrong place while Compose mounts the right one.
+  //
+  // APPLIANCE_MODELS_DIR is stored and written back RELATIVE -- never as a
+  // path resolved against this container's own filesystem. It is read by
+  // two different processes on two different sides of the bind mount: this
+  // tool (inside the node:22-alpine container bin/prepare.sh runs, which
+  // sees the repo at /work) when it downloads, and `docker compose` itself
+  // (running directly ON THE HOST, never containerised -- see README.md)
+  // when it resolves compose.models.yml's `${APPLIANCE_MODELS_DIR:-./models}`
+  // bind-mount source. A relative value resolves correctly against BOTH:
+  // Compose resolves it against the compose file's directory
+  // (`deploy/llm-appliance`), and this tool resolves it against
+  // `args.appliance`, which `bin/prepare.sh` always passes as that same
+  // directory's path as seen inside the container. An earlier version of
+  // this function defaulted to `join(args.appliance, "models")` -- an
+  // ABSOLUTE container path (e.g. "/work/deploy/llm-appliance/models") --
+  // and wrote that straight into .env; docker compose then read it back on
+  // the host, where "/work" does not exist, and every llama-server would
+  // have bind-mounted an empty directory. VERIFIED against a real bring-up
+  // on 2026-09-20 (Task 10): `docker compose config` resolved the model
+  // mount source to that nonexistent /work path.
+  //
+  // An operator-supplied ABSOLUTE value is refused outright, not silently
+  // redirected: this tool only ever sees the repository bind-mounted at
+  // /work, so it cannot write anywhere else, and Compose reading the same
+  // absolute string would (by luck, not by design) point somewhere
+  // completely different on the host than wherever this tool just wrote.
   const envPath = join(args.appliance, ".env");
   const previousEnvText = io.readFile(envPath);
   const previousEnv =
     previousEnvText === null ? new Map<string, string>() : parseEnvFile(previousEnvText);
-  const modelsDir =
-    (previousEnv.get("APPLIANCE_MODELS_DIR") ?? "").trim() || join(args.appliance, "models");
+  const modelsDirSetting = (previousEnv.get("APPLIANCE_MODELS_DIR") ?? "").trim() || "./models";
+  if (isAbsolute(modelsDirSetting)) {
+    throw new Error(
+      `APPLIANCE_MODELS_DIR="${modelsDirSetting}" is an absolute path, but this tool only ever sees ` +
+        "the repository bind-mounted at /work inside its container -- it cannot write anywhere else, " +
+        "and docker compose (which runs directly on the host, never containerised) would resolve that " +
+        "same absolute string against the host's filesystem instead, which is not what just downloaded " +
+        'the models. Use a path relative to the appliance directory (the default is "./models"), or ' +
+        "bind-mount your directory into the prepare container yourself and point APPLIANCE_MODELS_DIR " +
+        "at its path as seen INSIDE that container.",
+    );
+  }
+  const modelsDir = join(args.appliance, modelsDirSetting);
 
   // Step 5: ensureModel each, threading `previous` from the lock file --
   // carry-forward 1. `models/manifest.lock.json` I/O belongs to this CLI
@@ -355,16 +392,20 @@ export async function run(args: Args, io: Io): Promise<PrepareReport> {
   // after picking a different --backend/--tier would leave .env describing
   // the previous run, and Task 10's verify-backend.sh (which reads
   // LLAMA_BACKEND straight out of .env) would check against a stale value.
-  // APPLIANCE_MODELS_DIR is the one exception: `modelsDir` above already
-  // preserved whatever the operator had set, so writing it back here is a
-  // no-op unless this is the first run.
+  // APPLIANCE_MODELS_DIR is the one exception: `modelsDirSetting` above
+  // already preserved whatever the operator had set (or defaulted to
+  // "./models"), so writing it back here is a no-op unless this is the
+  // first run. It is written back as the RELATIVE setting, never the
+  // resolved `modelsDir` -- see the long comment above `modelsDirSetting`
+  // for why an absolute, container-resolved path in .env breaks docker
+  // compose on the host.
   const secretPlan = planSecrets(previousEnv, { rotate: args.rotateSecrets });
   const envValues = new Map(secretPlan.values);
   envValues.set("LLAMA_BACKEND", backend.backend);
   envValues.set("LLAMA_IMAGE", backend.image);
   envValues.set("LLAMA_TIER", tier.tier);
   envValues.set("LLAMA_THREADS", String(threads));
-  envValues.set("APPLIANCE_MODELS_DIR", modelsDir);
+  envValues.set("APPLIANCE_MODELS_DIR", modelsDirSetting);
   const envText = renderEnvFile(envValues, previousEnvText);
   io.writeFile(envPath, envText, 0o600);
   wrote.push(envPath);

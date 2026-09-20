@@ -26,14 +26,23 @@ function specifiersOf(text: string): string[] {
 }
 
 describe("the prepare tool's dependency closure", () => {
-  it("imports nothing but node: builtins and its own files", async () => {
-    const files = await closureFrom(resolve(SRC, "main.ts"));
-    const offenders: string[] = [];
-    for (const file of files) {
-      for (const spec of specifiersOf(await readFile(file, "utf8"))) {
-        if (!spec.startsWith(".") && !spec.startsWith("node:")) offenders.push(`${file}: ${spec}`);
+  // Two entry points run in the same stock node:22-alpine with no `npm
+  // install`: `main.ts` (bin/prepare.sh) and `verify-backend-cli.ts`
+  // (scripts/verify-backend.sh, Task 10). Measuring only main.ts's closure
+  // would let a dependency slip in through the second entry point unnoticed
+  // -- so both are walked here, not exempted by filename.
+  it.each(["main.ts", "verify-backend-cli.ts"])(
+    "imports nothing but node: builtins and its own files, from %s",
+    async (entry) => {
+      const files = await closureFrom(resolve(SRC, entry));
+      const offenders: string[] = [];
+      for (const file of files) {
+        for (const spec of specifiersOf(await readFile(file, "utf8"))) {
+          if (!spec.startsWith(".") && !spec.startsWith("node:"))
+            offenders.push(`${file}: ${spec}`);
+        }
       }
-    }
-    expect(offenders).toEqual([]);
-  });
+      expect(offenders).toEqual([]);
+    },
+  );
 });

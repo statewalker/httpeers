@@ -282,7 +282,12 @@ describe("run", () => {
     expect(env).toContain("LLAMA_IMAGE=ghcr.io/ggml-org/llama.cpp:server");
     expect(env).toContain("LLAMA_TIER=small");
     expect(env).toContain("LLAMA_THREADS=8"); // GOOD_RAW_PROBE reports cpu-cores: 8
-    expect(env).toContain(`APPLIANCE_MODELS_DIR=${join("/a", "models")}`);
+    // Relative, not resolved against /a -- docker compose (host-side, never
+    // containerised) and this tool (container-side) must read the SAME
+    // string and resolve it against their own view of the appliance
+    // directory; an absolute, container-resolved path here is exactly the
+    // Task 10 bring-up bug (see main.ts's long comment on modelsDirSetting).
+    expect(env).toContain("APPLIANCE_MODELS_DIR=./models");
   });
 
   it("rewrites LLAMA_BACKEND/LLAMA_IMAGE on a later run with a different --backend (they are derived, not preserved)", async () => {
@@ -325,8 +330,8 @@ describe("run", () => {
     expect(secondEnv).not.toContain("LLAMA_BACKEND=cpu");
   });
 
-  it("honours an existing APPLIANCE_MODELS_DIR from .env, using it as the download directory and preserving it", async () => {
-    const previousEnvText = "APPLIANCE_MODELS_DIR=/mnt/bigdisk/models\n";
+  it("honours an existing RELATIVE APPLIANCE_MODELS_DIR from .env, resolving it against --appliance for downloads and preserving it as-is", async () => {
+    const previousEnvText = "APPLIANCE_MODELS_DIR=external-models\n";
     const { io, files } = fakeIo({
       ...GOOD_RAW_PROBE,
       "/a/models.json": MODELS_JSON,
@@ -344,9 +349,38 @@ describe("run", () => {
       "--skip-download",
     ]);
     const report = await run(args, io);
-    expect(report.models[0].path).toBe(join("/mnt/bigdisk/models", "small-a", "a.gguf"));
+    // Resolved against --appliance ("/a"), exactly like the "./models"
+    // default -- a relative setting means the same thing on both sides of
+    // the bind mount (see main.ts's comment on modelsDirSetting).
+    expect(report.models[0].path).toBe(join("/a", "external-models", "small-a", "a.gguf"));
     const env = files.get("/a/.env") as string;
-    expect(env).toContain("APPLIANCE_MODELS_DIR=/mnt/bigdisk/models");
+    expect(env).toContain("APPLIANCE_MODELS_DIR=external-models");
+  });
+
+  it("refuses an ABSOLUTE APPLIANCE_MODELS_DIR, naming the path, instead of silently writing outside the bind mount", async () => {
+    const previousEnvText = "APPLIANCE_MODELS_DIR=/mnt/bigdisk/models\n";
+    const { io } = fakeIo({
+      ...GOOD_RAW_PROBE,
+      "/a/models.json": MODELS_JSON,
+      "/a/.env": previousEnvText,
+    });
+    const args = parseArgs([
+      "--raw-probe",
+      "/probe",
+      "--appliance",
+      "/a",
+      "--backend",
+      "cpu",
+      "--tier",
+      "small",
+      "--skip-download",
+    ]);
+    // This tool only ever sees the repo bind-mounted at /work inside its
+    // container -- an absolute APPLIANCE_MODELS_DIR would either fail to
+    // write at all, or (worse) succeed against some unrelated container
+    // path that docker compose, running on the host, would never resolve
+    // the same way. Refuse it outright, naming the offending value.
+    await expect(run(args, io)).rejects.toThrow(/APPLIANCE_MODELS_DIR.*\/mnt\/bigdisk\/models/);
   });
 
   it("prints the admin password only when generated, never when preserved", async () => {

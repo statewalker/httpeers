@@ -1,0 +1,10 @@
+llamacpp-qwen2-5-3b-instruct  | build: 3950 (a1b2c3d4) with Intel(R) oneAPI DPC++/C++ Compiler for x86_64-linux-gnu
+llamacpp-qwen2-5-3b-instruct  | [SYCL] ggml_sycl_init: GGML_SYCL_FORCE_MMQ:   no
+llamacpp-qwen2-5-3b-instruct  | [SYCL] ggml_sycl_init: found 1 SYCL devices:
+llamacpp-qwen2-5-3b-instruct  | |ID| Name                             |compute capability|
+llamacpp-qwen2-5-3b-instruct  | |0| Intel(R) Iris(R) Xe Graphics [0x9a49]|3.0               |
+llamacpp-qwen2-5-3b-instruct  | llama_model_loader: loaded meta data with 29 key-value pairs and 291 tensors from /models/qwen2.5-3b-instruct/qwen2.5-3b-instruct-q4_k_m.gguf
+llamacpp-qwen2-5-3b-instruct  | load_tensors: offloading 36 repeating layers to GPU
+llamacpp-qwen2-5-3b-instruct  | load_tensors:      SYCL0 model buffer size =  1918.35 MiB
+llamacpp-qwen2-5-3b-instruct  | llama_context: n_ctx = 4096
+llamacpp-qwen2-5-3b-instruct  | main: server is listening on http://0.0.0.0:8080 - starting the main loop
