@@ -246,7 +246,10 @@ async function main(): Promise<void> {
   setInterval(() => void loadReservation(), RELAY_POLL_INTERVAL_MS);
 
   if (mesh.services.includes("llm")) {
-    dashboardLink.href = `/peers/${mesh.hubPeerId}/llm/ui/login/`;
+    // `ui/`, never `ui/login/`: LiteLLM's client router escapes the mesh
+    // prefix from the login page once its `token` cookie is set (the door's
+    // `rescueDashboardPath` catches a browser that escapes anyway).
+    dashboardLink.href = `/peers/${mesh.hubPeerId}/llm/ui/`;
     dashboardRow.hidden = false;
   }
 

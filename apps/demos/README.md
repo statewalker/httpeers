@@ -70,10 +70,29 @@ in a fresh `<random>.p.httpeers.net` origin (`src/shared/session-frame.ts`):
 
 1. `openSession` from `apps/session-shell` frames that origin's `relay.html` and hands it
    a `MessagePort` — `webrun-http-browser`'s relay mode;
-2. the port's handler is `httpeers-ghost`'s `pinnedPeer`, so every request the app makes
-   reaches **the hub and nothing else**, through this page's member;
+2. **two services go over that one port**, because since 0.6.0 a `CONNECT` reaches only
+   the service its key names:
+   - `/` is `httpeers-ghost`'s `pinnedPeer`, which holds the hub's peer id itself, so
+     every request the app makes at its own root reaches **the hub and nothing else**;
+   - `/peers/` is `httpeers-member`'s `createGateway`, the member edge's own shape, so the
+     app can address **any peer this page can see** by naming it in the path;
 3. an iframe shows `https://<random>.p.httpeers.net/`, and the session's worker answers
    `index.html`, `app.js` and a root-absolute `/api/hello` from the hub, over the mesh.
+
+**The mount prefix is not stripped**: the gateway is mounted at `/peers/` and is called
+with `/peers/<peerId>/...`, which is exactly what `createGateway({ basePath: "/peers" })`
+expects — it strips the prefix itself, and stripping it twice would send the edge a path
+with no peer in it.
+
+So the demo app does both, and they are different things. `/api/hello` is the pinned root:
+the session's own path, resolved to the peer that serves the app, and impossible to steer
+elsewhere. `GET /peers/<peerId>/spa/api/hello` and `POST /peers/<peerId>/spa/api/echo`
+name that peer explicitly, through the gateway — the shape an app uses to call a provider
+it did not come from. The page reads the peer id out of `/api/hello`'s body (whoever
+answered names themselves) and renders all three into `#mesh-get`, `#mesh-post` and
+`#mesh-missing`. The POST is the one that matters most: Firefox has no
+`Request.prototype.body`, and before the gateway read the body with core's `bodyOf` it
+arrived empty, with nothing anywhere saying so.
 
 This replaces the same-origin ghost iframe. That frame shared the viewer's origin, and a
 hostile app in it read the viewer's storage and identity key and rewrote its DOM
@@ -82,7 +101,17 @@ are its own, it cannot read the app page's DOM, and the sandbox attribute keeps 
 navigating the app page away. Every click is a new session, so opening the app twice
 shows two origins that share nothing.
 
-`npm run session-smoke` checks all of that on the real domains, in Chromium and Firefox.
+An app in a session can reach any peer the app page can see, and that is deliberate —
+see `docs/security-model.md` §6: the boundary is each **target** peer's own ingress
+policy, not the session. The app never sees the membership token — this page's edge
+attaches it after the request has left the session — and one origin per app means a
+hostile app still cannot read another app's storage.
+
+`npm run session-smoke` checks all of that on the real domains, in Chromium and Firefox:
+the two origins and their isolation, the pinned root, both `/peers/` calls with the POST's
+body intact, and a `/peers/` path naming something that is not a member coming back as a
+refusal rather than a hang. It needs the hub, app and shell pages **published from this
+branch**; run against an older deployment it tests the older deployment.
 
 ## Adding your own picture
 

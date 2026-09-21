@@ -117,11 +117,13 @@ Nothing of the local appliance is needed: stop it first if it holds `127.0.0.1:8
    invitation and must show `Connected (relay)` or `Connected (direct)` — the mode is recorded.
    It requests a key, the model picker lists `fake`, and the reply to "hello" is sampled while it
    grows and must complete.
-3. **Dashboard.** In A's context, `/peers/<hub>/llm/ui/login/` over the mesh; log in; the
+3. **Dashboard.** In A's context, `/peers/<hub>/llm/ui/` over the mesh (the entry the hub
+   advertises — never `/ui/login/`, see the appliance README's "The dashboard's entry point");
+   log in; the
    dashboard shows `Virtual Keys` and `Create New Key` and `key/list` answers 200. Every non-2xx
    response under the llm mount is listed; a 403 or a 5xx fails the step.
 4. **Member is refused admin paths.** Browser B, a fresh context in the isolated browser, joins
-   from a `member` invitation. `POST …/llm/keys` and `GET …/llm/ui/login/` must answer 403. B
+   from a `member` invitation. `POST …/llm/keys` and `GET …/llm/ui/` must answer 403. B
    pastes A's key and chats.
 5. **Revocation.** A streamed chat call from B's page must succeed, then
    `DELETE /hub/api/members/<B>`, then B's calls are repeated every second until one is refused

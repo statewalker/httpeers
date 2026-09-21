@@ -2,11 +2,16 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import {
+  APP_SERVICE_KEY,
+  canRegisterService,
+  DEFAULT_SERVICE_KEY,
   FRAME_ANCESTORS,
   frameAncestorsFor,
   isAllowedParentOrigin,
   isSessionName,
   isShellPath,
+  MESH_PREFIX,
+  MESH_SERVICE_KEY,
   navigationAllowed,
   RELAY_PATH,
   randomSessionName,
@@ -137,5 +142,66 @@ describe("frame-ancestors", () => {
   it("matches the header the Caddyfile sets on the shell's own files", () => {
     const caddyfile = readFileSync(join(__dirname, "../../../deploy/Caddyfile"), "utf8");
     expect(caddyfile).toContain(`frame-ancestors ${FRAME_ANCESTORS}`);
+  });
+});
+
+describe("the session's reserved namespace", () => {
+  // The member edge's own shape, so an app written for a member origin runs
+  // unchanged in a session. An app cannot own this prefix.
+  it("reserves /peers/ for the mesh", () => {
+    expect(MESH_PREFIX).toBe("/peers/");
+  });
+
+  it("keeps a default service key for a session that registers only an app", () => {
+    expect(DEFAULT_SERVICE_KEY).toBe("session");
+  });
+
+  // isShellPath decides what `exclude` hands back to the network. A root mount
+  // claims everything else, so anything missing here becomes unreachable.
+  it.each(["/relay.html", "/relay-sw.js", "/_shell/x.js"])("keeps %s the shell's", (path) => {
+    expect(isShellPath(path)).toBe(true);
+  });
+
+  it("does not reserve the app's own paths", () => {
+    for (const path of ["/", "/index.html", "/app.js", "/peers/12D3Koo/llm"]) {
+      expect(isShellPath(path)).toBe(false);
+    }
+  });
+});
+
+describe("canRegisterService — which services a session may serve", () => {
+  const relay = `${SESSION}${RELAY_PATH}`;
+
+  it("names the two services a session serves", () => {
+    expect(APP_SERVICE_KEY).toBe("app");
+    expect(MESH_SERVICE_KEY).toBe("mesh");
+  });
+
+  it.each([APP_SERVICE_KEY, MESH_SERVICE_KEY, DEFAULT_SERVICE_KEY])(
+    "lets the relay page register %s",
+    (key) => {
+      expect(canRegisterService(relay, key)).toBe(true);
+    },
+  );
+
+  // AN ALLOWLIST, NOT A FREE KEY SPACE. `takeover: "first-wins"` defends a key
+  // that is already held; it says nothing about a key nobody asked for. A
+  // second ghost -- any *.httpeers.net page may frame this relay, and the name
+  // is not a secret -- would otherwise register "evil" at "/index.html" and
+  // win the longest-prefix match against the app's own root mount.
+  it.each(["evil", "", "session ", "APP", "peers"])("refuses the key %j", (key) => {
+    expect(canRegisterService(relay, key)).toBe(false);
+  });
+
+  // The other half of the rule, unchanged: the page must be the relay page.
+  it.each(["/", "/index.html", "/_shell/x.js", "/relay.html/x"])(
+    "refuses a registration from %s",
+    (path) => {
+      expect(canRegisterService(`${SESSION}${path}`, APP_SERVICE_KEY)).toBe(false);
+    },
+  );
+
+  it("ignores a query string and a fragment on the relay page's own URL", () => {
+    expect(canRegisterService(`${relay}?x=1#y`, APP_SERVICE_KEY)).toBe(true);
   });
 });

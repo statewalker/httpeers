@@ -136,6 +136,11 @@ function KeyStep({
   );
 }
 
+/**
+ * `href` is `service.dashboardUrl` — always the dashboard's MOUNT,
+ * `<edge><hub>/llm/ui/`, never a page inside it: `dashboardEntry` in
+ * `../mesh/discover.ts` says why LiteLLM's login page must not be linked directly.
+ */
 function DashboardLink({ href }: { href: string }) {
   return (
     <a

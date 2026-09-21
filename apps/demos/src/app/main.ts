@@ -35,7 +35,7 @@ import type { ImageInfo } from "../shared/images.js";
 import { EDGE_KEY, meshRules } from "../shared/policy.js";
 import { needsPermissiveGater, readRelayAddrs } from "../shared/relay.js";
 import type { SearchResult } from "../shared/search.js";
-import { callThroughMember, openAppInSession } from "../shared/session-frame.js";
+import { openMeshApp } from "../shared/session-frame.js";
 
 const el = <T extends HTMLElement>(id: string): T => {
   const found = document.querySelector<T>(`#${id}`);
@@ -180,15 +180,17 @@ async function openApp(): Promise<void> {
   box.append(caption);
   el("sessions").append(box);
   try {
-    const opened = await openAppInSession({
+    const opened = await openMeshApp({
       peerId: ad.peerId,
       appPath: `/${ad.id}`,
-      // Read the handle PER REQUEST: after a reconnect the old one is dead.
-      call: (peerId, request) =>
-        handle == null
-          ? Promise.resolve(new Response("this page left the mesh", { status: 503 }))
-          : callThroughMember(handle.fetch, EDGE_KEY)(peerId, request),
-      token: () => handle?.token() ?? "",
+      member: {
+        peerId: live.peerId,
+        // Read the handle PER REQUEST, all four: after a reconnect the old
+        // one is dead, and `handle` is reassigned wholesale, not mutated.
+        fetch: () => handle?.fetch ?? null,
+        meshView: () => handle?.meshView() ?? null,
+        token: () => handle?.token() ?? "",
+      },
       container: box,
     });
     caption.textContent = `${opened.session.origin} `;

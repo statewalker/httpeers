@@ -151,10 +151,12 @@ long-running service `healthy` once it's ready.
   invitations (with a QR code), lists members — each with the link the hub
   currently has to it (`direct`, `relay`, or not connected) — with revoke, and
   links to the LiteLLM dashboard.
-- **LiteLLM dashboard**: `http://127.0.0.1:8080/peers/<hubPeerId>/llm/ui/login/`
-  (note the trailing slash — see "Rough edges" below), no basic auth: log in
+- **LiteLLM dashboard**: `http://127.0.0.1:8080/peers/<hubPeerId>/llm/ui/`
+  (with the trailing slash, and **not** `.../ui/login/` — see "The dashboard's
+  entry point" below), no basic auth: log in
   with LiteLLM's own `UI_USERNAME` / `UI_PASSWORD`. `<hubPeerId>` is in `./data/hub/hub.env` and
-  on the admin UI's own page.
+  on the admin UI's own page. Opening `http://127.0.0.1:8080/ui` works too: the
+  door redirects it here.
 - **Adding a real model**: in the LiteLLM dashboard, "Add Model" — pick a
   provider, paste its API key, save. It's stored in Postgres
   (`STORE_MODEL_IN_DB=True`), so it survives a restart. Members then see it
@@ -281,6 +283,55 @@ curl -u "$ADMIN_USER:$ADMIN_PASSWORD" \
 (The master key goes in `x-litellm-api-key`, not `Authorization` —
 `litellm/config.yaml` points LiteLLM at that header.)
 
+### The dashboard's entry point
+
+**Link to `<base>/peers/<hubPeerId>/llm/ui/`. Never to `.../llm/ui/login/`.**
+
+LiteLLM's dashboard is a Next.js app exported as static files and served
+behind `SERVER_ROOT_PATH=/peers/<hubPeerId>/llm`
+(`litellm-entrypoint.sh`). `SERVER_ROOT_PATH` rewrites the exported bundle's
+**asset** paths, and the hub's passthrough rewrites LiteLLM's **server-side**
+redirects back onto the mesh path (`apps/hub/src/services/llm/rewrite.ts`).
+Neither reaches the app's **client-side router**, which still believes it is
+mounted at the origin root.
+
+That only bites on one page. Measured 2026-09-20 in one browser, at one URL,
+with LiteLLM's `token` cookie as the only difference:
+
+| Entry | No `token` cookie | With a `token` cookie |
+| --- | --- | --- |
+| `…/llm/ui/login/` | stays on the login page | **router navigates to `/ui` at the origin root** — off the mesh path |
+| `…/llm/ui/` | login page, prefixed absolute `?redirect_to=…` | straight to the dashboard at `…/llm/ui/` |
+
+So an admin who had ever logged in was thrown to the origin root and got a
+404 — on the local door and, identically, over the mesh
+(`llm-chat.httpeers.net`), which is how we know it is the dashboard's doing
+and not the mesh edge's. `…/llm/ui/` never escapes, in either cookie state.
+
+Every link the appliance ships now points at `…/llm/ui/`: the hub's admin UI
+(`apps/hub/ui/main.ts`), the service's OpenAPI document
+(`x-httpeers-entry` in `apps/hub/src/services/llm/openapi.ts`, which is what
+the mesh chat page reads), and the e2e run.
+
+**The door also rescues a browser that escapes anyway.** A `GET`/`HEAD` of
+`/ui` or `/ui/...` at the door's root — an old bookmark, a stale tab, a route
+nobody has measured — answers `307` to `/peers/<hubPeerId>/llm/ui/...`, query
+string kept (`rescueDashboardPath` in `apps/hub/src/local-door.ts`). The door
+serves exactly one hub, so the target is unambiguous. It is deliberately
+narrow: nothing under `/peers/` is ever redirected (so it cannot loop), only
+`/ui` and `/ui/...` match (never `/ui.txt` or other data fetches — those are
+issued by an already-rescued page and reach the root only if something is
+wrong), and it sits behind the door's usual gate, so it is reached through
+Traefik's basic auth like any other root path.
+
+The **mesh** origin (`llm-chat.httpeers.net`) gets no such rescue, and cannot:
+it is a static bucket plus the page's ServiceWorker, with no server-side
+logic. Measured — `https://llm-chat.httpeers.net/assets/` answers 404, so the
+static server resolves a directory index at the site root only, and it serves
+no extensionless URL, which is exactly the shape (`/ui`) an escape lands on.
+The link on `mesh.html` points at `…/llm/ui/`, which does not escape; that is
+the whole defence there.
+
 ### Known risk: the dashboard on an app origin
 
 LiteLLM's dashboard over the mesh (`https://<app origin>/peers/<id>/llm/ui/`)
@@ -289,7 +340,7 @@ IndexedDB, cookies) and so the mesh identity that page holds, and the
 dashboard's scripts could read or use them — as could any other page served
 on that origin. Admins should open the dashboard from a **dedicated origin**
 (one that hosts nothing else and holds no identity worth protecting) or from
-the local door, `http://127.0.0.1:8080/peers/<hubPeerId>/llm/ui/login/`.
+the local door, `http://127.0.0.1:8080/peers/<hubPeerId>/llm/ui/`.
 
 ## Local models (no cloud)
 
@@ -643,12 +694,17 @@ than rediscovered.
   for /data/hub/hub.env` — this means the hub itself failed to start (check
   `docker compose logs hub`; the most common cause is no outbound internet
   access to `relay.httpeers.net`).
-- **The LiteLLM dashboard redirects off-mesh (to `127.0.0.1:4100` or similar)
-  the first time you open it unauthenticated.** A known LiteLLM limitation
-  (it has no reverse-proxy Host/Proto awareness for one specific redirect —
-  see `docs/research/2026-09-15-llm-appliance-spikes/litellm-ui-through-mesh.md`).
-  Always enter through `/peers/<id>/llm/ui/login/` (**with** the trailing
-  slash), not `/peers/<id>/llm/ui/`, to avoid it.
+- **The LiteLLM dashboard lands on "not found" at `/ui`.** You entered
+  through `/peers/<id>/llm/ui/login/` in a browser that already holds
+  LiteLLM's `token` cookie: its client router does not know the mesh path and
+  leaves for the origin root. Enter through `/peers/<id>/llm/ui/` instead —
+  see "The dashboard's entry point". On the local door, `/ui` now answers a
+  307 back into the prefixed dashboard; on a mesh origin it cannot, so use
+  the link on the page. (An earlier edition of this file advised the opposite,
+  for an unauthenticated redirect to `127.0.0.1:4100` that the passthrough's
+  location rewriting has since covered —
+  `docs/research/2026-09-15-llm-appliance-spikes/litellm-ui-through-mesh.md`,
+  `apps/hub/src/services/llm/rewrite.ts`.)
 - **Rough edges inherited from LiteLLM itself** (not this appliance): a
   couple of the dashboard's very first data-fetch calls after login can 401
   silently (self-heals — most are refetched); a full-page reload while

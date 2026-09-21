@@ -21,7 +21,7 @@ const documentStub = (overrides: Record<string, unknown> = {}) => ({
     securitySchemes: { llmKey: { type: "apiKey", in: "header", name: "x-litellm-api-key" } },
   },
   paths: {
-    "/ui/": { get: { "x-httpeers-entry": "ui/login/" } },
+    "/ui/": { get: { "x-httpeers-entry": "ui/" } },
     "/v1/models": { get: {} },
     "/v1/chat/completions": { post: {} },
     "/keys": { post: { "x-httpeers-capability": "app:llm.admin" } },
@@ -48,7 +48,7 @@ describe("discoverLlm", () => {
       baseUrl: `${EDGE}${HUB}/llm/v1`,
       apiKeyHeader: "x-litellm-api-key",
       canMintKeys: true,
-      dashboardUrl: `${EDGE}${HUB}/llm/ui/login/`,
+      dashboardUrl: `${EDGE}${HUB}/llm/ui/`,
     });
   });
 
@@ -107,6 +107,39 @@ describe("discoverLlm", () => {
         );
       });
     }
+  });
+
+  /**
+   * The dashboard is opened at its MOUNT, whatever page the hub names inside it.
+   *
+   * MEASURED, 2026-09-20: LiteLLM's exported UI is client-routed and knows nothing of
+   * `SERVER_ROOT_PATH`. Opened at `…/llm/ui/login/` in a browser that already holds LiteLLM's
+   * `token` cookie, its login page routes to `/ui` at the ORIGIN ROOT — off the mesh path, 404.
+   * Opened at `…/llm/ui/` it lands on the same login page with a prefixed absolute
+   * `?redirect_to=` and stays. A hub we do not control may still advertise the old entry (the
+   * mesh page is a static site and cannot be upgraded with every hub), so the page normalizes it
+   * here rather than trusting it.
+   */
+  it("opens the dashboard at its mount even when the hub names a page inside it", async () => {
+    for (const entry of ["ui/login/", "ui/login", "ui/models", "./ui/login/", "ui/"]) {
+      const { fetchImpl } = fetchAnswering(() =>
+        Response.json(documentStub({ paths: { "/ui/": { get: { "x-httpeers-entry": entry } } } })),
+      );
+      expect((await discoverLlm(fetchImpl, EDGE, HUB)).dashboardUrl, entry).toBe(
+        `${EDGE}${HUB}/llm/ui/`,
+      );
+    }
+  });
+
+  it("leaves an entry that is not inside the dashboard alone", async () => {
+    const { fetchImpl } = fetchAnswering(() =>
+      Response.json(
+        documentStub({ paths: { "/ui/": { get: { "x-httpeers-entry": "console/" } } } }),
+      ),
+    );
+    expect((await discoverLlm(fetchImpl, EDGE, HUB)).dashboardUrl).toBe(
+      `${EDGE}${HUB}/llm/console/`,
+    );
   });
 
   it("falls back to the /ui/ path when the entry extension is absent", async () => {

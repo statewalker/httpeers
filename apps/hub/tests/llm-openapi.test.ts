@@ -80,8 +80,21 @@ describe("buildLlmOpenApi", () => {
     const doc = buildLlmOpenApi();
     expect(doc.paths["/ui/"].get).toMatchObject({
       "x-httpeers-resource": "html-app",
-      "x-httpeers-entry": "ui/login/",
+      "x-httpeers-entry": "ui/",
     });
+  });
+
+  /**
+   * The entry is the dashboard's MOUNT, never a page inside it. LiteLLM's
+   * exported UI is client-routed and knows nothing of `SERVER_ROOT_PATH`, so
+   * `ui/login/` opened with a `token` cookie routes the browser to `/ui` at the
+   * origin root and off the mesh path. `ui/` lands on the same login page with a
+   * prefixed absolute `?redirect_to=`, and stays.
+   */
+  it("never points the entry inside the dashboard's own client-routed pages", () => {
+    const entry = buildLlmOpenApi().paths["/ui/"].get as Record<string, unknown>;
+    expect(entry["x-httpeers-entry"]).toBe("ui/");
+    expect(String(entry["x-httpeers-entry"])).not.toMatch(/login/);
   });
 
   it("points externalDocs at the full document", () => {

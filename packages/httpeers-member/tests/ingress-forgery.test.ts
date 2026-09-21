@@ -20,6 +20,7 @@
  * could legitimately observe.
  */
 
+import type { MeshView } from "@statewalker/httpeers-core";
 import { lookupPeer, MESH_TOKEN_HEADER, PEER_ID_HEADER } from "@statewalker/httpeers-core";
 import { describe, expect, it } from "vitest";
 import { createEdgeDispatch } from "../src/edge-dispatch.js";
@@ -27,6 +28,17 @@ import { createGateway } from "../src/gateway.js";
 
 const MALLORY = "12D3KooWMalloryyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyy";
 const BOB = "12D3KooWBobbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb";
+const SELF_PEER = "12D3KooWSelffffffffffffffffffffffffffffffffffff";
+// The gateway's dispatch never actually consults the view (only its `GET /`
+// listing does), but a real caller always has one, and BOB has to be a member
+// of it for this to look like a genuine mesh rather than a two-peer stub.
+const PEER = BOB;
+const VIEW: MeshView = {
+  version: 1,
+  self: SELF_PEER,
+  members: [{ peerId: PEER, roles: [], online: true, addrs: [] }],
+  advertisements: [],
+};
 
 describe("the edge strips a claimed identity", () => {
   it("does not believe a peer header the page set", async () => {
@@ -85,7 +97,7 @@ describe("the gateway strips a claimed identity", () => {
     let seen: Request | null = null;
     const gateway = createGateway({
       source: {
-        peerId: "12D3KooWSelffffffffffffffffffffffffffffffffffff",
+        peerId: SELF_PEER,
         meshView: () => null,
         fetch: async (req) => {
           seen = req;
@@ -104,5 +116,27 @@ describe("the gateway strips a claimed identity", () => {
 
     expect(seen).not.toBeNull();
     expect(lookupPeer(seen as unknown as Request)).toBeUndefined();
+  });
+
+  // The gateway forwarded `request.body`, which is `undefined` in Firefox --
+  // so every POST through /peers/<peer>/... arrived empty, silently.
+  it("forwards a POST body where the runtime has no Request.body (Firefox)", async () => {
+    let received: string | null = null;
+    const gateway = createGateway({
+      source: {
+        peerId: SELF_PEER,
+        fetch: async (request) => {
+          received = await request.text();
+          return new Response("ok");
+        },
+        meshView: () => VIEW,
+      },
+      basePath: "/peers",
+      edgeKey: "peers",
+    });
+    const post = new Request(`http://local/peers/${PEER}/echo`, { method: "POST", body: "ping" });
+    Object.defineProperty(post, "body", { value: undefined });
+    expect((await gateway(post)).status).toBe(200);
+    expect(received).toBe("ping");
   });
 });

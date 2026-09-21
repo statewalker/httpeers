@@ -34,7 +34,7 @@
  *   3. Dashboard: in A's context, LiteLLM's UI over the mesh; log in; the dashboard renders; every
  *      non-2xx response under the llm mount is listed.
  *   4. Member is refused admin paths: browser B (fresh context, isolated network) joins as a
- *      member; `POST …/llm/keys` and `GET …/llm/ui/login/` answer 403; B chats with A's key.
+ *      member; `POST …/llm/keys` and `GET …/llm/ui/` answer 403; B chats with A's key.
  *   5. Revocation: `DELETE /hub/api/members/<B>`; B's chat calls are polled until one is refused
  *      with a 403 naming the revocation (up to 90 s; any other outcome keeps polling); that
  *      sample is the recorded latency.
@@ -620,7 +620,10 @@ try {
           status: r.status(),
         });
       });
-      await dash.goto(`${ORIGIN}${mount}/ui/login/`);
+      // `/ui/`, the entry the hub advertises. NEVER `/ui/login/`: with LiteLLM's
+      // `token` cookie already set, that page's client router leaves the mesh
+      // path for `/ui` at the origin root (README, "The dashboard's entry point").
+      await dash.goto(`${ORIGIN}${mount}/ui/`);
       await dash.getByLabel("Username").waitFor({ timeout: 60_000 });
       await dash.getByLabel("Username").fill(env.UI_USERNAME);
       await dash.getByLabel("Password").fill(env.UI_PASSWORD);
@@ -687,12 +690,12 @@ try {
       };
       return {
         keys: await status("POST", "/keys", { key_alias: "e2e-member-must-be-refused" }),
-        ui: await status("GET", "/ui/login/"),
+        ui: await status("GET", "/ui/"),
       };
     }, hubPeerId);
-    note(`B: POST …/llm/keys -> ${probes.keys}; GET …/llm/ui/login/ -> ${probes.ui}`);
+    note(`B: POST …/llm/keys -> ${probes.keys}; GET …/llm/ui/ -> ${probes.ui}`);
     check(probes.keys === 403, `POST …/llm/keys answered ${probes.keys}, expected 403`);
-    check(probes.ui === 403, `GET …/llm/ui/login/ answered ${probes.ui}, expected 403`);
+    check(probes.ui === 403, `GET …/llm/ui/ answered ${probes.ui}, expected 403`);
 
     await memberPage.getByLabel("Key", { exact: true }).fill(adminKey);
     await memberPage.getByRole("button", { name: "Use key" }).click();

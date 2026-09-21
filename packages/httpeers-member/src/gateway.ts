@@ -26,7 +26,7 @@
  */
 
 import type { FetchHandler, MeshView } from "@statewalker/httpeers-core";
-import { stripPeerBinding } from "@statewalker/httpeers-core";
+import { bodyOf, stripPeerBinding } from "@statewalker/httpeers-core";
 
 /** What the gateway needs of a member. `MemberHandle` satisfies it; so does a test double. */
 export interface GatewaySource {
@@ -86,11 +86,12 @@ export function createGateway(init: GatewayInit): FetchHandler {
     // Strip before the request enters the mesh.
     stripPeerBinding(request);
 
+    const body = await bodyOf(request);
     const forwarded = new Request(target, {
       method: request.method,
       headers: request.headers,
-      body: request.body,
-      ...(request.body != null ? { duplex: "half" as const } : {}),
+      body,
+      ...(body instanceof ReadableStream ? { duplex: "half" as const } : {}),
       // FORWARDED DELIBERATELY. `@hono/node-server` aborts this signal when the
       // client hangs up, and nothing else would stop the libp2p call — the
       // stream would run to completion with nobody to receive it.
