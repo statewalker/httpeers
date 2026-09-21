@@ -20,6 +20,17 @@ against a real Moore Threads card. If that path is wrong, `musa`'s `compose.mode
 still render, `docker compose config` will still validate it, and the container will still start —
 it just won't see a GPU, and nothing before `scripts/verify-backend.sh` runs would tell you.
 
+**This is not a symmetric "unverified either way" situation — read the base rate.** Of the two
+backend signatures this project *could* check against real hardware, `intel` and `vulkan`, **both**
+turned out wrong (see the next section): the spec-era placeholders (`ggml_sycl`, `ggml_vulkan:`)
+appear nowhere in build 11058's actual output, at any verbosity. `cuda`'s `ggml_cuda_init` and
+`musa`'s `ggml_musa` signatures come from that exact same spec-era guessing process, unchecked
+against anything real, with a demonstrated 0-for-2 track record on the two guesses that *were*
+checkable. They should be read as **likely wrong**, not merely "unproven" — treat a `cuda`/`musa`
+bring-up's first `verify-backend.sh` failure as the expected outcome, not a surprise, and re-derive
+the signature from a real captured log the same way this task did for `intel`/`vulkan`, rather than
+assuming the recorded one just needs debugging around.
+
 **`scripts/verify-backend.sh` is the thing that closes that gap.** `docker compose config` proves
 the *configuration* asked for a GPU (right image, right device mount). It cannot prove llama.cpp
 actually found and used one — a container asking for `server-cuda`, `server-musa`, `server-intel`

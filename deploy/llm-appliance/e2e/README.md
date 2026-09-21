@@ -74,8 +74,8 @@ rationale):
    `GET …/v1/models` through the mesh) is asserted equal to it, and `LLM_MODEL` defaults to the
    tier's first id (alphabetically) rather than `fake`.
 4. **No assertion about transport.** A same-host run reports `direct` or `relay` for reasons that
-   say nothing about real NAT traversal (a remote peer is the only test of that -- see the spec's
-   Task 15), so `--local` makes no claim about which one a step sees.
+   say nothing about real NAT traversal (a remote peer on a genuinely different network is the only
+   test of that -- see `REMOTE-CHECK.md`), so `--local` makes no claim about which one a step sees.
 
 Everything else -- the isolated-browser dance and its network-isolation control, the dashboard
 check, member B's refused admin paths, the revocation poll, host browser C -- runs exactly as it

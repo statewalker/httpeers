@@ -27,6 +27,17 @@ httpeers.net server").
 - Nothing else already listening on `127.0.0.1:8080` on the host (Traefik's
   only published port).
 
+**The stale-`~/.docker/cli-plugins` trap.** If `docker compose version` prints something older than
+2.24 (`bin/prepare.sh` refuses to run the local-models pipeline below that version — see "Local
+models" below and "Host networking"'s `!reset`/compose.local.yml's `!override` merge tags, both new
+in 2.24), don't conclude your Docker installation is too old before checking
+`ls -la ~/.docker/cli-plugins/`: a leftover `docker-compose` binary there shadows a modern
+system-installed plugin and reports its own (old) version, with nothing about the error suggesting
+a shadowing plugin rather than a real upgrade need. This reproduced on this project's own
+workstation (`docker compose version` reported `v2.3.3` while the system plugin was `v2.35.1`) and
+cost a day and a wrong design decision before it was found. Remove or update the stale plugin, then
+re-check.
+
 ## Setup
 
 ```sh
@@ -197,8 +208,15 @@ Four ways to mint one:
   a clone. Unlike `bin/prepare.sh` (stdlib only), its **first** run needs
   outbound registry access — it installs `packages/httpeers-qr`'s own
   `qrcode-generator`/`jsqr` at the versions that package's `package.json`
-  declares, then caches them for every run after. `invites/` is gitignored:
-  nothing minted here is ever committed.
+  declares, then caches them for every run after. **That cache check is
+  presence-only** (`bin/qr-deps.ts` checks whether `node_modules/<pkg>`
+  exists, not whether its installed version still satisfies
+  `packages/httpeers-qr/package.json`'s current declared range): if that
+  range is bumped later without clearing `node_modules`, this script keeps
+  silently serving the older cached copy. Delete `node_modules/jsqr` and
+  `node_modules/qrcode-generator` (or the whole `node_modules/`) to force a
+  fresh install. `invites/` is gitignored: nothing minted here is ever
+  committed.
 - **The admin UI**: mint an invitation (with a QR code of the blob) and
   send its link, or the blob itself, to the new member.
 - **The door directly**: `POST /hub/api/invitations {"roles":["member"]}`
@@ -275,13 +293,59 @@ the local door, `http://127.0.0.1:8080/peers/<hubPeerId>/llm/ui/login/`.
 
 ## Local models (no cloud)
 
-`bin/prepare.sh` probes this host, picks a llama.cpp backend and a model tier, downloads the
-models, and writes `compose.models.yml` (one always-resident `llama-server` container per model) —
-the default, three-file bring-up `composeCommand()` prints:
+`bin/prepare.sh` probes this host (CPU cores, RAM, GPU/driver signals — never interpreting any of
+it itself, see the script's own header), hands the probe to `apps/appliance-prepare` running inside
+a stock `node:22-alpine` with this repo bind-mounted (the same pattern `bin/invite.sh` uses, so the
+operator needs only Docker and a clone — no host Node/pnpm install), picks a llama.cpp backend and
+a model tier, downloads the models, and writes `compose.models.yml` (one always-resident
+`llama-server` container per model) — the default, three-file bring-up it prints at the end:
 
 ```sh
+./bin/prepare.sh
 docker compose -f compose.yml -f compose.local.yml -f compose.models.yml up -d --wait
 ```
+
+**What it writes, every run:** `probe.json` (this host's raw probe — CPU/RAM/GPU/driver signals,
+nothing interpreted yet), `compose.models.yml`, `litellm/config.local.yaml` (the local model list,
+plus OpenRouter's models when `OPENROUTER_API_KEY` is set — cloud models are additive, never
+required), `prepare-report.json` (backend, tier, models and every file written, for the record),
+`models/manifest.lock.json` (skipped only under `--skip-download`), and `.env`. None of these are
+committed (`.gitignore`).
+
+**What it never overwrites:** an `.env` secret already present (`LITELLM_MASTER_KEY`,
+`LITELLM_SALT_KEY`, `POSTGRES_PASSWORD`, `UI_USERNAME`/`UI_PASSWORD`, `ADMIN_USER`/`ADMIN_PASSWORD`,
+`HUB_DOOR_SECRET`) is kept verbatim across runs, because re-running prepare to pick up a new tier or
+backend must not rotate a secret Postgres or Traefik already has baked in
+(`apps/appliance-prepare/src/env.ts`). A model file already on disk whose size still matches its
+lock entry is not re-downloaded. `APPLIANCE_MODELS_DIR` and `APPLIANCE_DOOR_PORT`, once set in
+`.env`, are read back and kept as the operator's own choice — they are never re-derived from the
+probe.
+
+**Flags** (all optional; a bare `./bin/prepare.sh` probes, picks and downloads):
+
+| Flag | Effect |
+| --- | --- |
+| `--rotate-secrets` | Regenerate every secret above, even if `.env` already has one. Breaks Postgres's existing password against its already-initialized volume — only use this against a fresh `./data/postgres`, or clear it first. |
+| `--backend <cpu\|intel\|vulkan\|cuda\|musa>` | Pin the backend instead of letting the probe choose. See `BACKENDS.md` for which of these have actually run. |
+| `--tier <small\|medium\|large>` | Pin the model tier instead of letting the probe's usable-memory check choose. |
+| `--models <path>` | Read the model manifest from somewhere other than this directory's `models.json`. |
+| `--skip-download` | Skip fetching model bytes; still writes every other generated file, reusing the previous lock entry for models already downloaded. |
+| `--llamaswap` | Write `llamaswap/config.yaml` and route local models at a single swapping service instead of one resident `llama-server` each — see "llama-swap alternative" below. |
+| `--probe-only` | Probe and print the backend/tier choice; write only `probe.json` — no version gate, no download, nothing else written. |
+
+**Pin `--backend`/`--tier` explicitly when reproducing a specific measured configuration.** A bare
+`./bin/prepare.sh` re-probes the host from scratch and can pick a different backend or tier than
+whatever is currently running — `BENCHMARK.md`'s "Producing this state" section hit exactly this on
+this machine (31 GiB of RAM put it in the `medium` tier, picking a different, not-yet-downloaded
+model pair).
+
+### Cost
+
+Local models cost nothing per token: whatever `bin/prepare.sh` downloaded runs entirely on this
+host, with no API key and no metered usage. The appliance needs no cloud credential at all unless
+`OPENROUTER_API_KEY` is set in `.env`, in which case `litellm/config.local.yaml` also lists
+OpenRouter's models alongside the local ones — cloud models are opt-in, never required to bring the
+appliance up.
 
 ### llama-swap alternative (four files)
 
@@ -311,7 +375,11 @@ DEVICES block in `compose.llamaswap.yml` for how to adjust it for those backends
 
 **This is a documented alternative, not the recommended default** — see `BENCHMARK.md` for the
 measured memory/latency trade (same machine, same models, same backend) and the reasoning behind
-that recommendation. See `BACKENDS.md` for which llama.cpp backend actually ran, and where.
+that recommendation. See `BACKENDS.md` for the backend table: which llama.cpp backend actually ran
+real inference on real hardware (`cpu`, `intel`, `vulkan`) and which two only ever rendered
+`docker compose config` output and were never executed at all (`cuda`, `musa` — no NVIDIA or Moore
+Threads hardware has ever been available to this project; BACKENDS.md also explains why their
+device-mount guesses should be read as *likely* wrong, not merely unverified).
 
 ## Host networking (EXPERIMENTAL, Linux only)
 
@@ -594,6 +662,7 @@ than rediscovered.
 | `litellm/config.server.yaml` | The server's model list (OpenRouter; the key comes from the environment) |
 | `server/deploy.sh` | The server's forced-command deploy script (installed by hand as `/opt/httpeers-llm/bin/deploy.sh`) |
 | `e2e/` | The end-to-end run on the real domains, against this machine's appliance or the server's |
+| `e2e/REMOTE-CHECK.md` | The manual remote-check procedure — real NAT traversal, a phone or a VM on another network; `e2e.mjs` never covers this |
 | `../../.github/workflows/llm-appliance.yml` | CI: publish the hub image, deploy it to the server |
 | `.env.example` | Secrets template — copy to `.env` |
 | `litellm/config.yaml` | LiteLLM's config (the key-header fix; no secrets) |

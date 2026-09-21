@@ -1,3 +1,29 @@
+# Manual remote check — NOT YET PERFORMED
+
+**Status: NOT YET PERFORMED.** No automated gate in this repository exercises real NAT traversal
+(`e2e.mjs`'s browsers always run on this machine — see `e2e/README.md` and `REMOTE-CHECK.md` for
+why that proves nothing about a real second network). The procedure is written and ready
+(`REMOTE-CHECK.md`); it needs a phone on mobile data with Wi-Fi off, or a VM on a genuinely
+different network, which this task did not have access to. **Do not read the fields below as a
+result — every one of them is a placeholder, waiting to be filled in by whoever actually runs
+`REMOTE-CHECK.md`.**
+
+| Field | Value |
+| --- | --- |
+| Date | *(not yet run)* |
+| Client network | *(not yet run — e.g. "iPhone, Wi-Fi off, [carrier] mobile data" or "VM on [provider/region]")* |
+| Transport (page indicator) | *(not yet run)* |
+| Transport (`GET /hub/api/members`'s `link` field, read after the chat exchange) | *(not yet run)* |
+| Time to join | *(not yet run)* |
+| First-token latency | *(not yet run)* |
+| Failure, verbatim (if any) | *(not yet run)* |
+
+When this is actually performed, replace this section with the filled-in result, keep the
+**manual** heading and the date, and leave the earlier automated runs below untouched — they test a
+different thing (same-host, everything else) and remain valid on their own terms.
+
+---
+
 # End-to-end results — 2026-09-21, local-model appliance (`--local`)
 
 **Outcome: all six steps PASS, key cleanup PASS** (run of 2026-09-21 about 23:09 UTC, exit 0;
