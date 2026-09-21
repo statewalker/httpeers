@@ -24,6 +24,8 @@ export {
   PeerUnreachableError,
   UnknownPeerCallError,
 } from "./errors.js";
+// The one copy of the Firefox `Request.body` workaround every forwarder needs.
+export { bodyOf } from "./http-body.js";
 // The transport-proven caller, carried beside a Request rather than inside it.
 export {
   ANONYMOUS_HEADER_VALUE,

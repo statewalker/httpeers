@@ -162,10 +162,67 @@ make it acceptable, and §4 dictates their mechanics.
    with its own ServiceWorker; the shell (the ghost app) hands it a `MessagePort`,
    and that worker answers every request the app makes — `index.html` included —
    over the port. So the app gets plain `fetch()` and root-absolute URLs, *and*
-   its own storage, cookies and worker; the port's handler is the broker, and
-   holds the pin (`pinnedPeer`) and whatever policy the shell applies. The app
-   has no mount on the shell's origin and no identity of its own. The name is
-   not a secret; authority is the port, never the name.
+   its own storage, cookies and worker; the port's handlers are the broker, and
+   they decide, per mount, what the app reaches — the pin (`pinnedPeer`) at the
+   root, and in this deployment the whole mesh under `/peers/`, which is a
+   deliberately wider grant than a pin and is spelled out below. The app has no
+   mount on the shell's origin and no identity of its own. The name is not a
+   secret; authority is the port, never the name.
+
+### A session is a mesh window, pinned at the root
+
+A session no longer serves one handler. It serves **the services its app
+registers**, each at a path the app chooses, all over that one port — because
+`webrun-http-browser` 0.6.0 routes a `CONNECT` to the service its key names. The
+demo registers two, and the pair is the whole boundary:
+
+- **`/` is pinned.** `pinnedPeer` holds the peer id in the handler, not in the
+  URL, so the app's own root — `/index.html`, `/app.js`, `/api/hello` — resolves
+  to the one peer that serves it and cannot be steered anywhere else.
+- **`/peers/` is the mesh.** `createGateway` takes `/peers/<peerId>/<path>` and
+  dispatches it through the ghost app's member. An app in a session may
+  therefore call **any peer the parent can see** — and `GET /peers/` is that
+  gateway's own listing, answering with whether the mesh view is ready, this
+  peer's own id, the view's version, every member with its roles, and every
+  advertisement with the peer offering it and its `id`, `kind` and `title`
+  (never a URL — the mesh view carries no service paths). **So an app in a
+  session does not have to be told which peers exist: it can ask.**
+
+State that plainly, because it is a real widening and it is intended:
+
+1. **The app calls as the viewer, and the bound is the callee.** Every call
+   carries the ghost app's membership, so the thing that decides whether a call
+   is allowed is the **target peer's own ingress policy** (its Datalog rules) —
+   not the session, which is a window and not a firewall. A session hands an app
+   the same reach its host page already has.
+2. **Enumeration is part of the widening, not a separate future feature.** The
+   listing above ships in `createGateway` and `session-frame.ts` wires that same
+   gateway into every session, so a hostile app's first move can be to read the
+   membership and the advertised kinds and then choose what to call. Discovery
+   was never the boundary here — the callee's policy is — but a provider that
+   assumed nobody would learn its peer id from inside a session assumed wrong.
+3. **The app never sees the membership token, and never chooses it.** The ghost
+   app's edge attaches it after the request has left the session
+   (`createEdgeDispatch`), so an app can spend the viewer's authority on a call
+   but cannot carry it away, replay it elsewhere, or read it out of its own
+   request. It cannot *supply* one either: the edge deliberately leaves a token
+   a caller already set alone, so the session's mesh handler strips
+   `MESH_CREDENTIAL_HEADERS` off every request entering `/peers/`
+   (`session-frame.ts`'s `withoutMeshCredentials`) — exactly as `pinnedPeer`
+   overwrites them on the root route. Without that strip the app picked the
+   credential its call travelled under, which is a self-DoS at best and a
+   mis-attributed call at worst.
+4. **One origin per app still holds.** The widening is about *reach*, not about
+   containment: a hostile app in a session still cannot read another app's
+   storage, cookies, IndexedDB or DOM, because each session is its own origin
+   (§10). What it can do is talk to peers — and a peer that must not be talked
+   to by a member's app has to say so **in its own policy**, because it cannot
+   rely on not being reachable by name or on not being found.
+5. **`/peers/` is reserved, and the key space with it.** An app cannot own
+   `/peers/`, and `openSession` holds every allowlisted service key it is not
+   using: a session name is not a secret, so a second ghost is free to frame a
+   live session's relay, and an unheld key mounted at `/index.html` would
+   outrank the app's `/` on longest-prefix. See `apps/session-shell/README.md`.
 
 ## 7. Valid use cases
 
@@ -176,7 +233,7 @@ make it acceptable, and §4 dictates their mechanics.
 | **Member-to-member API calls**, request/response | Data crosses; the *target's* policy is the boundary; identity strengthens it |
 | **Installed, consented bundles** (VS Code *extension* model) | Trust decided once, at install, with provenance |
 | **Untrusted code behind a broker** (VS Code *webview* model) | Isolated off-origin; reaches the mesh only through a mediator, with no ambient authority |
-| **A peer's app in a session origin** (`<name>.p.httpeers.net`) | Its own origin, storage and worker; every request lands in the shell's pinned handler |
+| **A peer's app in a session origin** (`<name>.p.httpeers.net`) | Its own origin, storage and worker; its root is the shell's pinned handler, and its `/peers/` calls are bounded by each target peer's own policy |
 | **`fetch()`-as-the-API ergonomics** for trusted code | The whole point of the design; keep it there |
 
 ## 8. Use cases to avoid
@@ -186,6 +243,7 @@ make it acceptable, and §4 dictates their mechanics.
 | **Running ad-hoc / untrusted foreign code on your origin** | It inherits your identity key and full mesh authority — measured, not theoretical (§10) |
 | **Treating the client-side mount as a boundary *between apps on one peer*** | Same origin = one trust domain: shared authority, storage, DOM |
 | **Relying on the pin or a same-origin CSP to contain a hostile app** | They stop mesh-walking and accidental egress, not storage/DOM theft |
+| **Treating a session as a bound on *which peers* an app may call, or on which it can discover** | `/peers/` is a window onto the whole mesh the host page can see, and `GET /peers/` lists it; the bound is the target peer's own ingress policy (§6) |
 | **Keeping secrets or capabilities in origin storage** next to untrusted code | Any on-origin code reads them and exfiltrates through an allowed mount |
 | **Executing a mesh response** (`eval`, `innerHTML`, a running template) | Turns data into code — crosses the one line that must not be crossed |
 | **"Advertised ⇒ safe to render blindly"** | A malicious provider serves hostile content; the consumer that renders it pays |
@@ -232,6 +290,32 @@ to the viewer; the viewer's `localStorage` is invisible to both; reading
 worker; another session cannot hand a session's relay its port
 (`apps/session-shell/scripts/live-check.mjs`).
 
+**Measured for the two-service session (2026-09-21, Chromium and Firefox, the
+BUILT shell served on two localhost origins, a real ServiceWorker and a real
+relay port, with a stand-in mesh handler rather than libp2p;
+`apps/session-shell/scripts/browser-test.mjs`):** an app at `/` and a mesh
+service at `/peers/` are served over ONE relay connection; `/` and
+`/index.html` go to the app and a path under `/peers/` goes to the mesh
+service, never to the root mount; the mesh handler receives the **un-stripped**
+`/peers/<peerId>/...`; a POST under `/peers/` arrives **with its body** in both
+engines — the case that used to arrive empty in Firefox, which has no
+`Request.prototype.body`; both mounts survive the worker being stopped and
+restarted; and a second ghost asking for a key outside
+`SESSION_SERVICE_KEYS` is refused while `/index.html` stays the app's. One
+local origin serves every session name there, so it measures the protocol and
+the routing, not the per-name isolation (that is the 2026-09-18 run above).
+
+**Written but NOT yet run (2026-09-21):** the same explicit `/peers/<peerId>/...`
+GET and POST made by a real mesh app inside a real session origin, over libp2p,
+on `*.p.httpeers.net` — plus the refusal a `/peers/` path naming a non-member
+gets. The checks exist in `apps/demos/scripts/session-smoke.mjs`; they have not
+been run, because the shell, hub and app pages on the live domains are older
+than the branch that added the mesh mount, and a smoke run against them would
+measure the old deployment and say nothing about this one. Publishing is a
+deliberate, separate act (the bucket is a live FUSE mount — see
+`apps/demos/README.md`), so **treat the real-domain mesh call as unverified
+until that run is recorded here.**
+
 **Not yet verified (each a distinct future probe):** CSP relaxation across a
 redirect; whether a hostile ghost app can reach the viewer's *own* edge when both
 mounts share one origin; top-navigation / popups from a *same-origin* ghost
@@ -244,10 +328,13 @@ exposes `fetch` but no addressed `call(peerId, request)` / `ensureRoute`.
 Building a broker's `remote` from `member.fetch` reintroduces the
 path-derived-peer hazard the pin exists to close *if the peer is read from the
 request*. The session demo (`apps/demos/src/shared/session-frame.ts`) builds
-the edge URL from the pinned peer id alone — `/<edge key>/<pinned peer>/<app
-path>/...` — so the first segment the edge routes on is never the app's to
-choose. An addressed call on the member handle would still be the cleaner
-primitive.
+the edge URL for the **pinned root** from the pinned peer id alone — `/<edge
+key>/<pinned peer>/<app path>/...` — so on that mount the first segment the edge
+routes on is never the app's to choose. Under `/peers/` the peer *is* read from
+the request, and that is the point rather than the hazard: `createGateway` is
+the party whose contract is "the peer is in the path", and the widening it
+grants is §6's, bounded by the callee. An addressed call on the member handle
+would still be the cleaner primitive for both.
 
 ## 11. Guidance by role
 

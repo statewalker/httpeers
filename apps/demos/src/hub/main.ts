@@ -167,7 +167,13 @@ async function main(): Promise<void> {
   // Shown before the hub starts: this is the mesh's name, and it is readable
   // even if nothing below succeeds.
   const privateKey = await loadOrCreateIdentity({ backend: idbBytesBackend() });
-  meshIdEl.textContent = peerIdOf(privateKey);
+  // MUTABLE, AND READ THROUGH A THUNK BELOW. The demo app has to tell its own
+  // page which peer id to address under `/peers/`, and its mount is built
+  // before the libp2p node exists. The id derived from the signing key stands
+  // in until `startHub` returns the node's own; the two must agree, because
+  // the same key produced both.
+  let selfPeerId = peerIdOf(privateKey);
+  meshIdEl.textContent = selfPeerId;
 
   const relayAddrs = await readRelayAddrs();
 
@@ -183,7 +189,7 @@ async function main(): Promise<void> {
     // own (`../shared/demo-spa.ts`, `../shared/session-frame.ts`).
     extraMounts: {
       "/search": createSearchEndpoint({ upstream: fixtureUpstream }),
-      [`/${SPA_ADVERTISEMENT.id}`]: createDemoSpa(),
+      [`/${SPA_ADVERTISEMENT.id}`]: createDemoSpa({ selfPeerId: () => selfPeerId }),
     },
     ownAdvertisements: [SEARCH_ADVERTISEMENT, SPA_ADVERTISEMENT],
     // Decided from the ADDRESS being dialled, never this page's hostname: a
@@ -197,7 +203,8 @@ async function main(): Promise<void> {
   // The peerId the node actually came up with, not the one derived above. They
   // must be equal -- the same key produced both -- so rendering the
   // authoritative one makes a mismatch visible rather than theoretical.
-  meshIdEl.textContent = handle.peerId;
+  selfPeerId = handle.peerId;
+  meshIdEl.textContent = selfPeerId;
   el("relay").textContent = handle.relayAddr;
   el("circuit").textContent = handle.circuitAddr;
   el("base-url").textContent = handle.baseUrl;

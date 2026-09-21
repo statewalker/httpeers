@@ -22,7 +22,7 @@
  */
 
 import type { FetchHandler, PeerIdStr } from "@statewalker/httpeers-core";
-import { PEER_ID_HEADER, setMeshToken } from "@statewalker/httpeers-core";
+import { bodyOf, PEER_ID_HEADER, setMeshToken } from "@statewalker/httpeers-core";
 
 /** Where a ghost points: one peer, one path under it. Signed by the hub in a real deployment. */
 export interface Landing {
@@ -102,22 +102,6 @@ export function pinnedPeer(init: PinnedPeerInit): FetchHandler {
 
     return init.remote(init.landing.peerId, forwarded);
   };
-}
-
-/**
- * The request's body, streamed where the runtime can and buffered where it
- * cannot.
- *
- * FIREFOX HAS NO `Request.prototype.body` (checked against 155), so reading
- * `request.body` there yields `undefined` -- and forwarding that sends every
- * POST on with no body at all, silently. Where the property is missing the
- * body is read whole instead; everywhere else it still streams.
- */
-async function bodyOf(request: Request): Promise<ReadableStream<Uint8Array> | ArrayBuffer | null> {
-  if (request.method === "GET" || request.method === "HEAD") return null;
-  if (request.body !== undefined) return request.body;
-  const bytes = await request.arrayBuffer();
-  return bytes.byteLength === 0 ? null : bytes;
 }
 
 function refuse(why: string): Response {
