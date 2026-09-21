@@ -114,8 +114,28 @@ export function parseArgs(argv: string[]): Args {
   return args;
 }
 
-/** The exact command line printed at the end of a run -- also step 9. */
-export function composeCommand(): string {
+/**
+ * The exact command line printed at the end of a run -- also step 9, and the
+ * `command` field `run` writes into prepare-report.json. Two shapes, one per
+ * mode -- see README.md's "llama-swap alternative" section and
+ * compose.llamaswap.yml's own header (which spells out why the five-service
+ * list is required) for the source of truth this is copied from, not
+ * reinvented: naming exactly `hub postgres litellm traefik llamaswap` on the
+ * `up` command is what keeps compose.models.yml's `llamacpp-<id>` services
+ * (still referenced via `-f compose.models.yml`, since `run` always writes
+ * that file, `--llamaswap` or not) from starting alongside `llamaswap` and
+ * doubling the resident-model count the overlay exists to avoid. A bare `up`
+ * with no service list -- what an earlier version of this function printed
+ * under `--llamaswap` -- is exactly what compose.llamaswap.yml's own header
+ * warns never to run.
+ */
+export function composeCommand(llamaswap: boolean): string {
+  if (llamaswap) {
+    return (
+      "docker compose -f compose.yml -f compose.local.yml -f compose.models.yml " +
+      "-f compose.llamaswap.yml up -d --wait hub postgres litellm traefik llamaswap"
+    );
+  }
   return "docker compose -f compose.yml -f compose.local.yml -f compose.models.yml up -d --wait";
 }
 
@@ -261,7 +281,7 @@ export async function run(args: Args, io: Io): Promise<PrepareReport> {
   const tier = chooseTier(probe, backend.backend, args.tier);
 
   if (args.probeOnly) {
-    return { probe, backend, tier, models: [], wrote, command: composeCommand() };
+    return { probe, backend, tier, models: [], wrote, command: composeCommand(args.llamaswap) };
   }
 
   // Step 2: gate the Compose version.
@@ -508,12 +528,12 @@ export async function run(args: Args, io: Io): Promise<PrepareReport> {
     tier,
     models: lockEntries,
     wrote,
-    command: composeCommand(),
+    command: composeCommand(args.llamaswap),
   };
   io.writeFile(reportPath, `${JSON.stringify(report, null, 2)}\n`);
 
   // Step 9: print the compose command.
-  io.log(composeCommand());
+  io.log(composeCommand(args.llamaswap));
 
   return report;
 }

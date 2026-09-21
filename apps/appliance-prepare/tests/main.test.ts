@@ -103,8 +103,22 @@ describe("assembleProbe", () => {
 
 describe("composeCommand", () => {
   it("names all three files in the order compose must read them", () => {
-    expect(composeCommand()).toBe(
+    expect(composeCommand(false)).toBe(
       "docker compose -f compose.yml -f compose.local.yml -f compose.models.yml up -d --wait",
+    );
+  });
+
+  it("under --llamaswap, adds compose.llamaswap.yml and names exactly the five services that must start", () => {
+    // Copied from README.md's "llama-swap alternative" section and
+    // compose.llamaswap.yml's own header, not reinvented -- omitting
+    // compose.llamaswap.yml or the service list is exactly the bug this
+    // covers (Finding 1 of the final whole-branch review): every LiteLLM
+    // api_base already points at llamaswap, but the printed/recorded
+    // command left it out and named no services, which is also the bare
+    // `up` compose.llamaswap.yml:36 warns never to run.
+    expect(composeCommand(true)).toBe(
+      "docker compose -f compose.yml -f compose.local.yml -f compose.models.yml " +
+        "-f compose.llamaswap.yml up -d --wait hub postgres litellm traefik llamaswap",
     );
   });
 });
@@ -257,7 +271,7 @@ describe("run", () => {
     expect(files.has("/a/compose.models.yml")).toBe(true);
     expect(files.has("/a/litellm/config.local.yaml")).toBe(true);
     expect(files.has("/a/prepare-report.json")).toBe(true);
-    expect(logs.some((line) => line.includes(composeCommand()))).toBe(true);
+    expect(logs.some((line) => line.includes(composeCommand(false)))).toBe(true);
 
     // carry-forward 4: the same serviceNameOf(id) value must reach both files.
     const compose = files.get("/a/compose.models.yml") as string;
