@@ -2,7 +2,7 @@
 
 This appliance supports five llama.cpp backends. On this machine (Intel Iris Xe / TigerLake-LP,
 `8086:9a49`, `/dev/dri/{card1,renderD128}`, no NVIDIA) **three of the five were actually brought up
-and exercised: `cpu`, `intel`, `vulkan`.** Both genuinely ran real inference on real hardware
+and exercised: `cpu`, `intel`, `vulkan`.** All three genuinely ran real inference on real hardware
 through the whole door → hub → LiteLLM → llama-server chain, not just `docker compose config`.
 
 **`cuda` and `musa` have never been executed, anywhere, in this project.** No NVIDIA GPU and no
@@ -74,7 +74,7 @@ compose-generated default; it would just find an empty log every time. Both are 
 Unit tests, fixtures (`tests/fixtures/logs/{intel,vulkan}.log`, now rewritten to real captured
 log text rather than the old hand-written build-3950 guesses) and snapshots
 (`tests/snapshots/compose-{cuda,vulkan,intel,musa}.yml`) were updated to match. `pnpm --filter
-@statewalker/httpeers-appliance-prepare exec vitest run`: 120/120 passing, `tsc --noEmit` clean,
+@statewalker/httpeers-appliance-prepare exec vitest run`: all passing, `tsc --noEmit` clean,
 `biome check src tests` clean.
 
 ## The table

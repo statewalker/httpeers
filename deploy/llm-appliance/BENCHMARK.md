@@ -23,11 +23,11 @@ docker compose -f compose.yml -f compose.local.yml -f compose.models.yml up -d -
 
 | Measure | Value |
 | --- | --- |
-| Resident memory, idle, all 6 containers | **≈4.70 GiB** — hub 92.7 MiB, litellm 955.2 MiB, `llamacpp-qwen2.5-1.5b-instruct` 1.331 GiB, `llamacpp-qwen2.5-3b-instruct` 2.302 GiB, postgres 29.8 MiB, traefik 13.0 MiB |
+| Resident memory, idle, all 6 containers | **≈4.70 GiB** — hub 92.7 MiB, litellm 955.2 MiB, `llamacpp-qwen2-5-1-5b-instruct` 1.331 GiB, `llamacpp-qwen2-5-3b-instruct` 2.302 GiB, postgres 29.8 MiB, traefik 13.0 MiB |
 | Time from `up` to both models answering | **41.3 s** (`up -d --wait` returns once every container, including both `llama-server`s, is healthy — both models are loaded at container start, in parallel, so "healthy" already means "answering") |
 | First-token latency, model already resident (warm, n=3) | `qwen2.5-1.5b-instruct`: 68 / 68 / 66 ms. `qwen2.5-3b-instruct`: 108 / 126 / 111 ms |
 | First-token latency, model **not** resident (the swap) | **N/A** — both models are always resident; there is no swap |
-| Containers running | **6** — hub, postgres, litellm, traefik, `llamacpp-qwen2.5-1.5b-instruct`, `llamacpp-qwen2.5-3b-instruct` |
+| Containers running | **6** — hub, postgres, litellm, traefik, `llamacpp-qwen2-5-1-5b-instruct`, `llamacpp-qwen2-5-3b-instruct` |
 
 Cold (n=1, first request after `up`, empty prompt cache but model already resident):
 `qwen2.5-1.5b-instruct` 74 ms, `qwen2.5-3b-instruct` 155 ms — barely different from warm, because
