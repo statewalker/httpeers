@@ -98,6 +98,15 @@ thing a member's key ever reaches, llama-swap never sees one. Full artifacts (sc
 `results.json`) are in `/tmp/llm-e2e-llamaswap` on this machine (not committed — see `E2E_ARTIFACTS`
 in `e2e/README.md`).
 
+## Caveats
+
+One machine, one tier: everything above is `vulkan`, `small` tier, this host's 31 GiB / ~10 GiB
+free. **The device wiring was measured on `vulkan` only.** `compose.llamaswap.yml` mounts
+`/dev/dri` unconditionally; it was never brought up, and would not come up as written, on a `cuda`
+or `musa` host (no such hardware exists anywhere in this project — see `BACKENDS.md`). A GPU
+comparison on those backends would need that file's device list adjusted first, and is a fresh
+measurement, not an extrapolation from this one.
+
 ## Recommendation: **stay on N × llama-server for this appliance today**
 
 At the `small` tier, the two models' combined resident footprint is 1.1 + 2.1 = 3.2 GB of model

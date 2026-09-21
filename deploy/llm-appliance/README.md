@@ -304,6 +304,11 @@ started: naming exactly `hub postgres litellm traefik llamaswap` on the `up` com
 its `llamacpp-<id>` services from starting alongside `llamaswap` and doubling the resident-model
 count this overlay exists to avoid.
 
+**`compose.llamaswap.yml` mounts `/dev/dri` unconditionally**, which suits the `intel`/`vulkan`
+backends it was measured on (see `BACKENDS.md`) but is wrong for a `cuda` or `musa` host: there,
+`docker compose up` will fail at container create over that device node, not degrade — see the
+DEVICES block in `compose.llamaswap.yml` for how to adjust it for those backends.
+
 **This is a documented alternative, not the recommended default** — see `BENCHMARK.md` for the
 measured memory/latency trade (same machine, same models, same backend) and the reasoning behind
 that recommendation. See `BACKENDS.md` for which llama.cpp backend actually ran, and where.
