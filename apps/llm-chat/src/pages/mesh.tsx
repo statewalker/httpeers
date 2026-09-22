@@ -160,6 +160,13 @@ function MeshPage() {
   const [fatal, setFatal] = useState<string | null>(null);
   /** `true` once a key request succeeded, `false` once it was refused, `null` before either. */
   const [mintOutcome, setMintOutcome] = useState<boolean | null>(null);
+  /**
+   * The edge base discovery found, handed to `ChatApp` as the trust context for its own `?config=`
+   * handling (Task 10). `null` until discovery has run at least once -- `ChatApp` is not mounted
+   * before then (the "chat" stage below is the only place it renders), so a `?config=` on this
+   * page is naturally held rather than fetched until this is set.
+   */
+  const [edgeBase, setEdgeBase] = useState<string | null>(null);
   const sessionRef = useRef<PeerSession | null>(null);
   /** The handle discovery last ran for: a new join or reconnect gets a new handle, and runs it again. */
   const discoveredFor = useRef<unknown>(null);
@@ -208,9 +215,10 @@ function MeshPage() {
         setStage({ kind: "unavailable", message: "This mesh's hub advertises no LLM service." });
         return;
       }
-      const edgeBase = new URL(handle.baseUrl ?? "/peers/", location.href).href;
-      const service = await discoverLlm(pageFetch, edgeBase, hubPeerId);
+      const discoveredEdgeBase = new URL(handle.baseUrl ?? "/peers/", location.href).href;
+      const service = await discoverLlm(pageFetch, discoveredEdgeBase, hubPeerId);
       if (!current()) return;
+      setEdgeBase(discoveredEdgeBase);
       const config = meshConfig(await configStore.get(), service);
       if (!current()) return;
       await configStore.set(config);
@@ -235,6 +243,7 @@ function MeshPage() {
       discoveredFor.current = null;
       discoveryRun.current++;
       setStage({ kind: "session" });
+      setEdgeBase(null);
       return;
     }
     if (discoveredFor.current === handle) return;
@@ -275,6 +284,11 @@ function MeshPage() {
         configStore={configStore}
         sessionStore={sessionStore}
         title="LLM chat"
+        // Discovery has already succeeded by the time this stage is reached, so `edgeBase` is
+        // never null here in practice -- see the field's own comment for why that is what makes
+        // a `?config=` on this page held until discovery, rather than fetched before it.
+        edgeBase={edgeBase}
+        fetchImpl={pageFetch}
         headerExtra={
           <>
             {linkStatus}

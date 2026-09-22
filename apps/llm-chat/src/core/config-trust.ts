@@ -55,6 +55,15 @@ export function judgeConfigUrl(
       return { trusted: false, origin: candidate.origin };
     }
     const baseHref = base.href.endsWith("/") ? base.href : `${base.href}/`;
+    // Per RFC 3986 `%2F`/`%5C` are not path separators, so `<edge>..%2f..%2felsewhere/c.json`
+    // genuinely stays under `baseHref` by this prefix test -- `new URL` never decodes them into
+    // `/` or `\`. That holds only so long as nothing downstream (a proxy, the mesh edge's own
+    // router) decodes them before routing; refusing them here removes the fragile assumption
+    // instead of relying on it, at the cost of a config document that legitimately needs an
+    // encoded slash in a path segment -- one this app has no documented use for.
+    if (/%2f|%5c/i.test(candidate.pathname)) {
+      return { trusted: false, origin: candidate.origin };
+    }
     // `new URL` has already resolved and collapsed any ".." by the time `.href` is read here, so
     // a path built to escape the edge base (`<edge>../../elsewhere/...`) no longer starts with it
     // -- there is no separate traversal check to get wrong. The same prefix test is what keeps a

@@ -18,11 +18,18 @@ import {
   resolveModel,
   startupStep,
 } from "../core/config.js";
+import { judgeConfigUrl } from "../core/config-trust.js";
+import {
+  type ExternalConfig,
+  fetchExternalConfig,
+  resolveConfig,
+} from "../core/external-config.js";
 import { listModels } from "../core/openai-client.js";
 import type { SessionStore, SessionSummary } from "../core/sessions.js";
 import { SlotsProvider } from "../slots/context.js";
 import { settingsPanelsSlot } from "../slots/panels.js";
 import { AppShell } from "./AppShell.js";
+import { ConfirmConfigDialog } from "./ConfirmConfigDialog.js";
 import { ModelPicker } from "./ModelPicker.js";
 import { ConnectionPanel } from "./panels/ConnectionPanel.js";
 import { ModelsPanel } from "./panels/ModelsPanel.js";
@@ -35,6 +42,17 @@ import { useChatState } from "./use-chat-state.js";
 /** Registered-panel ids, shared between the registration below and `initialPanelId`. */
 const CONNECTION_PANEL_ID = "connection";
 const MODELS_PANEL_ID = "models";
+
+/** `window.fetch` called unbound throws "Illegal invocation"; this is the default `fetchImpl`. */
+const defaultFetch: typeof fetch = (input, init) => globalThis.fetch(input, init);
+
+/** A `?config=` document read but not yet accepted, waiting on `ConfirmConfigDialog`. */
+interface PendingExternalConfig {
+  url: string;
+  /** The origin to show the user -- never the WHATWG opaque `"null"`; see `ConfirmConfigDialog`. */
+  origin: string;
+  external: ExternalConfig;
+}
 
 /**
  * `Date.now()`, refreshed every second while `active` -- feeds `Thread`'s elapsed-seconds
@@ -58,13 +76,34 @@ export interface ChatAppProps {
   title?: string;
   /** Rendered in the header before the settings button: the mesh page's link status and links. */
   headerExtra?: ReactNode;
+  /**
+   * The confirmed mesh edge base, once `mesh.html`'s discovery has found it; `null` on the
+   * standalone page. This is *why* a `?config=` arriving before discovery is held rather than
+   * fetched: `mesh.html` only ever mounts `ChatApp` once discovery has already succeeded (before
+   * that it shows the join/finding/key screens instead), so by construction this prop is never
+   * `null` on the mesh page by the time `?config=` handling below runs.
+   */
+  edgeBase?: string | null;
+  /** Injected by tests; defaults to `window.fetch`, bound so it is never called unbound. */
+  fetchImpl?: typeof fetch;
 }
 
-export function ChatApp({ configStore, sessionStore, title = "Chat", headerExtra }: ChatAppProps) {
+export function ChatApp({
+  configStore,
+  sessionStore,
+  title = "Chat",
+  headerExtra,
+  edgeBase = null,
+  fetchImpl = defaultFetch,
+}: ChatAppProps) {
   /** `undefined` while the stored config is still loading. */
   const [config, setConfig] = useState<ChatConfig | null | undefined>(undefined);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [sessions, setSessions] = useState<SessionSummary[]>([]);
+  /** A visible, non-fatal notice about `?config=` handling: a failure, or an explicit rejection. */
+  const [configNotice, setConfigNotice] = useState<string | null>(null);
+  /** An untrusted `?config=` document, fetched and parsed, awaiting the user's decision. */
+  const [pendingExternal, setPendingExternal] = useState<PendingExternalConfig | null>(null);
 
   // The controller outlives renders; it reads the current config through this ref.
   const configRef = useRef<ChatConfig | null>(null);
@@ -99,6 +138,100 @@ export function ChatApp({ configStore, sessionStore, title = "Chat", headerExtra
     },
     [configStore],
   );
+
+  /** Drops `?config=` from the address bar once it has been resolved, one way or another. */
+  const stripConfigParam = useCallback(() => {
+    const url = new URL(location.href);
+    if (!url.searchParams.has("config")) return;
+    url.searchParams.delete("config");
+    history.replaceState(null, "", url);
+  }, []);
+
+  /**
+   * Applies a fetched, parsed `?config=` document -- the shared tail of both the trusted path and
+   * an accepted confirmation. `resolveConfig` (Task 8) makes the saved value win when one already
+   * exists, so this is safe to call unconditionally; it becomes a same-value no-op rather than
+   * silently overwriting an endpoint the user typed in by hand.
+   *
+   * CARRY-FORWARD: `ExternalConfig.defaultModel` is parsed and validated (Task 8) but
+   * `applyEndpoint` has no such field, so `resolveConfig` alone drops it on the floor. This is the
+   * one place holding both the parsed document and a real model list, so it feeds `defaultModel`
+   * in as the candidate default for `refreshModels` right after `GET /models` -- the same function
+   * the model-picker's "Refresh" already uses, not a new mechanism. `refreshModels` keeps that
+   * candidate only if the endpoint actually serves it, and otherwise falls back to its own first
+   * model, exactly as the picker's refresh does for a default that stopped existing.
+   */
+  const applyExternalConfig = useCallback(
+    async (external: ExternalConfig): Promise<void> => {
+      const resolved = resolveConfig({ saved: configRef.current, external });
+      if (resolved.config == null) return;
+      let next = resolved.config;
+      if (resolved.source === "external" && external.defaultModel != null) {
+        try {
+          const models = await listModels(
+            { baseUrl: next.baseUrl, apiKey: next.apiKey, apiKeyHeader: next.apiKeyHeader },
+            { fetchImpl },
+          );
+          next = refreshModels({ ...next, defaultModel: external.defaultModel }, models);
+        } catch {
+          // The endpoint is still usable without a model list yet -- the normal "models" startup
+          // step picks up from here, same as for a document with no defaultModel at all.
+        }
+      }
+      await saveConfig(next);
+      stripConfigParam();
+    },
+    [saveConfig, stripConfigParam, fetchImpl],
+  );
+
+  /**
+   * `?config=`, read once per mount. Trusted -> fetch, parse and apply directly. Untrusted -> hand
+   * off to `ConfirmConfigDialog` (rendered below) with both the origin and the endpoint it wants,
+   * never the WHATWG opaque `"null"` a non-http(s)/cross-mount origin can produce. Any failure --
+   * network, parse, validation -- becomes a visible, non-fatal notice; `config` itself is never
+   * touched on failure, so the page falls back to whatever it already had: a saved config, or the
+   * settings screen `startupStep` already shows for no config at all.
+   *
+   * `judgeConfigUrl` runs before the fetch (it is pure and free), but the fetch itself happens
+   * either way: `ConfirmConfigDialog` must name the endpoint the document wants
+   * (carry-forward), and that is only known once the document has been read.
+   */
+  const handledConfigUrl = useRef(false);
+  useEffect(() => {
+    if (config === undefined) return;
+    if (handledConfigUrl.current) return;
+    handledConfigUrl.current = true;
+
+    const configUrl = new URLSearchParams(location.search).get("config");
+    if (configUrl == null) return;
+
+    let cancelled = false;
+    const verdict = judgeConfigUrl(configUrl, { pageUrl: location.href, edgeBase });
+
+    (async () => {
+      let external: ExternalConfig;
+      try {
+        external = await fetchExternalConfig(configUrl, fetchImpl);
+      } catch (error) {
+        if (cancelled) return;
+        const message = error instanceof Error ? error.message : String(error);
+        setConfigNotice(`Could not use the config at ${configUrl}: ${message}`);
+        return;
+      }
+      if (cancelled) return;
+
+      if (verdict.trusted) {
+        await applyExternalConfig(external);
+        return;
+      }
+      const origin = verdict.origin === "null" ? configUrl : verdict.origin;
+      setPendingExternal({ url: configUrl, origin, external });
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [config, edgeBase, fetchImpl, applyExternalConfig]);
 
   /**
    * The dialog this app fills through `settingsPanelsSlot`: Connection and Models, one tab each.
@@ -162,6 +295,14 @@ export function ChatApp({ configStore, sessionStore, title = "Chat", headerExtra
 
   return (
     <SlotsProvider slots={slots}>
+      {configNotice != null && (
+        <output className="flex items-center gap-3 border-b bg-amber-50 px-4 py-2 text-sm text-amber-900">
+          <p className="flex-1">{configNotice}</p>
+          <Button type="button" variant="ghost" size="sm" onClick={() => setConfigNotice(null)}>
+            Dismiss
+          </Button>
+        </output>
+      )}
       <div inert={showSettings} aria-hidden={showSettings}>
         <AppShell
           sidebar={
@@ -237,6 +378,22 @@ export function ChatApp({ configStore, sessionStore, title = "Chat", headerExtra
           setSettingsOpen(false);
         }}
       />
+
+      {pendingExternal != null && (
+        <ConfirmConfigDialog
+          origin={pendingExternal.origin}
+          baseUrl={pendingExternal.external.baseUrl}
+          onAccept={() => {
+            const { external } = pendingExternal;
+            setPendingExternal(null);
+            void applyExternalConfig(external);
+          }}
+          onReject={() => {
+            setConfigNotice(`Ignored the config at ${pendingExternal.url}: it was not accepted.`);
+            setPendingExternal(null);
+          }}
+        />
+      )}
     </SlotsProvider>
   );
 }

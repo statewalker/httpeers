@@ -83,4 +83,14 @@ describe("judgeConfigUrl", () => {
   it("does not throw on an unparseable URL -- it distrusts it", () => {
     expect(judgeConfigUrl("::::", { pageUrl: PAGE, edgeBase: null }).trusted).toBe(false);
   });
+
+  it("does NOT trust an encoded slash/backslash in the edge-base path, even though it stays under the mount today", () => {
+    expect(
+      judgeConfigUrl(`${EDGE}..%2f..%2felsewhere/c.json`, { pageUrl: PAGE, edgeBase: EDGE })
+        .trusted,
+    ).toBe(false);
+    expect(
+      judgeConfigUrl(`${EDGE}llm%5cconfig.json`, { pageUrl: PAGE, edgeBase: EDGE }).trusted,
+    ).toBe(false);
+  });
 });
