@@ -7,7 +7,12 @@ import {
 } from "../src/core/chat-controller.js";
 import { ChatHttpError } from "../src/core/openai-client.js";
 import { type ChatMessage, memorySessionStore, type SessionStore } from "../src/core/sessions.js";
-import { testClock } from "./helpers.js";
+import {
+  makeController,
+  makeControllerWithControllableStream,
+  testClock,
+  tick,
+} from "./helpers.js";
 
 /**
  * A client that replays a script and records every request.
@@ -207,5 +212,84 @@ describe("chat controller", () => {
     await controller.setModel("m2");
     const id = controller.getState().session?.id ?? "";
     expect((await sessions.get(id))?.model).toBe("m2");
+  });
+});
+
+describe("run phases", () => {
+  it("is idle before anything is sent", () => {
+    const controller = makeController();
+    expect(controller.getState().phase).toBe("idle");
+  });
+
+  it("enters waiting when the request is sent and NO delta has arrived yet", async () => {
+    const { controller, finish, sent } = makeControllerWithControllableStream();
+    const done = controller.send("hello");
+    await sent;
+    expect(controller.getState().phase).toBe("waiting");
+    finish();
+    await done;
+  });
+
+  it("moves to streaming on the FIRST delta", async () => {
+    const { controller, emit, finish, sent } = makeControllerWithControllableStream();
+    const done = controller.send("hello");
+    await sent;
+    emit("Hel");
+    await tick();
+    expect(controller.getState().phase).toBe("streaming");
+    emit("lo");
+    finish();
+    await done;
+  });
+
+  it("returns to idle when the stream ends", async () => {
+    const { controller, emit, finish, sent } = makeControllerWithControllableStream();
+    const done = controller.send("hello");
+    await sent;
+    emit("hi");
+    finish();
+    await done;
+    expect(controller.getState().phase).toBe("idle");
+  });
+
+  it("returns to idle when the stream FAILS, and keeps the error", async () => {
+    const { controller, fail, sent } = makeControllerWithControllableStream();
+    const done = controller.send("hello").catch(() => {});
+    await sent;
+    fail(new Error("upstream exploded"));
+    await done;
+    expect(controller.getState().phase).toBe("idle");
+    expect(controller.getState().error).toBeTruthy();
+  });
+
+  it("returns to idle when the run is CANCELLED while still waiting", async () => {
+    const { controller, sent } = makeControllerWithControllableStream();
+    const done = controller.send("hello").catch(() => {});
+    await sent;
+    controller.cancel();
+    await done;
+    expect(controller.getState().phase).toBe("idle");
+  });
+
+  it("records when the run started, so the UI can show elapsed time", async () => {
+    const { controller, sent } = makeControllerWithControllableStream();
+    const done = controller.send("hello").catch(() => {});
+    await sent;
+    expect(controller.getState().runStartedAt).toBeTypeOf("number");
+    controller.cancel();
+    await done;
+    expect(controller.getState().runStartedAt).toBeNull();
+  });
+
+  it("keeps isRunning true for BOTH waiting and streaming", async () => {
+    const { controller, emit, sent } = makeControllerWithControllableStream();
+    const done = controller.send("hello").catch(() => {});
+    await sent;
+    expect(controller.getState().isRunning).toBe(true);
+    emit("hi");
+    await tick();
+    expect(controller.getState().isRunning).toBe(true);
+    controller.cancel();
+    await done;
   });
 });
