@@ -244,6 +244,9 @@ importers:
       '@statewalker/httpeers-member':
         specifier: workspace:*
         version: link:../../packages/httpeers-member
+      '@statewalker/shared-slots':
+        specifier: ^0.2.1
+        version: 0.2.1
       '@statewalker/webrun-http-browser':
         specifier: ^0.6.0
         version: 0.6.0
@@ -2590,6 +2593,9 @@ packages:
 
   '@standard-schema/spec@1.1.0':
     resolution: {integrity: sha512-l2aFy5jALhniG5HgqrD6jXLi/rUWrKvqN/qJx6yoJsgKhblVd+iqqU4RCXavm/jPityDo5TCvKMnpjKnOriy0w==}
+
+  '@statewalker/shared-slots@0.2.1':
+    resolution: {integrity: sha512-Hk6aW70bmjs/LssDjZxfKv+RA5MklbgQusJcWmaimVUFEWewWa+K7FiSZ936nNqyHTNbOQUx/4grwQC2whb6Tw==}
 
   '@statewalker/webrun-biscuit@0.2.1':
     resolution: {integrity: sha512-Qv7Ax3rbnACBba7qKTzd/7ZnRRPh77aIMTqXkfSgfJrDkUYeQasIkG+oDkggGyfd46DnJjyL4saXYSQYFCQw7Q==}
@@ -7091,6 +7097,8 @@ snapshots:
       tslib: 2.8.1
 
   '@standard-schema/spec@1.1.0': {}
+
+  '@statewalker/shared-slots@0.2.1': {}
 
   '@statewalker/webrun-biscuit@0.2.1':
     dependencies:
