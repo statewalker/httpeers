@@ -1,0 +1,7 @@
+llamacpp-qwen2-5-3b-instruct  | build: 3950 (a1b2c3d4) with cc (Ubuntu 13.2.0-23ubuntu4) 13.2.0 for x86_64-linux-gnu
+llamacpp-qwen2-5-3b-instruct  | ggml_musa: using MUSA device 0 (MTT S80)
+llamacpp-qwen2-5-3b-instruct  | llama_model_loader: loaded meta data with 29 key-value pairs and 291 tensors from /models/qwen2.5-3b-instruct/qwen2.5-3b-instruct-q4_k_m.gguf
+llamacpp-qwen2-5-3b-instruct  | load_tensors: offloading 36 repeating layers to GPU
+llamacpp-qwen2-5-3b-instruct  | load_tensors:      MUSA0 model buffer size =  1918.35 MiB
+llamacpp-qwen2-5-3b-instruct  | llama_context: n_ctx = 4096
+llamacpp-qwen2-5-3b-instruct  | main: server is listening on http://0.0.0.0:8080 - starting the main loop

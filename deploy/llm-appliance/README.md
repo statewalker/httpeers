@@ -24,8 +24,21 @@ httpeers.net server").
 - Outbound internet access from the Docker host (the hub fetches its relay
   document from `relay.httpeers.net` once at start and **exits 1 if it
   can't** — this is not optional).
-- Nothing else already listening on `127.0.0.1:8080` on the host (Traefik's
-  only published port).
+- Nothing else already listening on the host port Traefik publishes — its
+  only published port. That is `127.0.0.1:8080` by default and
+  `127.0.0.1:${APPLIANCE_DOOR_PORT}` under `compose.local.yml`; see "The door's
+  port" below before assuming 8080.
+
+**The stale-`~/.docker/cli-plugins` trap.** If `docker compose version` prints something older than
+2.24 (`bin/prepare.sh` refuses to run the local-models pipeline below that version — see "Local
+models" below and "Host networking"'s `!reset`/compose.local.yml's `!override` merge tags, both new
+in 2.24), don't conclude your Docker installation is too old before checking
+`ls -la ~/.docker/cli-plugins/`: a leftover `docker-compose` binary there shadows a modern
+system-installed plugin and reports its own (old) version, with nothing about the error suggesting
+a shadowing plugin rather than a real upgrade need. This reproduced on this project's own
+workstation (`docker compose version` reported `v2.3.3` while the system plugin was `v2.35.1`) and
+cost a day and a wrong design decision before it was found. Remove or update the stale plugin, then
+re-check.
 
 ## Setup
 
@@ -119,6 +132,33 @@ page could through DNS rebinding. So the door checks every request:
 `scripts/health.sh` checks the last point from the outside: a direct request
 to the hub container's own address must be refused.
 
+#### The door's port
+
+**Every URL in this file is written as `127.0.0.1:8080`, which is the default and not always the
+truth.** `compose.yml` publishes a fixed `127.0.0.1:8080`, but `compose.local.yml` replaces that
+with `127.0.0.1:${APPLIANCE_DOOR_PORT:-8080}` (an `!override`, see that file), and `bin/prepare.sh`
+keeps whatever `APPLIANCE_DOOR_PORT` `.env` already had rather than re-deriving it. So a
+locally-prepared appliance is frequently *not* on 8080 — the one on this project's own workstation
+runs on 8081. Check before pasting any URL below:
+
+```sh
+grep -E '^APPLIANCE_DOOR_PORT=' .env      # or, from the outside:
+docker compose port traefik 8080
+```
+
+**Two settings must agree.** Traefik passes the browser's `Host` header through untouched, and the
+door answers **421** to any `Host` not in `HUB_DOOR_ALLOWED_HOSTS`. Change that variable in the
+same `.env` whenever you change the port:
+
+```sh
+APPLIANCE_DOOR_PORT=8081
+HUB_DOOR_ALLOWED_HOSTS=127.0.0.1:8081,localhost:8081
+```
+
+A 421 with a correct password is this mismatch, not a credentials problem. The same trap catches an
+SSH tunnel opened on a different local port than the server's door — see "The admin UI" under "On
+the httpeers.net server".
+
 ### Bring it up
 
 ```sh
@@ -147,22 +187,86 @@ long-running service `healthy` once it's ready.
   on the admin UI's own page. Opening `http://127.0.0.1:8080/ui` works too: the
   door redirects it here.
 - **Adding a real model**: in the LiteLLM dashboard, "Add Model" — pick a
-  provider, paste its API key, save. It's stored in Postgres
+  provider, paste its API key, save. To serve a model from an endpoint
+  **already running on this host** (Ollama, LM Studio, `llama-server`, vLLM),
+  see "An LLM API already running on this host" — it needs one networking
+  change first. It's stored in Postgres
   (`STORE_MODEL_IN_DB=True`), so it survives a restart. Members then see it
   in `GET /peers/<id>/llm/v1/models` (their key needs no reconfiguration).
-- **Inviting a member**: mint an invitation in the admin UI (or
-  `POST /hub/api/invitations {"roles":["member"]}` through the door), send
-  them the link. They open it and join. A member **cannot mint a LiteLLM
-  key** (the hub answers 403); an admin gives them one — see "LLM keys" below.
-- **Inviting from the mesh page**: an admin on `mesh.html` opens the "Mesh"
-  menu, then **Invite someone**. They pick Member or Admin and an expiry
-  (1 hour, 1 day or 7 days), then share the link, show its QR code, or copy
-  it. Pending invitations are listed there too. It is the same
-  `POST /hub/api/invitations`, made over the mesh with the admin's own token,
-  so it needs no tunnel. An **admin** invitation hands over full control
-  (inviting, revoking, keys), and the page warns before making one. Members
-  never see the section. The widget's README has the details
+
+### Inviting
+
+**An invitation is a blob, not a link.** `POST /hub/api/invitations
+{"roles":["member"]}` returns `{ id, expiresAt, blob, link }`. `blob` is a
+credential for joining this mesh — whoever holds it can redeem it, however
+it travels: pasted as text, scanned from a QR code, or read out of a
+`?join=` URL. It is not tied to the chat app, or to any one application:
+`readJoinInputFromText` (`packages/httpeers-member/src/join-blob.ts`)
+accepts a bare `eyJ…` blob, a bare invitation id, or a whole join URL
+interchangeably, and needed no change to do it — that acceptance is already
+how the join form works.
+
+`link` is one convenience way to *use* the blob: `HUB_JOIN_PAGE_URL` with the
+blob attached as `?join=` — the same URL whether the invitation was minted
+through the admin door, `bin/invite.sh`, or the mesh page's own invite panel
+(below), because all three call the same `createInvitation`. Changing
+`HUB_JOIN_PAGE_URL` only changes which page that link opens — it has no
+bearing on what the blob is or what can redeem it.
+
+Once a client has joined with the blob, it does not need to be told what
+services this hub offers — it **discovers** them from the hub's own
+advertisements and OpenAPI document. `apps/llm-chat/src/mesh/discover.ts`
+is the chat app doing exactly that: the LLM service's base URL, its API key
+header and its dashboard URL all come from `GET
+/peers/<hubPeerId>/llm/openapi.json` (`servers[0].url`,
+`components.securitySchemes.llmKey.name`, an `x-httpeers-entry` extension),
+nothing is hard-coded. So an invitation is good for whatever the hub
+advertises, not just the chat — a shell, or an application not written yet,
+redeems the same blob the same way.
+
+Four ways to mint one:
+
+- **The command line**: `./bin/invite.sh --roles member --ttl-days 7`, run
+  from `deploy/llm-appliance` with the appliance already up. Writes
+  `invites/<date>-<roles>/`:
+  - `blob.txt` — the blob alone, no trailing newline, **the primary
+    artifact**;
+  - `blob.png` — a QR code of that same blob (never of the link), rendered
+    and then decoded back through `packages/httpeers-qr` before the script
+    exits, so a code that would not scan is a failure, not a surprise;
+  - `link.txt` — the convenience link, labelled as one way to use the blob
+    above it.
+
+  Runs Node inside a stock `node:22-alpine` with this repo bind-mounted, the
+  same pattern `bin/prepare.sh` uses, so the operator needs only Docker and
+  a clone. Unlike `bin/prepare.sh` (stdlib only), its **first** run needs
+  outbound registry access — it installs `packages/httpeers-qr`'s own
+  `qrcode-generator`/`jsqr` at the versions that package's `package.json`
+  declares, then caches them for every run after. **That cache check is
+  presence-only** (`bin/qr-deps.ts` checks whether `node_modules/<pkg>`
+  exists, not whether its installed version still satisfies
+  `packages/httpeers-qr/package.json`'s current declared range): if that
+  range is bumped later without clearing `node_modules`, this script keeps
+  silently serving the older cached copy. Delete `node_modules/jsqr` and
+  `node_modules/qrcode-generator` (or the whole `node_modules/`) to force a
+  fresh install. `invites/` is gitignored: nothing minted here is ever
+  committed.
+- **The admin UI**: mint an invitation (with a QR code of the blob) and
+  send its link, or the blob itself, to the new member.
+- **The door directly**: `POST /hub/api/invitations {"roles":["member"]}`
+  (see the curl example under "On the httpeers.net server").
+- **From the mesh page**: an admin on `mesh.html` opens the "Mesh" menu,
+  then **Invite someone**. They pick Member or Admin and an expiry (1 hour,
+  1 day or 7 days), then share the link, show its QR code, or copy it.
+  Pending invitations are listed there too. It is the same
+  `POST /hub/api/invitations`, made over the mesh with the admin's own
+  token, so it needs no tunnel. An **admin** invitation hands over full
+  control (inviting, revoking, keys), and the page warns before making one.
+  Members never see the section. The widget's README has the details
   (`packages/httpeers-join`, "Invite").
+
+However it was minted, a member **cannot mint a LiteLLM key** (the hub
+answers 403); an admin gives them one — see "LLM keys" below.
 
 ## LLM keys
 
@@ -270,10 +374,306 @@ on that origin. Admins should open the dashboard from a **dedicated origin**
 (one that hosts nothing else and holds no identity worth protecting) or from
 the local door, `http://127.0.0.1:8080/peers/<hubPeerId>/llm/ui/`.
 
+## Testing it with the published chat
+
+The appliance's own acceptance test, done by hand: an invitation minted here, redeemed on
+`https://llm-chat.httpeers.net/mesh.html`, and a reply streamed back from a model on this machine.
+Nothing is installed on the client side and no port is opened — the page reaches this hub over the
+public mesh.
+
+1. **Check the stack is actually serving.** `./scripts/health.sh` goes through Traefik and exercises
+   the door; `docker compose ps` should show every long-running service `healthy`. A `healthy` hub
+   also means the relay still holds its reservation — that is what its healthcheck asks (see "When
+   the relay reservation is lost"), so a hub that reads healthy is a hub members can reach.
+
+2. **Mint an admin invitation.** An `admin` can mint its own LLM key from the page, which is what
+   makes this a one-person test; a `member` cannot, and would need an admin to hand it one.
+
+   ```sh
+   ./bin/invite.sh --roles admin --ttl-days 1
+   ```
+
+   It writes `invites/<date>-admin/`: `blob.txt` (the credential itself), `blob.png` (a QR code of
+   the blob, decoded back before the script exits) and `link.txt`. Minting from the admin UI or
+   `POST /hub/api/invitations` is equivalent — all three call the same `createInvitation`.
+
+3. **Open `link.txt`.** It is `HUB_JOIN_PAGE_URL` with the blob attached as `?join=`, so with the
+   default it is already the published page:
+   `https://llm-chat.httpeers.net/mesh.html?join=<blob>`. The page redeems the blob, joins the
+   mesh, and then **discovers** the LLM service from the hub's own advertisement and
+   `GET /peers/<hubPeerId>/llm/openapi.json` — base URL, key header and dashboard link all come
+   from there, nothing about this appliance is compiled into the page.
+
+4. **Expect `Connected (relay)` on a workstation.** With the default bridge network on a host
+   behind NAT, the relay circuit is the normal, correct path, not a fault — the hub's WebRTC
+   candidates are container addresses no remote peer can use ("Host networking" explains why).
+   `direct` is what the httpeers.net server measures, because it has a public address. Either way
+   the chat works; the difference is one hop.
+
+5. **Press "Request a key"** in the page header. As an admin this mints a LiteLLM key through the
+   mesh (alias `mesh-chat-<timestamp>`, 30 days, no budget) and fills it in. "Key for a member"
+   beside it mints one *for someone else* and shows it once.
+
+6. **Pick a model and send a message.** The model list is `GET /peers/<hubPeerId>/llm/v1/models` —
+   whatever LiteLLM is configured with, so `qwen2.5-*-instruct` after `bin/prepare.sh`, or your own
+   models (see "An LLM API already running on this host"). The reply streams; if it arrives as one
+   block after a pause, the call was not streaming, and anything slower than 30 s that way gets a
+   502 at the mesh edge.
+
+**Both halves of the test are real.** The page, the relay and the domains are the production ones;
+only the hub and the model are local. So a failure here is a real failure of the deployed chat
+against a real appliance — and a pass says nothing about **NAT traversal**, because your browser
+and the hub are on the same machine. `e2e/REMOTE-CHECK.md` is the procedure that measures that, by
+hand, from a phone or a second network.
+
+**The automated version of exactly these steps** is `e2e/e2e.mjs`, driving a real browser against
+the same domains:
+
+```sh
+# from the httpeers repository root, appliance already up
+E2E_ARTIFACTS=/tmp/llm-e2e node deploy/llm-appliance/e2e/e2e.mjs --local
+```
+
+It prints `PASS`/`FAIL`/`SKIP` per step and never prints a credential. Read `e2e/README.md` first
+for its prerequisites (a Playwright install resolvable from `apps/llm-chat`, a matching Playwright
+Docker image, a free `127.0.0.1:3100`) and for what it leaves behind: **each run adds members to
+the hub and does not clean them up**, so snapshot `GET /hub/api/members` before a run against
+anything you care about, and revoke the leftovers afterwards.
+
+## Local models (no cloud)
+
+This section is for letting the appliance **download and run** models itself. If you already have
+an OpenAI-compatible server running on this machine, point LiteLLM at it instead — "An LLM API
+already running on this host", below.
+
+`bin/prepare.sh` probes this host (CPU cores, RAM, GPU/driver signals — never interpreting any of
+it itself, see the script's own header), hands the probe to `apps/appliance-prepare` running inside
+a stock `node:22-alpine` with this repo bind-mounted (the same pattern `bin/invite.sh` uses, so the
+operator needs only Docker and a clone — no host Node/pnpm install), picks a llama.cpp backend and
+a model tier, downloads the models, and writes `compose.models.yml` (one always-resident
+`llama-server` container per model) — the default, three-file bring-up it prints at the end:
+
+```sh
+./bin/prepare.sh
+docker compose -f compose.yml -f compose.local.yml -f compose.models.yml up -d --wait
+```
+
+**Or, in one step: `./bin/start.sh`.** It runs `prepare.sh` if this directory was never prepared
+(`--prepare [flags]` re-runs it, passing the flags on), brings up the same three-file stack, and
+then verifies it: `scripts/health.sh`, `scripts/verify-backend.sh` on a GPU backend, and one short
+chat per local model through Traefik (with the master key, so no virtual key is left behind). It is
+safe to re-run, and it is the quickest fix when a service was stopped by hand:
+`restart: unless-stopped` never restarts a container that was stopped on purpose.
+
+**After bring-up, when the selected backend is a GPU one (`intel`, `vulkan`, `cuda`, `musa`), run
+`./scripts/verify-backend.sh`.** `docker compose config`/`ps` only prove the backend was
+*requested*; only the running container's own log says whether it actually initialised a GPU
+device or silently fell back to `cpu` — see `BACKENDS.md` for why that gap is real, not
+hypothetical. The script reads `.env` for the selected backend and checks whichever services are
+actually running, so it works unchanged against both the default three-file bring-up above and the
+`--llamaswap` alternative below.
+
+**What it writes, every run:** `probe.json` (this host's raw probe — CPU/RAM/GPU/driver signals,
+nothing interpreted yet), `compose.models.yml`, `litellm/config.local.yaml` (the local model list,
+plus OpenRouter's models when `OPENROUTER_API_KEY` is set — cloud models are additive, never
+required), `prepare-report.json` (backend, tier, models and every file written, for the record),
+`models/manifest.lock.json` (skipped only under `--skip-download`), and `.env`. None of these are
+committed (`.gitignore`).
+
+**What it never overwrites:** an `.env` secret already present (`LITELLM_MASTER_KEY`,
+`LITELLM_SALT_KEY`, `POSTGRES_PASSWORD`, `UI_USERNAME`/`UI_PASSWORD`, `ADMIN_USER`/`ADMIN_PASSWORD`,
+`HUB_DOOR_SECRET`) is kept verbatim across runs, because re-running prepare to pick up a new tier or
+backend must not rotate a secret Postgres or Traefik already has baked in
+(`apps/appliance-prepare/src/env.ts`). A model file already on disk whose size still matches its
+lock entry is not re-downloaded. `APPLIANCE_MODELS_DIR` and `APPLIANCE_DOOR_PORT`, once set in
+`.env`, are read back and kept as the operator's own choice — they are never re-derived from the
+probe.
+
+**Flags** (all optional; a bare `./bin/prepare.sh` probes, picks and downloads):
+
+| Flag | Effect |
+| --- | --- |
+| `--rotate-secrets` | Regenerate every secret above, even if `.env` already has one. Breaks Postgres's existing password against its already-initialized volume — only use this against a fresh `./data/postgres`, or clear it first. |
+| `--backend <cpu\|intel\|vulkan\|cuda\|musa>` | Pin the backend instead of letting the probe choose. See `BACKENDS.md` for which of these have actually run. |
+| `--tier <small\|medium\|large>` | Pin the model tier instead of letting the probe's usable-memory check choose. |
+| `--models <path>` | Read the model manifest from somewhere other than this directory's `models.json`. |
+| `--skip-download` | Skip fetching model bytes; still writes every other generated file, reusing the previous lock entry for models already downloaded. |
+| `--llamaswap` | Write `llamaswap/config.yaml` and route local models at a single swapping service instead of one resident `llama-server` each — see "llama-swap alternative" below. |
+| `--probe-only` | Probe and print the backend/tier choice; write only `probe.json` — no version gate, no download, nothing else written. |
+
+**Pin `--backend`/`--tier` explicitly when reproducing a specific measured configuration.** A bare
+`./bin/prepare.sh` re-probes the host from scratch and can pick a different backend or tier than
+whatever is currently running — `BENCHMARK.md`'s "Producing this state" section hit exactly this on
+this machine (31 GiB of RAM put it in the `medium` tier, picking a different, not-yet-downloaded
+model pair).
+
+### Cost
+
+Local models cost nothing per token: whatever `bin/prepare.sh` downloaded runs entirely on this
+host, with no API key and no metered usage. The appliance needs no cloud credential at all unless
+`OPENROUTER_API_KEY` is set in `.env`, in which case `litellm/config.local.yaml` also lists
+OpenRouter's models alongside the local ones — cloud models are opt-in, never required to bring the
+appliance up.
+
+### llama-swap alternative (four files)
+
+`bin/prepare.sh --llamaswap` instead writes `llamaswap/config.yaml` and re-points every local
+model's `api_base` in `litellm/config.local.yaml` at a single `llamaswap` service
+(`http://llamaswap:8080/v1`) — `compose.llamaswap.yml` runs one
+`ghcr.io/mostlygeek/llama-swap` container that holds **at most one model resident at a time**,
+swapping on demand, instead of N always-resident `llama-server` containers. LiteLLM is completely
+unaffected in shape: it still mints and revokes every member's key exactly as before, llama-swap
+never sees one.
+
+```sh
+./bin/prepare.sh --llamaswap                      # add --backend/--tier to pin them explicitly
+docker compose -f compose.yml -f compose.local.yml -f compose.models.yml \
+  -f compose.llamaswap.yml up -d --wait hub postgres litellm traefik llamaswap
+```
+
+`compose.models.yml` stays in the `-f` list (`bin/prepare.sh` always writes it) but is never
+started: naming exactly `hub postgres litellm traefik llamaswap` on the `up` command is what keeps
+its `llamacpp-<id>` services from starting alongside `llamaswap` and doubling the resident-model
+count this overlay exists to avoid.
+
+**`compose.llamaswap.yml` mounts `/dev/dri` unconditionally**, which suits the `intel`/`vulkan`
+backends it was measured on (see `BACKENDS.md`) but is wrong for a `cuda` or `musa` host: there,
+`docker compose up` will fail at container create over that device node, not degrade — see the
+DEVICES block in `compose.llamaswap.yml` for how to adjust it for those backends.
+
+**This is a documented alternative, not the recommended default** — see `BENCHMARK.md` for the
+measured memory/latency trade (same machine, same models, same backend) and the reasoning behind
+that recommendation. See `BACKENDS.md` for the backend table: which llama.cpp backend actually ran
+real inference on real hardware (`cpu`, `intel`, `vulkan`) and which two only ever rendered
+`docker compose config` output and were never executed at all (`cuda`, `musa` — no NVIDIA or Moore
+Threads hardware has ever been available to this project; BACKENDS.md also explains why their
+device-mount guesses should be read as *likely* wrong, not merely unverified).
+
+## An LLM API already running on this host
+
+`bin/prepare.sh` downloads models and runs them in containers it writes itself. If you **already**
+have an OpenAI-compatible endpoint on this machine — Ollama, LM Studio, a hand-started
+`llama-server`, vLLM — the appliance can serve that instead, and nothing else about it changes:
+LiteLLM still mints and meters every member's key, the hub still passes requests through, and the
+chat still discovers the models. You are only telling LiteLLM a different `api_base`.
+
+### The obstacle: containers cannot reach a loopback-bound host service
+
+Most of these tools bind `127.0.0.1` by default, and `127.0.0.1` inside a container is the
+container. MEASURED 2026-09-22, from the running `litellm` container against this host's Ollama
+(`ss` confirms it listening on `127.0.0.1:11434` only):
+
+| Address tried from the container | Result |
+| --- | --- |
+| `http://172.17.0.1:11434` (default bridge gateway) | connection refused |
+| `http://172.27.0.1:11434` (this appliance network's gateway) | connection refused |
+| `http://host.docker.internal:11434` | `Name or service not known` — the alias does not exist unless a service asks for it |
+
+The refusals are the host kernel rejecting a connection to a loopback-only socket; they are not a
+Docker or firewall problem, and no `api_base` spelling fixes them. **Both halves have to change:
+the endpoint must listen on an address containers can route to, and LiteLLM must be given that
+address.**
+
+### 1. Make the endpoint listen beyond loopback
+
+For Ollama under systemd:
+
+```sh
+sudo systemctl edit ollama       # add these two lines:
+#   [Service]
+#   Environment="OLLAMA_HOST=0.0.0.0:11434"
+sudo systemctl restart ollama
+ss -ltn 'sport = :11434'         # must now show 0.0.0.0:11434, not 127.0.0.1:11434
+```
+
+LM Studio has "Serve on Local Network" in its server tab; `llama-server` takes `--host 0.0.0.0`;
+vLLM takes `--host 0.0.0.0`.
+
+**`0.0.0.0` means your LAN can reach it too**, unauthenticated — these servers have no
+`LITELLM_MASTER_KEY` equivalent, and the appliance's own gates (Traefik's basic auth, the door
+secret, LiteLLM's virtual keys) sit *in front of* LiteLLM, not in front of this. Binding to the
+appliance network's gateway address alone (`OLLAMA_HOST=172.27.0.1:11434`) narrows it to
+containers on that network — but then `host.docker.internal` no longer reaches it (see below), so
+use the gateway address in `api_base` if you do this.
+
+### 2. Which address to give LiteLLM
+
+**Prefer this appliance network's gateway.** Read it — the subnet is assigned by Docker and differs
+per machine and per project:
+
+```sh
+docker inspect "$(docker compose ps -q litellm)" \
+  --format '{{range .NetworkSettings.Networks}}{{.Gateway}}{{end}}'
+# on this workstation: 172.27.0.1
+```
+
+`host.docker.internal` also works, with a caveat worth knowing. MEASURED 2026-09-22, from a
+container **on the appliance network** started with `--add-host host.docker.internal:host-gateway`,
+against a host process bound to `0.0.0.0`: the alias resolved to **`172.17.0.1`** — the *default*
+bridge gateway, **not** this network's `172.27.0.1` — and the request succeeded anyway, because a
+process on `0.0.0.0` answers on every host address. So `host-gateway` is portable across platforms
+(it is the only option on Docker Desktop, where there is no reachable gateway IP) but it is not
+"this network's gateway", and it fails against an endpoint bound to one specific interface. It also
+needs a compose change, which the gateway IP does not:
+
+```yaml
+# compose.override.yml
+services:
+  litellm:
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+```
+
+### 3. Register the model
+
+**Through the dashboard is the better path here** — `http://127.0.0.1:8080/peers/<hubPeerId>/llm/ui/`
+(your door port; log in with `UI_USERNAME`/`UI_PASSWORD`) → **Add Model**:
+
+| Field | Value |
+| --- | --- |
+| Provider | OpenAI-Compatible Endpoint |
+| LiteLLM Model Name | `openai/llama3.2:3b` — the `openai/` prefix is what selects the protocol |
+| Public Model Name | `llama3.2:3b` — what members see in the chat's model list |
+| API Base | `http://172.27.0.1:11434/v1` — **with `/v1`** |
+| API Key | any non-empty placeholder; these servers ignore it, LiteLLM requires the field |
+
+`STORE_MODEL_IN_DB=True`, so this lands in Postgres: it survives restarts, needs no file edit and
+no container recreation, and members see it in `GET /peers/<id>/llm/v1/models` immediately with no
+change on their side.
+
+**Why not `litellm/config.local.yaml`?** Because `bin/prepare.sh` regenerates that file from
+scratch on every run ("GENERATED — do not edit by hand"), so a model added there is lost the next
+time you re-tier or change backend. Add it to `litellm/config.yaml` instead if you want it in
+version-controlled configuration, and bring the stack up without `compose.local.yml`.
+
+### 4. Verify, before opening the chat
+
+```sh
+# the host endpoint itself, in the shape LiteLLM will use
+curl -s http://127.0.0.1:11434/v1/models | head -c 200
+
+# the same endpoint AS THE CONTAINER SEES IT — this is the step that catches the loopback trap
+docker compose exec litellm python3 -c \
+  "import urllib.request;print(urllib.request.urlopen('http://172.27.0.1:11434/v1/models',timeout=3).status)"
+
+# and through the whole appliance, door -> hub -> LiteLLM
+curl -s -u "$ADMIN_USER:$ADMIN_PASSWORD" -H "x-litellm-api-key: Bearer $LITELLM_MASTER_KEY" \
+  "http://127.0.0.1:8080/peers/$HUB_PEER_ID/llm/v1/models"
+```
+
+A model that answers the second command but not the third is a LiteLLM registration problem; one
+that fails the second is still the networking of step 1.
+
+**Cloud and local models coexist.** LiteLLM's model list is additive — host models, models added
+through the dashboard, and `OPENROUTER_API_KEY`'s catalogue all appear together, and a member's key
+works against all of them unless you restrict it with `models` when minting it.
+
 ## Host networking (EXPERIMENTAL, Linux only)
 
-**EXPERIMENTAL: never brought up, only validated with `docker compose
-config`.** Test it yourself before relying on it.
+**EXPERIMENTAL.** Brought up on Compose 2.35.1 (2026-09-22), alone and with
+`compose.test.yml`: every service healthy, `scripts/health.sh` ALL PASS, a
+streamed chat through Traefik. Whether members then get `direct` links was not
+measured.
 
 
 By default the hub is bridge-networked, so members without a working WebRTC
@@ -295,10 +695,11 @@ older and doesn't support `!reset`, hand-edit `compose.yml` to drop the
 `networks:`/`ports:` lines from the `hub` and `traefik` services before
 layering `compose.host.yml` on top, or upgrade Compose.
 
-This needs **Compose >= 2.24** (the `!reset` merge tag). It was **not
-exercised beyond `docker compose config`** — the default bridge/relay-fallback
-`compose.yml` is the one verified; this variant was never brought up (it
-would also collide with the already-running bridge stack).
+This needs **Compose >= 2.24** (the `!reset`/`!override` merge tags). Bring
+the bridge stack down first — both publish the same door port. With
+`compose.test.yml`, `register-model` registers "fake" straight with LiteLLM
+(the hub is off the bridge network, so it cannot reach the door); the
+passthrough is still covered by `health.sh` through Traefik.
 
 In this variant the door listens on the host's `127.0.0.1:8787`, gated exactly
 as above (door secret, Host allowlist, Origin). **LiteLLM is not published on
@@ -505,6 +906,13 @@ than rediscovered.
 - **Members cannot reach the hub: `NO_RESERVATION`.** See "When the relay
   reservation is lost" above — check `GET /hub/api/relay` first; it says
   whether the relay agrees the hub is reserved.
+- **The door answers 421, with the right password.** The `Host` you used is not in
+  `HUB_DOOR_ALLOWED_HOSTS`. Almost always the door was moved off 8080 (`APPLIANCE_DOOR_PORT`, which
+  `compose.local.yml` applies) and that variable was not moved with it — or an SSH tunnel was opened
+  on a different local port than the server's. See "The door's port".
+- **A model you added is 500/"connection refused" from LiteLLM, but works in `curl` on the host.**
+  The endpoint is bound to `127.0.0.1`, which inside a container means the container. See "An LLM
+  API already running on this host" — the fix is on the endpoint, not in `api_base`.
 - **A chat reply just stops after ~30s with no error.** LiteLLM (like most
   proxies) times out a request; a **non-streaming** call slower than that
   gets a 502 at the mesh edge. Streaming (`stream: true`) has no such limit
@@ -547,17 +955,30 @@ than rediscovered.
 | Path | What |
 | --- | --- |
 | `../../apps/hub/Dockerfile` | The hub image (multi-stage; build context is the repo root) |
+| `bin/prepare.sh` | Probes the host and runs `apps/appliance-prepare` to select a backend/tier, download models, and write `compose.models.yml`, `litellm/config.local.yaml`, `.env` (see "Local models" above) |
+| `bin/start.sh` | Prepares if needed, brings up the full local stack, and verifies it end to end (see "Local models") |
+| `bin/invite.sh` | Mints an invitation blob-first, with a round-tripped QR (see "Inviting members") |
+| `models.json` | The model manifest `bin/prepare.sh` reads by default: tiers, per-model repo/file/size |
 | `compose.yml` | The appliance: hub, litellm, postgres, traefik |
 | `compose.host.yml` | EXPERIMENTAL: direct WebRTC via host networking (Linux) |
+| `compose.models.yml` | GENERATED by `bin/prepare.sh`: one `llama-server` per local model (not committed) |
+| `compose.llamaswap.yml` | The llama-swap alternative: one swapping container instead of N resident ones (see "Local models" above; `BENCHMARK.md` has the numbers) |
 | `compose.test.yml` | Local smoke test: a fake OpenAI upstream + model registration |
 | `compose.server.yml` | The httpeers.net server: the hub pulled from GHCR, OpenRouter models, LiteLLM's long first start |
 | `litellm/config.server.yaml` | The server's model list (OpenRouter; the key comes from the environment) |
 | `server/deploy.sh` | The server's forced-command deploy script (installed by hand as `/opt/httpeers-llm/bin/deploy.sh`) |
 | `e2e/` | The end-to-end run on the real domains, against this machine's appliance or the server's |
+| `e2e/REMOTE-CHECK.md` | The manual remote-check procedure — real NAT traversal, a phone or a VM on another network; `e2e.mjs` never covers this |
+| `e2e/RESULTS.md` | The recorded outcome of the most recent `REMOTE-CHECK.md` run — a placeholder table until that manual check has actually been performed |
 | `../../.github/workflows/llm-appliance.yml` | CI: publish the hub image, deploy it to the server |
 | `.env.example` | Secrets template — copy to `.env` |
 | `litellm/config.yaml` | LiteLLM's config (the key-header fix; no secrets) |
+| `litellm/config.local.yaml` | GENERATED by `bin/prepare.sh`: the local models' LiteLLM entries, routed at each `llamacpp-<id>` service or, under `--llamaswap`, all at the one `llamaswap` service (not committed) |
+| `llamaswap/config.yaml` | GENERATED by `bin/prepare.sh --llamaswap`: the swapping service's model groups (not committed; see "llama-swap alternative" below) |
 | `litellm-entrypoint.sh` | Waits for the hub's identity, sets `SERVER_ROOT_PATH`/`PROXY_BASE_URL`, execs LiteLLM |
 | `traefik/dynamic.yml`, `traefik/dynamic.host.yml` | Traefik's file-provider dynamic config (routers: `litellm` with the door secret only, `admin` with basic auth then the door secret; service); `door-secret.yml` is generated beside it at start |
 | `scripts/health.sh` | Smoke-checks the running stack through Traefik |
+| `scripts/verify-backend.sh` | Proves the selected GPU backend actually ran, from the running container's own log — the check an operator must run and trust after a GPU bring-up (see "Local models" above and `BACKENDS.md`) |
 | `test/fake-llm.mjs`, `test/register-model.mjs` | compose.test.yml's fake upstream and model-registration one-shot |
+| `BACKENDS.md` | Which llama.cpp backend actually ran on real hardware, and which only rendered |
+| `BENCHMARK.md` | N × llama-server vs. llama-swap: measured memory/latency and the recommendation |

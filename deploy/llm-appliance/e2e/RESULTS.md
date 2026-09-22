@@ -1,3 +1,85 @@
+# Manual remote check — NOT YET PERFORMED
+
+**Status: NOT YET PERFORMED.** No automated gate in this repository exercises real NAT traversal
+(`e2e.mjs`'s browsers always run on this machine — see `e2e/README.md` and `REMOTE-CHECK.md` for
+why that proves nothing about a real second network). The procedure is written and ready
+(`REMOTE-CHECK.md`); it needs a phone on mobile data with Wi-Fi off, or a VM on a genuinely
+different network, which this task did not have access to. **Do not read the fields below as a
+result — every one of them is a placeholder, waiting to be filled in by whoever actually runs
+`REMOTE-CHECK.md`.**
+
+| Field | Value |
+| --- | --- |
+| Date | *(not yet run)* |
+| Client network | *(not yet run — e.g. "iPhone, Wi-Fi off, [carrier] mobile data" or "VM on [provider/region]")* |
+| Transport (page indicator) | *(not yet run)* |
+| Transport (`GET /hub/api/members`'s `link` field, read after the chat exchange) | *(not yet run)* |
+| Time to join | *(not yet run)* |
+| First-token latency | *(not yet run)* |
+| Failure, verbatim (if any) | *(not yet run)* |
+
+When this is actually performed, replace this section with the filled-in result, keep the
+**manual** heading and the date, and leave the earlier automated runs below untouched — they test a
+different thing (same-host, everything else) and remain valid on their own terms.
+
+---
+
+# End-to-end results — 2026-09-21, local-model appliance (`--local`)
+
+**Outcome: all six steps PASS, key cleanup PASS** (run of 2026-09-21 about 23:09 UTC, exit 0;
+`node e2e/e2e.mjs --local` from `deploy/llm-appliance`).
+
+- **Target.** The local-model backend (Task 10/11) on this workstation: llama.cpp server
+  (`ghcr.io/ggml-org/llama.cpp:server-vulkan`, backend `vulkan`), LiteLLM, Postgres and Traefik,
+  all `healthy`. Door `http://127.0.0.1:8081` (`.env`'s `APPLIANCE_DOOR_PORT`).
+- **Models.** The `small` tier, from `models/manifest.lock.json`: `qwen2.5-1.5b-instruct`,
+  `qwen2.5-3b-instruct`. `LLM_MODEL` defaulted to `qwen2.5-1.5b-instruct` (the tier's first id).
+- **Browsers.** A and B in an isolated Docker network (`llm-e2e-isolated`), C on the host, exactly
+  as in server mode. The published page was `https://llm-chat.httpeers.net/mesh.html` — unchanged;
+  only the door and the join mechanics point at the local appliance.
+- **Machine.** `kotelnikov-laptop`, Linux 6.8.0-139-generic x86_64, 8 cores, 31 GiB RAM.
+
+| Step | Result |
+| --- | --- |
+| 1. Hub is up | PASS (14 ms). hubPeerId `12D3KooWNpep9WXELWBybdRaX3xAnPNrhDGNfFB8qWnzJFAA6PSF` |
+| 2. Admin A joins (blob pasted into the join form), mints a key, chats | PASS (18.3 s). **relay**, joined in 7.2 s. The picker listed exactly `["qwen2.5-1.5b-instruct","qwen2.5-3b-instruct"]` — asserted equal to the lock file. First token in **355 ms**; the streamed reply completed in 961 ms after 12 partial states: "Hello! How can I help you today?" (non-empty, asserted) |
+| 3. Dashboard over the mesh | PASS (13.7 s). 125 responses under the mount, 4 non-2xx (the known `ui.txt`/`__next._tree.txt` 404s and a 307), none of them 403 or 5xx |
+| 4. Member B refused admin paths, chats with A's key | PASS (8.8 s). **relay**, joined in 7.2 s. `POST …/llm/keys` and `GET …/llm/ui/login/` answered 403. First token in **202 ms**; reply completed in 993 ms |
+| 5. Revocation | PASS (3.3 s). A 403 `{"error":"membership revoked"}` came **59 ms** after the `DELETE` answered (first attempt); B's page showed the revocation |
+| 6. Host browser C | PASS (1.3 s). **direct**, joined in 1.2 s |
+
+Link modes: `{"A":"relay","B":"relay","C":"direct"}`. The hub's own view (`GET
+/hub/api/members`) listed all three as `direct` (the same transient effect documented in the
+2026-09-15 run below: a failed WebRTC upgrade's connection stays open for ~12 s after the fallback
+to relay). No assertion was made about which mode any of them showed — a same-host run proves
+nothing about real NAT traversal (Task 15 carries the manual remote check that does).
+
+**Revocation double-check, by hand, outside the script.** After the recorded run, a second,
+independent script (admin + one member, both on the host, no Docker isolation) minted a key,
+confirmed a baseline streamed completion (200, first chunk), called `DELETE
+/hub/api/members/<peerId>`, and immediately re-issued the *exact same* completion call once, with
+its own timer — not the script's retry-every-second loop. Result: **403 `{"error":"membership
+revoked"}` in 5 ms**, well under the one-second bar. The minted key was deleted afterwards through
+the door.
+
+**A prior run** (before the `firstTokenMs` instrumentation and the dashboard flake below) also
+passed all six: A relay 7.3 s / 542 ms reply / 10 partials, B relay 7.7 s / 2.8 s reply, revocation
+403 in 140 ms.
+
+**One flaky run, diagnosed and not repeated.** An earlier attempt failed at step 3 (Dashboard)
+with LiteLLM's own Next.js UI showing "Application error: a client-side exception has occurred"
+after login, no `pageerror` recorded and `key/list` never reached the server. Reproduced in
+isolation with console/response logging on the dashboard tab: on the very next attempt the same
+flow rendered `Virtual Keys` and 8 existing keys cleanly — same code, same appliance, no change in
+between. This matches an already-documented class of first-load flakiness in this dashboard (see
+"Known risk" and the first-fetch 401 races noted in the 2026-09-18 run below), not something
+`--local`'s four differences touch: step 3's code path (login, "Virtual Keys" wait, non-2xx
+listing) is identical in both modes. Steps 4–5 were `SKIP`ped that run because they chain after
+step 3; no assertion was weakened to route around it — the run was simply repeated, twice, both
+clean.
+
+---
+
 # End-to-end results — 2026-09-18, the httpeers.net server
 
 **Outcome: all six steps PASS, key cleanup PASS** (run of 2026-09-18 about 12:18 UTC, exit 0).

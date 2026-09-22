@@ -2,11 +2,27 @@
  * End-to-end test of the LLM appliance on the real domains, through the public relay.
  *
  *   node deploy/llm-appliance/e2e/e2e.mjs
+ *   node deploy/llm-appliance/e2e/e2e.mjs --local
  *
  * See README.md next to this file for the prerequisites. In short: the appliance is running from
  * `deploy/llm-appliance` (its `.env` holds the door and dashboard credentials), the llm-chat build
  * is published to the page URL, Docker can run the Playwright image, and `apps/llm-chat` has its
  * dependencies installed (Playwright is resolved from there; `deploy/` is not a workspace package).
+ *
+ * `--local` drives the same steps against a locally prepared appliance (local-model backend, see
+ * `../BACKENDS.md`) instead of the server, and differs from server mode in exactly four ways:
+ *   1. The door is `http://127.0.0.1:<APPLIANCE_DOOR_PORT>` (from `.env`, default 8080) with the
+ *      local `.env`'s admin credentials -- `HUB_DOOR_URL` still overrides either mode outright.
+ *   2. The invitation is consumed as a **blob**, pasted into the page's own join form, rather than
+ *      navigated to as a `?join=` link (spec §3.8; `packages/httpeers-member/src/join-blob.ts`'s
+ *      `readJoinInputFromText` accepts a bare blob).
+ *   3. The expected model ids come from `../models/manifest.lock.json` -- the tier actually
+ *      prepared -- never a hard-coded list, and the model picker's list (itself `GET …/v1/models`
+ *      through the mesh) is asserted equal to it.
+ *   4. No assertion about transport (`direct` vs `relay`): a same-host run is one or the other for
+ *      reasons that mean nothing about real NAT traversal (spec §11).
+ * Everything else -- the isolated-browser dance, the dashboard check, member B's refusals, the
+ * revocation poll, host browser C -- runs exactly as it does against the server.
  *
  * Steps (each prints PASS or FAIL with its duration; any FAIL or SKIP exits non-zero):
  *   1. Hub is up: `GET /hub/api/mesh` through the Traefik door gives `hubPeerId`.
@@ -29,7 +45,8 @@
  *
  * Environment (all optional):
  *   APPLIANCE_ENV      path of the appliance `.env` (default: ../.env next to this directory)
- *   HUB_DOOR_URL       the Traefik door (default http://127.0.0.1:8080)
+ *   HUB_DOOR_URL       the Traefik door (default http://127.0.0.1:8080; --local's default is
+ *                      instead `.env`'s APPLIANCE_DOOR_PORT, see above)
  *   MESH_PAGE_URL      the published mesh page (default https://llm-chat.httpeers.net/mesh.html)
  *   HUB_CONTAINER      the hub container, for the isolation control (default llm-appliance-hub-1);
  *                      "remote" when the hub runs on another host (the httpeers.net server, reached
@@ -42,7 +59,8 @@
  *   E2E_PW_IMAGE       default mcr.microsoft.com/playwright:v1.63.0-noble
  *   E2E_KEEP_ISOLATED  1: leave the container and network up afterwards
  *   E2E_ARTIFACTS      directory for screenshots and results.json (default: a new temp dir)
- *   LLM_MODEL          default "fake"
+ *   LLM_MODEL          default "fake"; --local's default is the tier's first model id
+ *                      (alphabetically) from ../models/manifest.lock.json
  *
  * Prints no secret: not the door or dashboard credentials, not invitations, not minted keys.
  */
@@ -60,23 +78,10 @@ const HERE = dirname(fileURLToPath(import.meta.url));
 const REPO = join(HERE, "..", "..", "..");
 const { chromium } = createRequire(join(REPO, "apps", "llm-chat", "package.json"))("playwright");
 
-const ENV_FILE = process.env.APPLIANCE_ENV ?? join(HERE, "..", ".env");
-const DOOR = (process.env.HUB_DOOR_URL ?? "http://127.0.0.1:8080").replace(/\/+$/, "");
-const PAGE_URL = process.env.MESH_PAGE_URL ?? "https://llm-chat.httpeers.net/mesh.html";
-const ORIGIN = new URL(PAGE_URL).origin;
-const HUB_CONTAINER = process.env.HUB_CONTAINER ?? "llm-appliance-hub-1";
-const NETWORK = process.env.E2E_NETWORK ?? "llm-e2e-isolated";
-const PW_CONTAINER = process.env.E2E_PW_CONTAINER ?? "llm-e2e-playwright";
-const PW_PORT = Number(process.env.E2E_PW_PORT ?? 3100);
-const PW_IMAGE = process.env.E2E_PW_IMAGE ?? "mcr.microsoft.com/playwright:v1.63.0-noble";
-const PW_VERSION = PW_IMAGE.match(/:v([\d.]+)/)?.[1] ?? "1.63.0";
-const KEEP_ISOLATED = process.env.E2E_KEEP_ISOLATED === "1";
-const MODEL = process.env.LLM_MODEL ?? "fake";
-const ARTIFACTS = process.env.E2E_ARTIFACTS ?? mkdtempSync(join(tmpdir(), "llm-e2e-"));
-mkdirSync(ARTIFACTS, { recursive: true });
+/** A locally prepared appliance (local-model backend) rather than the server. See the file doc. */
+const LOCAL = process.argv.slice(2).includes("--local");
 
-const JOIN_TIMEOUT = 90_000;
-const REVOCATION_WINDOW = 90_000;
+const ENV_FILE = process.env.APPLIANCE_ENV ?? join(HERE, "..", ".env");
 
 /** `.env` as compose reads it: KEY=value, a single-quoted value taken literally. */
 function readEnv(path) {
@@ -99,6 +104,37 @@ for (const name of ["ADMIN_USER", "ADMIN_PASSWORD", "UI_USERNAME", "UI_PASSWORD"
   }
 }
 const DOOR_AUTH = `Basic ${Buffer.from(`${env.ADMIN_USER}:${env.ADMIN_PASSWORD}`).toString("base64")}`;
+
+// The door's port is never hardcoded for --local: it is `.env`'s own APPLIANCE_DOOR_PORT (default
+// 8080, same as the server's fixed port). Server mode is untouched -- always 8080 unless
+// HUB_DOOR_URL says otherwise -- even though both modes read the same `.env` by default.
+const DOOR = (
+  process.env.HUB_DOOR_URL ?? `http://127.0.0.1:${LOCAL ? (env.APPLIANCE_DOOR_PORT ?? 8080) : 8080}`
+).replace(/\/+$/, "");
+const PAGE_URL = process.env.MESH_PAGE_URL ?? "https://llm-chat.httpeers.net/mesh.html";
+const ORIGIN = new URL(PAGE_URL).origin;
+const HUB_CONTAINER = process.env.HUB_CONTAINER ?? "llm-appliance-hub-1";
+const NETWORK = process.env.E2E_NETWORK ?? "llm-e2e-isolated";
+const PW_CONTAINER = process.env.E2E_PW_CONTAINER ?? "llm-e2e-playwright";
+const PW_PORT = Number(process.env.E2E_PW_PORT ?? 3100);
+const PW_IMAGE = process.env.E2E_PW_IMAGE ?? "mcr.microsoft.com/playwright:v1.63.0-noble";
+const PW_VERSION = PW_IMAGE.match(/:v([\d.]+)/)?.[1] ?? "1.63.0";
+const KEEP_ISOLATED = process.env.E2E_KEEP_ISOLATED === "1";
+
+// --local's expected model ids: the tier actually prepared, from its lock file -- never a
+// hard-coded list. `chooseModel`/`chat` default to its first id (alphabetically, the small one)
+// unless LLM_MODEL says otherwise.
+const EXPECTED_MODELS = LOCAL
+  ? JSON.parse(readFileSync(join(HERE, "..", "models", "manifest.lock.json"), "utf8"))
+      .models.map((m) => m.id)
+      .sort()
+  : null;
+const MODEL = process.env.LLM_MODEL ?? (LOCAL ? EXPECTED_MODELS[0] : "fake");
+const ARTIFACTS = process.env.E2E_ARTIFACTS ?? mkdtempSync(join(tmpdir(), "llm-e2e-"));
+mkdirSync(ARTIFACTS, { recursive: true });
+
+const JOIN_TIMEOUT = 90_000;
+const REVOCATION_WINDOW = 90_000;
 
 // ---------------------------------------------------------------------------------------------
 // Reporting
@@ -167,6 +203,12 @@ async function joinLink(roles) {
   const linkPage = link ? new URL(link) : null;
   if (linkPage && `${linkPage.origin}${linkPage.pathname}` === PAGE_URL) return link;
   return `${PAGE_URL}?join=${encodeURIComponent(blob)}`;
+}
+
+/** `--local`: a fresh invitation's raw blob, pasted into the page's join form rather than navigated to. */
+async function mintBlob(roles) {
+  const { blob } = await door("POST", "/hub/api/invitations", { roles });
+  return blob;
 }
 
 const members = async () => door("GET", "/hub/api/members");
@@ -298,11 +340,22 @@ async function openPage(browser, label) {
   return page;
 }
 
-/** Joins from `?join=`; returns the link mode shown ("direct" or "relay") and the join time. */
+/**
+ * Joins from `?join=` (server mode) or the page's own paste-in form with a bare blob (`--local`,
+ * spec §3.8 -- `readJoinInputFromText` treats an `eyJ…` string as a blob, not a link). Returns the
+ * link mode shown ("direct" or "relay") and the join time.
+ */
 async function joinMesh(page, roles) {
-  const link = await joinLink(roles);
   const started = Date.now();
-  await page.goto(link);
+  if (LOCAL) {
+    const blob = await mintBlob(roles);
+    await page.goto(PAGE_URL);
+    await page.getByLabel("Paste an invitation").fill(blob);
+    await page.getByRole("button", { name: "Join" }).click();
+  } else {
+    const link = await joinLink(roles);
+    await page.goto(link);
+  }
   const status = page.getByRole("status").filter({ hasText: /Connected \((direct|relay)\)/ });
   await status.first().waitFor({ timeout: JOIN_TIMEOUT });
   const text = await status.first().innerText();
@@ -359,12 +412,15 @@ async function chat(page, message) {
         return done && (bubble.querySelector(".markdown")?.textContent ?? "").trim() !== "";
       };
       const seen = [];
-      const deadline = performance.now() + timeout;
+      const start = performance.now();
+      const deadline = start + timeout;
       for (;;) {
         const bubbles = document.querySelectorAll('[data-role="assistant"]');
         const current = bubbles[bubbles.length - 1]?.textContent ?? "";
         if (current !== "" && seen.at(-1)?.text !== current) {
-          seen.push({ text: current, at: Math.round(performance.now()) });
+          // `at`: ms since the Send click resolved (evaluate's own start), not an absolute clock --
+          // this is the first-token / growth-step latency the caller reports.
+          seen.push({ text: current, at: Math.round(performance.now() - start) });
         }
         if (complete(bubbles[bubbles.length - 1])) return { seen, complete: true };
         if (performance.now() > deadline) return { seen, complete: false };
@@ -381,7 +437,8 @@ async function chat(page, message) {
   const ms = Date.now() - started;
   const reply = (await page.locator('[data-role="assistant"] .markdown').last().innerText()).trim();
   const partials = samples.seen.length - 1;
-  return { ms, reply, partials };
+  const firstTokenMs = samples.seen[0]?.at ?? null;
+  return { ms, reply, partials, firstTokenMs };
 }
 
 /**
@@ -529,13 +586,20 @@ try {
       await dialog.waitFor({ timeout: 30_000 });
       await dialog.getByLabel(MODEL, { exact: true }).waitFor({ timeout: 30_000 });
       const models = (await dialog.locator("label").allInnerTexts()).map((t) => t.trim());
-      note(`model picker lists: ${JSON.stringify(models)}`);
+      note(`model picker lists (GET …/llm/v1/models): ${JSON.stringify(models)}`);
+      if (LOCAL) {
+        check(
+          JSON.stringify([...models].sort()) === JSON.stringify(EXPECTED_MODELS),
+          `model list ${JSON.stringify(models)} != the tier's lock file ${JSON.stringify(EXPECTED_MODELS)}`,
+        );
+      }
       await chooseModel(adminPage);
 
-      const { ms: replyMs, reply, partials } = await chat(adminPage, "hello");
+      const { ms: replyMs, reply, partials, firstTokenMs } = await chat(adminPage, "hello");
       check(partials >= 1, `the reply appeared in one piece (no partial state observed)`);
-      facts.chatA = { replyMs, partials, reply };
-      return `A: ${mode}; reply in ${replyMs} ms after ${partials} partial states: ${JSON.stringify(reply)}`;
+      if (LOCAL) check(reply !== "", "the reply from the local model was empty");
+      facts.chatA = { replyMs, firstTokenMs, partials, reply };
+      return `A: ${mode}; first token ${firstTokenMs} ms; reply in ${replyMs} ms after ${partials} partial states: ${JSON.stringify(reply)}`;
     },
   );
 
@@ -636,8 +700,8 @@ try {
     await memberPage.getByLabel("Key", { exact: true }).fill(adminKey);
     await memberPage.getByRole("button", { name: "Use key" }).click();
     await chooseModel(memberPage);
-    const { ms: replyMs, reply } = await chat(memberPage, "hello from B");
-    return `B: ${mode}; 403 on keys and ui; reply in ${replyMs} ms: ${JSON.stringify(reply)}`;
+    const { ms: replyMs, reply, firstTokenMs } = await chat(memberPage, "hello from B");
+    return `B: ${mode}; 403 on keys and ui; first token ${firstTokenMs} ms; reply in ${replyMs} ms: ${JSON.stringify(reply)}`;
   });
 
   await step(

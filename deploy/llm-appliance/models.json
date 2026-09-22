@@ -1,0 +1,59 @@
+{
+  "schemaVersion": 1,
+  "verifiedOn": "2026-09-20",
+  "minUsableBytes": {
+    "small": 5368709120,
+    "medium": 17179869184,
+    "large": 34359738368
+  },
+  "tiers": {
+    "small": [
+      {
+        "id": "qwen2.5-1.5b-instruct",
+        "repo": "Qwen/Qwen2.5-1.5B-Instruct-GGUF",
+        "file": "qwen2.5-1.5b-instruct-q4_k_m.gguf",
+        "ctx": 4096,
+        "fileSize": 1117320736
+      },
+      {
+        "id": "qwen2.5-3b-instruct",
+        "repo": "Qwen/Qwen2.5-3B-Instruct-GGUF",
+        "file": "qwen2.5-3b-instruct-q4_k_m.gguf",
+        "ctx": 4096,
+        "fileSize": 2104932768
+      }
+    ],
+    "medium": [
+      {
+        "id": "qwen2.5-3b-instruct",
+        "repo": "Qwen/Qwen2.5-3B-Instruct-GGUF",
+        "file": "qwen2.5-3b-instruct-q4_k_m.gguf",
+        "ctx": 4096,
+        "fileSize": 2104932768
+      },
+      {
+        "id": "qwen2.5-14b-instruct",
+        "repo": "bartowski/Qwen2.5-14B-Instruct-GGUF",
+        "file": "Qwen2.5-14B-Instruct-Q4_K_M.gguf",
+        "ctx": 8192,
+        "fileSize": 8988110976
+      }
+    ],
+    "large": [
+      {
+        "id": "qwen2.5-7b-instruct",
+        "repo": "bartowski/Qwen2.5-7B-Instruct-GGUF",
+        "file": "Qwen2.5-7B-Instruct-Q4_K_M.gguf",
+        "ctx": 8192,
+        "fileSize": 4683074240
+      },
+      {
+        "id": "qwen2.5-32b-instruct",
+        "repo": "bartowski/Qwen2.5-32B-Instruct-GGUF",
+        "file": "Qwen2.5-32B-Instruct-Q4_K_M.gguf",
+        "ctx": 8192,
+        "fileSize": 19851336576
+      }
+    ]
+  }
+}
