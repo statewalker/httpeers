@@ -186,7 +186,7 @@ compose_file="$PUBLISH_ROOT/docker-compose.yml"
 
 require_var() {
   [ -n "${!1:-}" ] || die "$1 is not set. Copy publish.env.example to publish.env and fill it in;
-    the credentials are on the server:  ssh kotelnikov@163.172.46.87 'grep S3_ /opt/httpeers/.env'"
+    the credentials are on the server:  ssh <deploy-user>@<httpeers-host> 'grep S3_ /opt/httpeers/.env'"
 }
 require_var HTTPEERS_S3_ACCESS_KEY_ID
 require_var HTTPEERS_S3_SECRET_ACCESS_KEY

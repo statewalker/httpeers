@@ -311,12 +311,16 @@ it.
 
 ## On the httpeers.net server
 
-The same appliance runs on the httpeers.net host (`163.172.46.87`, see the server runbook in
+The same appliance runs on the httpeers.net host (its address and the server runbook are in
 the notes), beside, but separate from, the relay/Caddy/sites stack in `/opt/httpeers`: its own
 directory `/opt/httpeers-llm`, its own compose project `httpeers-llm`, its own bridge network.
 Caddy does not route to it and nothing about it is public: members reach the hub over the mesh
 (through `relay.httpeers.net`), invitations open `https://llm-chat.httpeers.net/mesh.html`, and
 the LLM backend is OpenRouter.
+
+`<deploy-user>@<httpeers-host>` in the commands below is the SSH account on that machine — the
+same pair as the deploy workflow's `DEPLOY_USER` secret and `DEPLOY_HOST` variable. Neither is
+written down in this public repository; take them from the server runbook in the notes.
 
 | Service | Reachable from | Notes |
 | --- | --- | --- |
@@ -328,9 +332,9 @@ the LLM backend is OpenRouter.
 ### The admin UI
 
 ```sh
-ssh -N -L 8080:127.0.0.1:8080 kotelnikov@163.172.46.87
+ssh -N -L 8080:127.0.0.1:8080 <deploy-user>@<httpeers-host>
 # then open http://127.0.0.1:8080/ -- ADMIN_USER / ADMIN_PASSWORD from the server's .env:
-ssh kotelnikov@163.172.46.87 'grep -E "^ADMIN_(USER|PASSWORD)=" /opt/httpeers-llm/.env'
+ssh <deploy-user>@<httpeers-host> 'grep -E "^ADMIN_(USER|PASSWORD)=" /opt/httpeers-llm/.env'
 ```
 
 **Use local port 8080** (or `localhost:8080`): the door answers only the Host values in
@@ -405,7 +409,7 @@ the last three releases stays on the host, and any older one is pulled again fro
 
 ### One-time setup (done 2026-09-18; repeat only to rebuild the host)
 
-1. `install -d -o kotelnikov -m 750 /opt/httpeers-llm` (as root), then in it `data/`,
+1. `install -d -o <deploy-user> -m 750 /opt/httpeers-llm` (as root), then in it `data/`,
    `releases/`, `bin/` (mode 700).
 2. `.env`: generate every secret on the server, as in "Secrets" above (`openssl rand`, the
    htpasswd hash single-quoted), and add `COMPOSE_PROJECT_NAME=httpeers-llm`,
@@ -417,10 +421,10 @@ the last three releases stays on the host, and any older one is pulled again fro
    corrupts it. **Re-install it by hand after every change to `server/deploy.sh`**, because the
    copy inside the image is only for reference.
 4. The key: `ssh-keygen -t ed25519 -N "" -C llm-deploy@httpeers -f k`. Append
-   `restrict,command="/opt/httpeers-llm/bin/deploy.sh" <k.pub>` to `~kotelnikov/.ssh/authorized_keys`.
+   `restrict,command="/opt/httpeers-llm/bin/deploy.sh" <k.pub>` to `~<deploy-user>/.ssh/authorized_keys`.
    Then `gh secret set LLM_DEPLOY_SSH_KEY < k` and `shred -u k k.pub`.
 5. The repository variables: `gh variable set DEPLOY_KNOWN_HOSTS` with the output of
-   `ssh-keyscan -t ed25519 163.172.46.87` (compare it with a known fingerprint first), and
+   `ssh-keyscan -t ed25519 <httpeers-host>` (compare it with a known fingerprint first), and
    `gh variable set LLM_DEPLOY_ENABLED --body true`. `DEPLOY_HOST` and `DEPLOY_USER` are the
    relay's existing secrets.
 

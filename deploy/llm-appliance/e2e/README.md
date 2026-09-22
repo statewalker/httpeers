@@ -52,13 +52,13 @@ isolated container and network up) and `LLM_MODEL`.
 ## Against the httpeers.net server
 
 The same script drives the appliance CI deployed on the server (see `../README.md`, "On the
-httpeers.net server"). The browsers run on this machine, so they are on a different network
-from the hub by construction.
+httpeers.net server", which also gives `<deploy-user>@<httpeers-host>`). The browsers run on
+this machine, so they are on a different network from the hub by construction.
 
 ```sh
-ssh -N -L 8080:127.0.0.1:8080 kotelnikov@163.172.46.87 &      # the door, as on the workstation
+ssh -N -L 8080:127.0.0.1:8080 <deploy-user>@<httpeers-host> &      # the door, as on the workstation
 HUB_CONTAINER=remote LLM_MODEL=gpt-4o-mini \
-APPLIANCE_ENV=<(ssh kotelnikov@163.172.46.87 \
+APPLIANCE_ENV=<(ssh <deploy-user>@<httpeers-host> \
   'grep -E "^(ADMIN_USER|ADMIN_PASSWORD|UI_USERNAME|UI_PASSWORD|LITELLM_MASTER_KEY)=" /opt/httpeers-llm/.env') \
 node deploy/llm-appliance/e2e/e2e.mjs
 ```

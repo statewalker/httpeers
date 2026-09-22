@@ -37,10 +37,12 @@ cp publish.env.example publish.env
 ```
 
 Fill in the two credentials. They exist in exactly one place — `/opt/httpeers/.env` on the
-server, mode 600, generated there with `openssl rand`, never copied anywhere:
+server, mode 600, generated there with `openssl rand`, never copied anywhere. The SSH account
+on that machine, `<deploy-user>@<httpeers-host>`, is the deploy workflow's `DEPLOY_USER` secret
+and `DEPLOY_HOST` variable — kept out of this public repository, recorded in the server runbook:
 
 ```sh
-ssh kotelnikov@163.172.46.87 'grep S3_ /opt/httpeers/.env'
+ssh <deploy-user>@<httpeers-host> 'grep S3_ /opt/httpeers/.env'
 ```
 
 `publish.env` is gitignored. `statewalker/httpeers` is a public repository; nothing in this

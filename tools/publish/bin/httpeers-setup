@@ -120,7 +120,7 @@ else
     fail "rclone remote \"$remote:\" does not exist and there are no credentials to create it." \
          "cp \"$PUBLISH_ROOT/publish.env.example\" \"$PUBLISH_ROOT/publish.env\"" \
          "then fill in the two S3 values. They live only on the server:" \
-         "  ssh kotelnikov@163.172.46.87 'grep S3_ /opt/httpeers/.env'"
+         "  ssh <deploy-user>@<httpeers-host> 'grep S3_ /opt/httpeers/.env'"
   fi
 fi
 
