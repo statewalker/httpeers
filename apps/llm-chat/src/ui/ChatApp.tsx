@@ -6,6 +6,7 @@
  */
 
 import { Slots } from "@statewalker/shared-slots";
+import { SettingsIcon } from "lucide-react";
 import { type ReactNode, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createChatController, endpointClient } from "../core/chat-controller.js";
 import {
@@ -21,9 +22,11 @@ import { listModels } from "../core/openai-client.js";
 import type { SessionStore, SessionSummary } from "../core/sessions.js";
 import { SlotsProvider } from "../slots/context.js";
 import { settingsPanelsSlot } from "../slots/panels.js";
+import { AppShell } from "./AppShell.js";
 import { ModelPicker } from "./ModelPicker.js";
 import { ConnectionPanel } from "./panels/ConnectionPanel.js";
 import { ModelsPanel } from "./panels/ModelsPanel.js";
+import { Button } from "./primitives/button.js";
 import { SettingsDialog } from "./SettingsDialog.js";
 import { Thread } from "./Thread.js";
 import { ThreadList } from "./ThreadList.js";
@@ -82,9 +85,8 @@ export function ChatApp({ configStore, sessionStore, title = "Chat", headerExtra
 
   /**
    * The dialog this app fills through `settingsPanelsSlot`: Connection and Models, one tab each.
-   * Local to this `ChatApp` instance for now -- Task 6 moves this bus (and the registration below)
-   * up to an app shell, which is what lets `mesh.html` add Sharing and Keys (Task 11) alongside
-   * these same two.
+   * Local to this `ChatApp` instance for now -- `mesh.html` (Task 11) adds Sharing and Keys
+   * alongside these same two, through the same bus.
    *
    * The registered `Component`s take no props (the slot contract), so they read the live config
    * through `configRef` rather than closing over `config` -- keeping this effect's dependencies
@@ -143,41 +145,9 @@ export function ChatApp({ configStore, sessionStore, title = "Chat", headerExtra
 
   return (
     <SlotsProvider slots={slots}>
-      <div className="flex h-screen flex-col text-gray-900">
-        <div
-          className="flex min-h-0 flex-1 flex-col"
-          inert={showSettings}
-          aria-hidden={showSettings}
-        >
-          <header className="flex items-center gap-3 border-b border-gray-200 px-4 py-2">
-            <h1 className="flex-1 font-semibold">{title}</h1>
-            {config != null && step === "chat" && (
-              <ModelPicker
-                models={config.models}
-                value={model}
-                disabled={chat.isRunning}
-                onChange={(next) => {
-                  void saveConfig({ ...config, defaultModel: next });
-                  void controller.setModel(next);
-                }}
-                onRefresh={async () => {
-                  await saveConfig(refreshModels(config, await listModels(config)));
-                }}
-              />
-            )}
-            {headerExtra}
-            <button
-              type="button"
-              aria-label="Settings"
-              title="Settings"
-              className="rounded px-2 py-1 hover:bg-gray-100"
-              onClick={() => setSettingsOpen(true)}
-            >
-              ⚙
-            </button>
-          </header>
-
-          <div className="flex min-h-0 flex-1">
+      <div inert={showSettings} aria-hidden={showSettings}>
+        <AppShell
+          sidebar={
             <ThreadList
               sessions={sessions}
               activeId={chat.session?.id ?? null}
@@ -190,25 +160,55 @@ export function ChatApp({ configStore, sessionStore, title = "Chat", headerExtra
                 await refreshSessions();
               }}
             />
-            <main className="min-w-0 flex-1">
-              <Thread controller={controller} />
-            </main>
-          </div>
-        </div>
-
-        <SettingsDialog
-          open={showSettings}
-          initialPanelId={step === "models" ? MODELS_PANEL_ID : undefined}
-          onOpenChange={(next) => {
-            if (next) {
-              setSettingsOpen(true);
-              return;
-            }
-            if (!dismissible) return;
-            setSettingsOpen(false);
-          }}
-        />
+          }
+          header={
+            <>
+              <h1 className="flex-1 font-semibold">{title}</h1>
+              {config != null && step === "chat" && (
+                <ModelPicker
+                  models={config.models}
+                  value={model}
+                  disabled={chat.isRunning}
+                  onChange={(next) => {
+                    void saveConfig({ ...config, defaultModel: next });
+                    void controller.setModel(next);
+                  }}
+                  onRefresh={async () => {
+                    await saveConfig(refreshModels(config, await listModels(config)));
+                  }}
+                />
+              )}
+              {headerExtra}
+              <Button
+                type="button"
+                variant="ghost"
+                size="icon"
+                aria-label="Settings"
+                title="Settings"
+                onClick={() => setSettingsOpen(true)}
+              >
+                <SettingsIcon />
+              </Button>
+            </>
+          }
+          composer={null}
+        >
+          <Thread controller={controller} />
+        </AppShell>
       </div>
+
+      <SettingsDialog
+        open={showSettings}
+        initialPanelId={step === "models" ? MODELS_PANEL_ID : undefined}
+        onOpenChange={(next) => {
+          if (next) {
+            setSettingsOpen(true);
+            return;
+          }
+          if (!dismissible) return;
+          setSettingsOpen(false);
+        }}
+      />
     </SlotsProvider>
   );
 }
