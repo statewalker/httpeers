@@ -153,6 +153,18 @@ export function ChatApp({
    * exists, so this is safe to call unconditionally; it becomes a same-value no-op rather than
    * silently overwriting an endpoint the user typed in by hand.
    *
+   * ON THE MESH PAGE THIS IS DELIBERATE, NOT INCIDENTAL: `mesh.tsx`'s `discover()` already saves
+   * the endpoint it read from the hub's own advertisement before `ChatApp` ever mounts, so
+   * `configRef.current` is never null there and a `?config=` document's `baseUrl` never wins.
+   * That is the point, not a side effect of "saved wins" happening to be true -- a URL parameter
+   * that could redirect the chat away from the hub it just joined, onto an attacker's endpoint
+   * carrying the mesh's own key header, is exactly the substitution `discover.ts`'s "trust only
+   * the hub" rule (and Task 9's same-origin-skipped-once-`edgeBase`-is-set rule) exists to
+   * prevent. `?config=` is a first-boot / hand-a-link mechanism for the STANDALONE page; on the
+   * mesh page the discovered endpoint always takes precedence. See
+   * `tests/chat-app.test.tsx`'s "does not let a ?config= document override the endpoint
+   * discovered from the hub" for the pinned behaviour.
+   *
    * CARRY-FORWARD: `ExternalConfig.defaultModel` is parsed and validated (Task 8) but
    * `applyEndpoint` has no such field, so `resolveConfig` alone drops it on the floor. This is the
    * one place holding both the parsed document and a real model list, so it feeds `defaultModel`

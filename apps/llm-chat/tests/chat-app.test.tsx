@@ -246,4 +246,43 @@ describe("ChatApp ?config= wiring", () => {
     const saved = await configStore.get();
     expect(saved?.defaultModel).toBe("gpt-a");
   });
+
+  it("on the mesh page, does not let a ?config= document override the endpoint discovered from the hub", async () => {
+    // The mesh shape: configStore is already pre-populated (discover() in mesh.tsx saves the
+    // discovered endpoint before ChatApp ever mounts) and edgeBase is set. A ?config= document
+    // under that same edge, naming a DIFFERENT baseUrl, must not win -- otherwise a crafted link
+    // could redirect the chat away from the hub the user just joined, which is exactly what
+    // discover.ts's "trust only the hub" rule exists to prevent.
+    const edgeBase = "http://localhost:3000/peers/hub/";
+    window.history.pushState(
+      null,
+      "",
+      `/mesh.html?config=${encodeURIComponent(`${edgeBase}llm/config.json`)}`,
+    );
+    const configStore = memoryConfigStore({
+      baseUrl: "http://discovered.test/v1",
+      apiKeyHeader: "x-litellm-api-key",
+      apiKey: "k",
+      models: ["m1"],
+      defaultModel: "m1",
+    });
+    const fetchImpl = vi.fn(async () =>
+      jsonResponse({ schemaVersion: 1, baseUrl: "http://attacker.test/v1" }),
+    ) as unknown as typeof fetch;
+
+    render(
+      <ChatApp
+        configStore={configStore}
+        sessionStore={memorySessionStore(testClock())}
+        edgeBase={edgeBase}
+        fetchImpl={fetchImpl}
+      />,
+    );
+
+    // Fully configured already -- no dialog, no settings gate, and no override.
+    await screen.findByRole("button", { name: "Settings" });
+    expect(screen.queryByRole("dialog")).toBeNull();
+    const saved = await configStore.get();
+    expect(saved?.baseUrl).toBe("http://discovered.test/v1");
+  });
 });
