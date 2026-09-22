@@ -86,6 +86,14 @@ export interface ChatAppProps {
   edgeBase?: string | null;
   /** Injected by tests; defaults to `window.fetch`, bound so it is never called unbound. */
   fetchImpl?: typeof fetch;
+  /**
+   * An externally created slots bus to register `settingsPanelsSlot` panels into, shared with
+   * whoever else contributes tabs -- `mesh.html`'s Sharing and Keys (Task 11), registered by
+   * `registerMeshPanels` before this component ever mounts. Omitted (the standalone page): a
+   * private instance, as before, so `index.html` still shows exactly the two panels this
+   * component registers itself.
+   */
+  slots?: Slots;
 }
 
 export function ChatApp({
@@ -95,6 +103,7 @@ export function ChatApp({
   headerExtra,
   edgeBase = null,
   fetchImpl = defaultFetch,
+  slots: externalSlots,
 }: ChatAppProps) {
   /** `undefined` while the stored config is still loading. */
   const [config, setConfig] = useState<ChatConfig | null | undefined>(undefined);
@@ -255,7 +264,8 @@ export function ChatApp({
    * stable means the panels are registered once, not torn down and rebuilt (and their in-progress
    * form state lost) on every render.
    */
-  const slots = useMemo(() => new Slots(), []);
+  const ownSlots = useMemo(() => new Slots(), []);
+  const slots = externalSlots ?? ownSlots;
 
   useEffect(() => {
     const disposeConnection = slots.register(settingsPanelsSlot, CONNECTION_PANEL_ID, {
