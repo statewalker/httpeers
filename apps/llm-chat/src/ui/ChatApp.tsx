@@ -253,6 +253,18 @@ export function ChatApp({
         await applyExternalConfig(external);
         return;
       }
+      if (edgeBase != null) {
+        // The mesh page: `applyExternalConfig`'s own comment is why an untrusted document can
+        // never win here -- the hub's discovered endpoint always does. Offering
+        // `ConfirmConfigDialog`'s "Use this configuration" button would promise an effect it
+        // cannot have, so it is never shown on this page; say plainly, instead, why the document
+        // was ignored. This must never become the trusted/accepted path -- the endpoint discovered
+        // from the hub keeps winning either way.
+        setConfigNotice(
+          `Ignored the config at ${configUrl}: this page uses the endpoint discovered from its hub, which a document cannot override.`,
+        );
+        return;
+      }
       const origin = verdict.origin === "null" ? configUrl : verdict.origin;
       setPendingExternal({ url: configUrl, origin, external });
     })();
@@ -284,6 +296,7 @@ export function ChatApp({
         <ConnectionPanel
           initial={configRef.current}
           onSave={(endpoint) => void saveConfig(applyEndpoint(configRef.current, endpoint))}
+          fetchImpl={fetchImpl}
         />
       ),
     });
@@ -304,6 +317,7 @@ export function ChatApp({
               void saveConfig(applyModels(current, models, picked));
               void controller.setModel(picked);
             }}
+            fetchImpl={fetchImpl}
           />
         );
       },
@@ -312,7 +326,7 @@ export function ChatApp({
       disposeConnection();
       disposeModels();
     };
-  }, [slots, saveConfig, controller]);
+  }, [slots, saveConfig, controller, fetchImpl]);
 
   if (config === undefined) return <p className="p-4 text-gray-500">Loading…</p>;
 
@@ -362,7 +376,9 @@ export function ChatApp({
                     void controller.setModel(next);
                   }}
                   onRefresh={async () => {
-                    await saveConfig(refreshModels(config, await listModels(config)));
+                    await saveConfig(
+                      refreshModels(config, await listModels(config, { fetchImpl })),
+                    );
                   }}
                 />
               )}

@@ -78,6 +78,38 @@ describe("SettingsDialog", () => {
     expect(screen.getByRole("tab", { name: "First" })).toHaveAttribute("aria-selected", "false");
   });
 
+  it("forgets a manually picked tab once the dialog closes, so a later `initialPanelId` is not defeated", async () => {
+    const user = userEvent.setup();
+    const slots = new Slots();
+    slots.register(settingsPanelsSlot, "a", panel("a", 1, "First"));
+    slots.register(settingsPanelsSlot, "b", panel("b", 2, "Second"));
+    const { rerender } = render(
+      <SlotsProvider slots={slots}>
+        <SettingsDialog open onOpenChange={() => {}} />
+      </SlotsProvider>,
+    );
+    // The user manually switches to Second -- `pickedId` is now set.
+    await user.click(screen.getByRole("tab", { name: "Second" }));
+    expect(screen.getByRole("tab", { name: "Second" })).toHaveAttribute("aria-selected", "true");
+
+    // The dialog closes (e.g. the user dismisses it, or `ChatApp` flips `showSettings` off)...
+    rerender(
+      <SlotsProvider slots={slots}>
+        <SettingsDialog open={false} onOpenChange={() => {}} />
+      </SlotsProvider>,
+    );
+    // ...and reopens later with an `initialPanelId` naming the OTHER panel -- e.g. a user who lost
+    // their default model gets routed to Models. The stale pick from the earlier visit must not
+    // win.
+    rerender(
+      <SlotsProvider slots={slots}>
+        <SettingsDialog open onOpenChange={() => {}} initialPanelId="a" />
+      </SlotsProvider>,
+    );
+    expect(screen.getByRole("tab", { name: "First" })).toHaveAttribute("aria-selected", "true");
+    expect(screen.getByRole("tab", { name: "Second" })).toHaveAttribute("aria-selected", "false");
+  });
+
   it("falls back to the first panel when `initialPanelId` names a panel that isn't registered", () => {
     const slots = new Slots();
     slots.register(settingsPanelsSlot, "a", panel("a", 1, "First"));

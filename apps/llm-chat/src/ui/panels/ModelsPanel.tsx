@@ -18,9 +18,11 @@ export interface ModelsPanelProps {
   endpoint: EndpointConfig;
   current?: string;
   onPick(models: string[], model: string): void;
+  /** Injected by tests; defaults to `window.fetch`, same seam as `ChatApp`'s `fetchImpl`. */
+  fetchImpl?: typeof fetch;
 }
 
-export function ModelsPanel({ endpoint, current, onPick }: ModelsPanelProps) {
+export function ModelsPanel({ endpoint, current, onPick, fetchImpl }: ModelsPanelProps) {
   const { baseUrl, apiKey, apiKeyHeader } = endpoint;
   const [models, setModels] = useState<string[] | null>(null);
   const [failure, setFailure] = useState<string | null>(null);
@@ -28,7 +30,7 @@ export function ModelsPanel({ endpoint, current, onPick }: ModelsPanelProps) {
 
   useEffect(() => {
     const controller = new AbortController();
-    listModels({ baseUrl, apiKey, apiKeyHeader }, { signal: controller.signal }).then(
+    listModels({ baseUrl, apiKey, apiKeyHeader }, { signal: controller.signal, fetchImpl }).then(
       (list) => {
         setModels(list);
         setChoice((previous) => (list.includes(previous) ? previous : (list[0] ?? "")));
@@ -41,7 +43,7 @@ export function ModelsPanel({ endpoint, current, onPick }: ModelsPanelProps) {
       },
     );
     return () => controller.abort();
-  }, [baseUrl, apiKey, apiKeyHeader]);
+  }, [baseUrl, apiKey, apiKeyHeader, fetchImpl]);
 
   return (
     <form

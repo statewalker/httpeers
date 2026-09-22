@@ -15,9 +15,11 @@ export interface ConnectionPanelProps {
   /** `apiKeyHeader` is not edited here, only used by Test: it is kept by `applyEndpoint` on save. */
   initial: { baseUrl: string; apiKey?: string; apiKeyHeader?: string } | null;
   onSave(endpoint: { baseUrl: string; apiKey: string }): void;
+  /** Injected by tests; defaults to `window.fetch`, same seam as `ChatApp`'s `fetchImpl`. */
+  fetchImpl?: typeof fetch;
 }
 
-export function ConnectionPanel({ initial, onSave }: ConnectionPanelProps) {
+export function ConnectionPanel({ initial, onSave, fetchImpl }: ConnectionPanelProps) {
   const [baseUrl, setBaseUrl] = useState(initial?.baseUrl ?? "");
   const [apiKey, setApiKey] = useState(initial?.apiKey ?? "");
   const [status, setStatus] = useState("");
@@ -25,11 +27,14 @@ export function ConnectionPanel({ initial, onSave }: ConnectionPanelProps) {
   const test = async (): Promise<void> => {
     setStatus("Testing…");
     try {
-      const models = await listModels({
-        baseUrl: normalizeBaseUrl(baseUrl),
-        apiKey,
-        apiKeyHeader: initial?.apiKeyHeader,
-      });
+      const models = await listModels(
+        {
+          baseUrl: normalizeBaseUrl(baseUrl),
+          apiKey,
+          apiKeyHeader: initial?.apiKeyHeader,
+        },
+        { fetchImpl },
+      );
       setStatus(`Connected: ${models.length} model(s) available.`);
     } catch (error) {
       const { message, hint } = describeError(error);

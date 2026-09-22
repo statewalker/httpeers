@@ -6,7 +6,7 @@
  * two-dialog `SettingsDialog`/`ModelDialog` pair did.
  */
 
-import { render, screen } from "@testing-library/react";
+import { act, fireEvent, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { memoryConfigStore } from "../src/core/config.js";
@@ -309,5 +309,93 @@ describe("ChatApp ?config= wiring", () => {
     expect(screen.queryByRole("dialog")).toBeNull();
     const saved = await configStore.get();
     expect(saved?.baseUrl).toBe("http://discovered.test/v1");
+  });
+
+  it("on the mesh page, never offers ConfirmConfigDialog for an untrusted ?config= -- it would promise an effect it cannot have (final-review finding #5)", async () => {
+    // A foreign origin's document, on the mesh page: `judgeConfigUrl` distrusts it (it isn't
+    // under the discovered edge), so the standalone page would show ConfirmConfigDialog. On the
+    // mesh page that dialog's "Use this configuration" button cannot do what it says -- the hub's
+    // discovered endpoint always wins (see `applyExternalConfig`'s comment and the previous test)
+    // -- so it must never be shown here at all; the document is ignored with a plain, honest
+    // notice instead. The discovered endpoint must still win, exactly as above.
+    const edgeBase = "http://localhost:3000/peers/hub/";
+    window.history.pushState(
+      null,
+      "",
+      `/mesh.html?config=${encodeURIComponent("https://evil.example/ext.json")}`,
+    );
+    const configStore = memoryConfigStore({
+      baseUrl: "http://discovered.test/v1",
+      apiKeyHeader: "x-litellm-api-key",
+      apiKey: "k",
+      models: ["m1"],
+      defaultModel: "m1",
+    });
+    const fetchImpl = vi.fn(async () =>
+      jsonResponse({ schemaVersion: 1, baseUrl: "https://evil.example/v1" }),
+    ) as unknown as typeof fetch;
+
+    render(
+      <ChatApp
+        configStore={configStore}
+        sessionStore={memorySessionStore(testClock())}
+        edgeBase={edgeBase}
+        fetchImpl={fetchImpl}
+      />,
+    );
+
+    const notice = await screen.findByText(/Ignored the config at https:\/\/evil\.example/i);
+    expect(notice.textContent).toMatch(/discovered from its hub/i);
+    // Never offered, not even momentarily -- the promise the dialog would make is the bug.
+    expect(screen.queryByRole("dialog", { name: /unfamiliar/i })).toBeNull();
+    const saved = await configStore.get();
+    expect(saved?.baseUrl).toBe("http://discovered.test/v1");
+  });
+});
+
+describe("ChatApp elapsed-time ticking", () => {
+  // `useNow`'s `setInterval` (ChatApp.tsx) can be deleted with vitest fully green -- only the
+  // `standalone.spec.mjs` e2e spec catches it, via a real 1s+ wait (final-review finding #4). This
+  // pins the tick in vitest, with fake timers driving `setInterval` instead of a real wait: a
+  // request that never resolves keeps the run in the "waiting" phase indefinitely, so the only
+  // thing that can move the rendered elapsed seconds is `useNow`'s own interval.
+  it("ticks the waiting indicator's elapsed seconds forward as fake time advances", async () => {
+    vi.useFakeTimers();
+    try {
+      const configStore = memoryConfigStore({
+        baseUrl: "http://llm.test/v1",
+        models: ["m1"],
+        defaultModel: "m1",
+      });
+      // Never resolves: the run stays in "waiting" for as long as the test needs it to.
+      const fetchImpl = vi.fn(() => new Promise<Response>(() => {})) as unknown as typeof fetch;
+
+      render(
+        <ChatApp
+          configStore={configStore}
+          sessionStore={memorySessionStore(testClock())}
+          fetchImpl={fetchImpl}
+        />,
+      );
+
+      // Flush the config-store load (a microtask chain, not a timer) without touching fake time.
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(0);
+      });
+
+      fireEvent.change(screen.getByLabelText("Message"), { target: { value: "hello" } });
+      fireEvent.click(screen.getByRole("button", { name: "Send" }));
+
+      const indicator = screen.getByTestId("waiting-indicator");
+      expect(indicator.textContent).toMatch(/\b0s\b/);
+
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(3000);
+      });
+
+      expect(indicator.textContent).toMatch(/\b3s\b/);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });

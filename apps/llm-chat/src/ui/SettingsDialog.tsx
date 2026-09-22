@@ -7,7 +7,7 @@
  * no branch anywhere deciding which.
  */
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useSlot } from "../slots/context.js";
 import { orderPanels, settingsPanelsSlot } from "../slots/panels.js";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "./primitives/dialog.js";
@@ -37,8 +37,15 @@ export function SettingsDialog({ open, onOpenChange, initialPanelId }: SettingsD
       ? initialPanelId
       : first?.id;
   // `undefined` until the user picks a tab themselves; once they have, their choice sticks even
-  // as `resolvedInitialId` keeps recomputing (e.g. a late-registering panel resolving in).
+  // as `resolvedInitialId` keeps recomputing (e.g. a late-registering panel resolving in) -- but
+  // only for as long as the dialog stays open. Once it closes, the pick is forgotten, so the next
+  // open honors whatever `initialPanelId` the caller sends for THAT open (e.g. `ChatApp` routing a
+  // user with no model straight to Models) instead of being permanently defeated by a tab the user
+  // clicked in some earlier, unrelated visit to this dialog.
   const [pickedId, setPickedId] = useState<string | undefined>(undefined);
+  useEffect(() => {
+    if (!open) setPickedId(undefined);
+  }, [open]);
   const activeId = pickedId ?? resolvedInitialId;
 
   return (
