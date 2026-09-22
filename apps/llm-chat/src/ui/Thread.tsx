@@ -1,8 +1,32 @@
 /**
- * The conversation, rendered by assistant-ui over OUR controller.
+ * The conversation, rendered by assistant-ui over OUR state.
  *
- * `useExternalStoreRuntime` makes the controller the source of truth: assistant-ui only renders
- * `messages` and turns clicks into the callbacks below.
+ * `Thread` is self-contained: it takes `ChatState` (Task 2's `phase`/`runStartedAt` included) and a
+ * handful of callbacks, and builds its own `useExternalStoreRuntime` from them -- it does not take
+ * a `ChatController` directly, so it can be rendered and asserted against in isolation (see
+ * `tests/thread.test.tsx`, which renders it with no surrounding `AssistantRuntimeProvider` of its
+ * own). `now` is a prop, not a `Date.now()` call, so the elapsed-seconds counter in the waiting
+ * bubble is testable without fake timers.
+ *
+ * Three phases, three renderings, replacing the old `ThreadPrimitive.If running` split:
+ *   - `idle`      -- no indicator, no Stop.
+ *   - `waiting`   -- request sent, nothing back yet. A placeholder bubble
+ *                    (`data-testid="waiting-indicator"`, `aria-live="polite"`) with an elapsed
+ *                    whole-seconds counter, and Stop. On a local llama.cpp model this can
+ *                    legitimately run 30s+ (cold load, prompt processing) -- the counter is what
+ *                    tells a human "this is working", not "this hung".
+ *   - `streaming` -- the partial reply is rendered by `ThreadPrimitive.Messages` itself; the
+ *                    placeholder is gone, Stop stays.
+ *
+ * `Composer` (also exported here, not its own file -- the brief's file list only names this one)
+ * is `Thread`'s composer, pulled out so `ChatApp` can pass it through `AppShell`'s `composer` slot
+ * instead of leaving that sticky, safe-area-padded footer region dead (see that file's docblock).
+ * It is deliberately plain React, not `ComposerPrimitive`: `ComposerPrimitive.Input`/`Send` read
+ * their state from the same `AssistantRuntimeProvider` context `Thread` owns, and that provider is
+ * private to `Thread` precisely so `Thread` can stay self-contained per the props above. Standing
+ * up a second, independent assistant-ui runtime purely to render a textarea seemed like more
+ * machinery than the job needs; a controlled textarea calling `onSend` directly does the same job
+ * with far less surface.
  */
 
 import {
@@ -14,11 +38,12 @@ import {
   useExternalStoreRuntime,
 } from "@assistant-ui/react";
 import { MarkdownTextPrimitive } from "@assistant-ui/react-markdown";
-import type { ChatController } from "../core/chat-controller.js";
+import { Loader2Icon, SendHorizontalIcon, SquareIcon } from "lucide-react";
+import { useState } from "react";
+import type { ChatState } from "../core/chat-controller.js";
 import type { ChatMessage } from "../core/sessions.js";
-import { buttonClass, primaryButtonClass } from "./button-styles.js";
-import { indexOfId, textOf, toThreadMessage } from "./thread-adapter.js";
-import { useChatState } from "./use-chat-state.js";
+import { Button } from "./primitives/button.js";
+import { indexOfId, isRunningFor, textOf, toThreadMessage } from "./thread-adapter.js";
 
 const actionClass = "rounded px-2 py-0.5 text-xs text-gray-500 hover:bg-gray-100";
 
@@ -32,6 +57,8 @@ function UserMessage() {
       <div className="max-w-[80%] whitespace-pre-wrap rounded-2xl bg-blue-50 px-4 py-2">
         <MessagePrimitive.Parts />
       </div>
+      {/* Renders nothing when `Thread` wasn't given `onEdit` -- assistant-ui disables the
+          button (and this reverts to a no-op) when the runtime has no edit capability. */}
       <ActionBarPrimitive.Root hideWhenRunning className="flex gap-1">
         <ActionBarPrimitive.Edit className={actionClass}>Edit</ActionBarPrimitive.Edit>
       </ActionBarPrimitive.Root>
@@ -47,6 +74,7 @@ function AssistantMessage() {
       </div>
       <ActionBarPrimitive.Root hideWhenRunning className="flex gap-1">
         <ActionBarPrimitive.Copy className={actionClass}>Copy</ActionBarPrimitive.Copy>
+        {/* Renders nothing without `onRegenerate`/`onRegenerateFrom` -- same no-capability rule. */}
         <ActionBarPrimitive.Reload className={actionClass}>Regenerate</ActionBarPrimitive.Reload>
       </ActionBarPrimitive.Root>
     </MessagePrimitive.Root>
@@ -61,32 +89,75 @@ function EditComposer() {
         aria-label="Edit message"
       />
       <div className="flex justify-end gap-2">
-        <ComposerPrimitive.Cancel className={buttonClass}>Cancel</ComposerPrimitive.Cancel>
-        <ComposerPrimitive.Send className={primaryButtonClass}>Save</ComposerPrimitive.Send>
+        <ComposerPrimitive.Cancel className={actionClass}>Cancel</ComposerPrimitive.Cancel>
+        <ComposerPrimitive.Send className={actionClass}>Save</ComposerPrimitive.Send>
       </div>
     </ComposerPrimitive.Root>
   );
 }
 
-export function Thread({ controller }: { controller: ChatController }) {
-  const state = useChatState(controller);
+function WaitingIndicator({ elapsedSeconds }: { elapsedSeconds: number }) {
+  return (
+    <div
+      data-testid="waiting-indicator"
+      aria-live="polite"
+      className="flex max-w-[90%] items-center gap-2 rounded-2xl bg-gray-50 px-4 py-2 text-sm text-gray-500"
+    >
+      <Loader2Icon className="size-4 animate-spin" aria-hidden="true" />
+      <span>Waiting for a reply… {elapsedSeconds}s</span>
+    </div>
+  );
+}
+
+export interface ThreadProps {
+  state: ChatState;
+  /** `Date.now()`-shaped; a prop so the elapsed counter is testable without fake timers. */
+  now: number;
+  onCancel: () => void;
+  onSend: (text: string) => void;
+  /** Feature parity with the old controller-driven Thread; all optional, all absent in tests. */
+  onEdit?: (index: number, text: string) => void;
+  onRegenerate?: () => void;
+  onRegenerateFrom?: (index: number) => void;
+  onDismissError?: () => void;
+}
+
+export function Thread({
+  state,
+  now,
+  onCancel,
+  onSend,
+  onEdit,
+  onRegenerate,
+  onRegenerateFrom,
+  onDismissError,
+}: ThreadProps) {
   const runtime = useExternalStoreRuntime<ChatMessage>({
     messages: state.session?.messages ?? [],
-    isRunning: state.isRunning,
+    isRunning: isRunningFor(state.phase),
     convertMessage: toThreadMessage,
-    onNew: (message) => controller.send(textOf(message)),
-    onEdit: (message) => {
-      const index = indexOfId(message.sourceId);
-      return index == null
-        ? controller.send(textOf(message))
-        : controller.edit(index, textOf(message));
-    },
-    onReload: (parentId) => {
-      const index = indexOfId(parentId);
-      return index == null ? controller.regenerate() : controller.regenerateFrom(index);
-    },
-    onCancel: async () => controller.cancel(),
+    onNew: async (message) => onSend(textOf(message)),
+    onEdit:
+      onEdit == null
+        ? undefined
+        : async (message) => {
+            const index = indexOfId(message.sourceId);
+            if (index == null) onSend(textOf(message));
+            else onEdit(index, textOf(message));
+          },
+    onReload:
+      onRegenerate == null && onRegenerateFrom == null
+        ? undefined
+        : async (parentId) => {
+            const index = indexOfId(parentId);
+            if (index != null && onRegenerateFrom != null) onRegenerateFrom(index);
+            else onRegenerate?.();
+          },
+    onCancel: async () => onCancel(),
   });
+
+  const elapsedSeconds =
+    state.runStartedAt == null ? 0 : Math.max(0, Math.floor((now - state.runStartedAt) / 1000));
 
   return (
     <AssistantRuntimeProvider runtime={runtime}>
@@ -96,6 +167,7 @@ export function Thread({ controller }: { controller: ChatController }) {
             <p className="m-auto text-gray-500">Send a message to start.</p>
           </ThreadPrimitive.Empty>
           <ThreadPrimitive.Messages components={{ UserMessage, AssistantMessage, EditComposer }} />
+          {state.phase === "waiting" && <WaitingIndicator elapsedSeconds={elapsedSeconds} />}
         </ThreadPrimitive.Viewport>
         {state.error != null && (
           <div
@@ -106,25 +178,68 @@ export function Thread({ controller }: { controller: ChatController }) {
               <p>{state.error.message}</p>
               {state.error.hint != null && <p className="mt-1 font-medium">{state.error.hint}</p>}
             </div>
-            <button type="button" className={actionClass} onClick={controller.dismissError}>
-              Dismiss
-            </button>
+            {onDismissError != null && (
+              <button type="button" className={actionClass} onClick={onDismissError}>
+                Dismiss
+              </button>
+            )}
           </div>
         )}
-        <ComposerPrimitive.Root className="m-4 mt-0 flex items-end gap-2 rounded-2xl border border-gray-300 p-2">
-          <ComposerPrimitive.Input
-            className="max-h-40 flex-1 resize-none px-2 py-1 outline-none"
-            placeholder="Message"
-            aria-label="Message"
-          />
-          <ThreadPrimitive.If running={false}>
-            <ComposerPrimitive.Send className={primaryButtonClass}>Send</ComposerPrimitive.Send>
-          </ThreadPrimitive.If>
-          <ThreadPrimitive.If running>
-            <ComposerPrimitive.Cancel className={buttonClass}>Stop</ComposerPrimitive.Cancel>
-          </ThreadPrimitive.If>
-        </ComposerPrimitive.Root>
+        {state.isRunning && (
+          <div className="flex justify-end px-4 pb-4">
+            <Button type="button" variant="outline" size="sm" onClick={onCancel}>
+              <SquareIcon />
+              Stop
+            </Button>
+          </div>
+        )}
       </ThreadPrimitive.Root>
     </AssistantRuntimeProvider>
+  );
+}
+
+export interface ComposerProps {
+  disabled: boolean;
+  onSend: (text: string) => void;
+}
+
+/** `Thread`'s composer, extracted so `ChatApp` can hand it to `AppShell`'s `composer` slot. */
+export function Composer({ disabled, onSend }: ComposerProps) {
+  const [value, setValue] = useState("");
+
+  const send = () => {
+    const content = value.trim();
+    if (content === "" || disabled) return;
+    onSend(content);
+    setValue("");
+  };
+
+  return (
+    <div className="m-4 mt-0 flex items-end gap-2 rounded-2xl border border-gray-300 p-2">
+      <textarea
+        className="max-h-40 flex-1 resize-none px-2 py-1 outline-none disabled:opacity-50"
+        placeholder="Message"
+        aria-label="Message"
+        rows={1}
+        value={value}
+        disabled={disabled}
+        onChange={(event) => setValue(event.target.value)}
+        onKeyDown={(event) => {
+          if (event.key === "Enter" && !event.shiftKey) {
+            event.preventDefault();
+            send();
+          }
+        }}
+      />
+      <Button
+        type="button"
+        size="icon"
+        disabled={disabled || value.trim() === ""}
+        aria-label="Send"
+        onClick={send}
+      >
+        <SendHorizontalIcon />
+      </Button>
+    </div>
   );
 }

@@ -28,13 +28,29 @@ import { ConnectionPanel } from "./panels/ConnectionPanel.js";
 import { ModelsPanel } from "./panels/ModelsPanel.js";
 import { Button } from "./primitives/button.js";
 import { SettingsDialog } from "./SettingsDialog.js";
-import { Thread } from "./Thread.js";
+import { Composer, Thread } from "./Thread.js";
 import { ThreadList } from "./ThreadList.js";
 import { useChatState } from "./use-chat-state.js";
 
 /** Registered-panel ids, shared between the registration below and `initialPanelId`. */
 const CONNECTION_PANEL_ID = "connection";
 const MODELS_PANEL_ID = "models";
+
+/**
+ * `Date.now()`, refreshed every second while `active` -- feeds `Thread`'s elapsed-seconds
+ * counter. Idle when not `active`, so the waiting bubble isn't ticking a component that isn't
+ * rendered.
+ */
+function useNow(active: boolean): number {
+  const [now, setNow] = useState(() => Date.now());
+  useEffect(() => {
+    if (!active) return;
+    setNow(Date.now());
+    const id = setInterval(() => setNow(Date.now()), 1000);
+    return () => clearInterval(id);
+  }, [active]);
+  return now;
+}
 
 export interface ChatAppProps {
   configStore: ConfigStore;
@@ -69,6 +85,7 @@ export function ChatApp({ configStore, sessionStore, title = "Chat", headerExtra
     [sessionStore, refreshSessions],
   );
   const chat = useChatState(controller);
+  const now = useNow(chat.isRunning);
 
   useEffect(() => {
     void configStore.get().then(setConfig);
@@ -191,9 +208,20 @@ export function ChatApp({ configStore, sessionStore, title = "Chat", headerExtra
               </Button>
             </>
           }
-          composer={null}
+          composer={
+            <Composer disabled={chat.isRunning} onSend={(text) => void controller.send(text)} />
+          }
         >
-          <Thread controller={controller} />
+          <Thread
+            state={chat}
+            now={now}
+            onCancel={() => controller.cancel()}
+            onSend={(text) => void controller.send(text)}
+            onEdit={(index, text) => void controller.edit(index, text)}
+            onRegenerate={() => void controller.regenerate()}
+            onRegenerateFrom={(index) => void controller.regenerateFrom(index)}
+            onDismissError={controller.dismissError}
+          />
         </AppShell>
       </div>
 

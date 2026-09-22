@@ -7,6 +7,11 @@
  * The reply to a message containing "slow" streams 60 words at 100 ms each, long enough to press
  * Stop. Requests must carry `Authorization: Bearer <apiKey>` when `apiKey` is set; otherwise 401.
  * Every response carries CORS headers: the page runs on a different origin.
+ *
+ * `firstTokenDelayMs` (default 0, so `smoke.mjs`/`mesh-smoke.mjs` are unaffected) holds the
+ * response open, headers and all, before writing the first SSE event -- standing in for a cold
+ * llama.cpp model load or slow prompt processing, so `waiting` actually lasts long enough to look
+ * at (Task 7, Step 5: `PORT=4000 FIRST_TOKEN_DELAY_MS=6000 node scripts/fake-llm.mjs`).
  */
 
 import { createServer } from "node:http";
@@ -19,7 +24,7 @@ const CORS = {
 
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
-export async function startFakeLlm({ apiKey = "test-key", port = 0 } = {}) {
+export async function startFakeLlm({ apiKey = "test-key", port = 0, firstTokenDelayMs = 0 } = {}) {
   /** Completions that finished or were cut off — the smoke test waits on this, not on timing. */
   const stats = { completions: 0 };
   const server = createServer(async (req, res) => {
@@ -47,6 +52,7 @@ export async function startFakeLlm({ apiKey = "test-key", port = 0 } = {}) {
       const words = slow
         ? Array.from({ length: 60 }, (_, i) => `w${i}`)
         : `reply to: ${last} (model ${body.model})`.split(" ");
+      if (firstTokenDelayMs > 0) await sleep(firstTokenDelayMs);
       res.writeHead(200, {
         ...CORS,
         "content-type": "text/event-stream",
@@ -78,6 +84,9 @@ export async function startFakeLlm({ apiKey = "test-key", port = 0 } = {}) {
 }
 
 if (import.meta.url === `file://${process.argv[1]}`) {
-  const llm = await startFakeLlm({ port: Number(process.env.PORT ?? 4000) });
+  const llm = await startFakeLlm({
+    port: Number(process.env.PORT ?? 4000),
+    firstTokenDelayMs: Number(process.env.FIRST_TOKEN_DELAY_MS ?? 0),
+  });
   console.log(`fake LLM at ${llm.baseUrl} (api key: test-key)`);
 }

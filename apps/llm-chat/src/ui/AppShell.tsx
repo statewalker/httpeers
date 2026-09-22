@@ -11,10 +11,10 @@
  * screen reader is never offered two copies of the conversation list at once -- see
  * `tests/app-shell.test.tsx`'s "exactly one accessible copy" case.
  *
- * `composer` is optional in effect: a consumer with nothing to put there (e.g. `ChatApp`, whose
- * `Thread` still owns its own composer inline -- Task 6 does not touch `Thread.tsx`) can pass
- * `null`, and the sticky footer region -- border and safe-area padding included -- simply does not
- * render, rather than showing as an empty strip.
+ * `composer` is optional in effect: a consumer with nothing to put there can pass `null`, and the
+ * sticky footer region -- border and safe-area padding included -- simply does not render, rather
+ * than showing as an empty strip. `ChatApp` (Task 7 on) passes `Thread.tsx`'s extracted `Composer`
+ * here, which is the whole point of the slot: the on-screen-keyboard-safe sticky footer.
  */
 
 import { MenuIcon } from "lucide-react";
