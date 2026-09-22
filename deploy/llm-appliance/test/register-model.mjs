@@ -87,7 +87,9 @@ try {
   result = await post("hub", 8787, { host: doorHost, "x-hub-door-secret": doorSecret });
 } catch (error) {
   if (error?.code !== "ENOTFOUND") throw error;
-  console.log("register-model: hub is not on this network (compose.host.yml); using LiteLLM directly");
+  console.log(
+    "register-model: hub is not on this network (compose.host.yml); using LiteLLM directly",
+  );
   target = "litellm:4000";
   result = await post("litellm", 4000, {});
 }
