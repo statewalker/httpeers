@@ -16,7 +16,7 @@ import {
 import { MarkdownTextPrimitive } from "@assistant-ui/react-markdown";
 import type { ChatController } from "../core/chat-controller.js";
 import type { ChatMessage } from "../core/sessions.js";
-import { buttonClass, primaryButtonClass } from "./Modal.js";
+import { buttonClass, primaryButtonClass } from "./button-styles.js";
 import { indexOfId, textOf, toThreadMessage } from "./thread-adapter.js";
 import { useChatState } from "./use-chat-state.js";
 

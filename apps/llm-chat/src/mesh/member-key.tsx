@@ -11,7 +11,10 @@
  */
 
 import { useState } from "react";
-import { buttonClass, inputClass, Modal, primaryButtonClass } from "../ui/Modal.js";
+import { Button } from "../ui/primitives/button.js";
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from "../ui/primitives/dialog.js";
+import { Input } from "../ui/primitives/input.js";
+import { Label } from "../ui/primitives/label.js";
 import { keyShareText, mintKey } from "./discover.js";
 
 type Step =
@@ -51,116 +54,126 @@ export function MemberKeyButton({
     setName("");
   };
 
-  const opener = (
-    <button
-      type="button"
-      className="text-xs text-blue-700 underline"
-      onClick={() => setStep({ kind: "form", failure: null, busy: false })}
-    >
-      Key for a member
-    </button>
-  );
-  if (step.kind === "closed") return opener;
-
-  if (step.kind === "form") {
-    return (
-      <>
-        {opener}
-        <Modal title="Key for a member">
-          <form
-            className="flex flex-col gap-3"
-            onSubmit={(event) => {
-              event.preventDefault();
-              void create();
-            }}
-          >
-            <p className="text-sm text-gray-700">
-              Creates a LiteLLM key that expires in 30 days, for you to send to a member. The name
-              goes into the key's alias, so you can find and delete it in the dashboard.
-            </p>
-            <label className="flex flex-col gap-1 text-sm">
-              Who is it for
-              <input
-                className={inputClass}
-                autoComplete="off"
-                placeholder="e.g. alice"
-                value={name}
-                onChange={(event) => setName(event.target.value)}
-              />
-            </label>
-            {step.failure != null && (
-              <p role="alert" className="text-sm text-red-700">
-                {step.failure}
-              </p>
-            )}
-            <div className="flex justify-end gap-2">
-              <button type="button" className={buttonClass} onClick={close}>
-                Cancel
-              </button>
-              <button type="submit" className={primaryButtonClass} disabled={step.busy}>
-                Create key
-              </button>
-            </div>
-          </form>
-        </Modal>
-      </>
-    );
-  }
-
-  const text = keyShareText(step.key, pageUrl);
-  const canShare = typeof navigator.share === "function";
-  const setNote = (note: string) => setStep({ ...step, note });
   return (
     <>
-      {opener}
-      <Modal title="Key for a member">
-        <div className="flex flex-col gap-3">
-          <p className="text-sm text-gray-700">
-            {step.name === "" ? "A new key" : `A key for ${step.name}`}. It is shown only now: copy
-            or share it before closing.
-          </p>
-          <input
-            className={`${inputClass} font-mono`}
-            readOnly
-            aria-label="The new key"
-            value={step.key}
-            onFocus={(event) => event.target.select()}
-          />
-          {step.note != null && (
-            <p role="status" className="text-sm text-gray-700">
-              {step.note}
-            </p>
-          )}
-          <div className="flex justify-end gap-2">
-            {canShare && (
-              <button
-                type="button"
-                className={buttonClass}
-                onClick={() =>
-                  void navigator.share({ title: "LLM chat key", text }).catch(() => undefined)
-                }
-              >
-                Share
-              </button>
-            )}
-            <button
-              type="button"
-              className={buttonClass}
-              onClick={() =>
-                void navigator.clipboard.writeText(text).then(
-                  () => setNote("Copied: the key and the page to paste it into."),
-                  () => setNote("Copying failed; select the key above and copy it by hand."),
-                )
-              }
+      <button
+        type="button"
+        className="text-xs text-blue-700 underline"
+        onClick={() => setStep({ kind: "form", failure: null, busy: false })}
+      >
+        Key for a member
+      </button>
+      <Dialog open={step.kind !== "closed"} onOpenChange={(open) => !open && close()}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Key for a member</DialogTitle>
+          </DialogHeader>
+          {step.kind === "form" && (
+            <form
+              className="flex flex-col gap-3"
+              onSubmit={(event) => {
+                event.preventDefault();
+                void create();
+              }}
             >
-              Copy
-            </button>
-            <button type="button" className={primaryButtonClass} onClick={close}>
-              Done
-            </button>
-          </div>
-        </div>
-      </Modal>
+              <p className="text-sm text-muted-foreground">
+                Creates a LiteLLM key that expires in 30 days, for you to send to a member. The name
+                goes into the key's alias, so you can find and delete it in the dashboard.
+              </p>
+              <div className="flex flex-col gap-1">
+                <Label htmlFor="member-key-name">Who is it for</Label>
+                <Input
+                  id="member-key-name"
+                  autoComplete="off"
+                  placeholder="e.g. alice"
+                  value={name}
+                  onChange={(event) => setName(event.target.value)}
+                />
+              </div>
+              {step.failure != null && (
+                <p role="alert" className="text-sm text-destructive">
+                  {step.failure}
+                </p>
+              )}
+              <div className="flex justify-end gap-2">
+                <Button type="submit" disabled={step.busy}>
+                  Create key
+                </Button>
+              </div>
+            </form>
+          )}
+          {step.kind === "minted" && (
+            <MintedKey
+              step={step}
+              text={keyShareText(step.key, pageUrl)}
+              onNote={(note) => setStep({ ...step, note })}
+              onDone={close}
+            />
+          )}
+        </DialogContent>
+      </Dialog>
     </>
+  );
+}
+
+function MintedKey({
+  step,
+  text,
+  onNote,
+  onDone,
+}: {
+  step: Extract<Step, { kind: "minted" }>;
+  text: string;
+  onNote(note: string): void;
+  onDone(): void;
+}) {
+  const canShare = typeof navigator.share === "function";
+  return (
+    <div className="flex flex-col gap-3">
+      <p className="text-sm text-muted-foreground">
+        {step.name === "" ? "A new key" : `A key for ${step.name}`}. It is shown only now: copy or
+        share it before closing.
+      </p>
+      <Input
+        className="font-mono"
+        readOnly
+        aria-label="The new key"
+        value={step.key}
+        onFocus={(event) => event.target.select()}
+      />
+      {step.note != null && (
+        <p role="status" className="text-sm text-muted-foreground">
+          {step.note}
+        </p>
+      )}
+      <div className="flex justify-end gap-2">
+        {canShare && (
+          <Button
+            type="button"
+            variant="outline"
+            onClick={() =>
+              void navigator.share({ title: "LLM chat key", text }).catch(() => undefined)
+            }
+          >
+            Share
+          </Button>
+        )}
+        <Button
+          type="button"
+          variant="outline"
+          onClick={() =>
+            void navigator.clipboard.writeText(text).then(
+              () => onNote("Copied: the key and the page to paste it into."),
+              () => onNote("Copying failed; select the key above and copy it by hand."),
+            )
+          }
+        >
+          Copy
+        </Button>
+        <Button type="button" onClick={onDone}>
+          Done
+        </Button>
+      </div>
+    </div>
   );
 }

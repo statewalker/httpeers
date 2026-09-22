@@ -1,90 +1,49 @@
-import { useState } from "react";
-import { normalizeBaseUrl } from "../core/config.js";
-import { describeError, listModels } from "../core/openai-client.js";
-import { buttonClass, inputClass, Modal, primaryButtonClass } from "./Modal.js";
+/**
+ * One settings dialog, filled by slots: one tab per panel registered into `settingsPanelsSlot`.
+ *
+ * This component knows nothing about connections, models, or the mesh -- it imports no panel and
+ * nothing from `src/mesh/`. That is what lets `index.html` show two tabs (Connection, Models,
+ * registered by `ChatApp`) and `mesh.html` show more once it contributes its own (Task 11), with
+ * no branch anywhere deciding which.
+ */
+
+import { useSlot } from "../slots/context.js";
+import { orderPanels, settingsPanelsSlot } from "../slots/panels.js";
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from "./primitives/dialog.js";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "./primitives/tabs.js";
 
 export interface SettingsDialogProps {
-  /** `apiKeyHeader` is not edited here, only used by Test: it is kept by `applyEndpoint` on save. */
-  initial: { baseUrl: string; apiKey?: string; apiKeyHeader?: string } | null;
-  /** False on first run: there is nothing to go back to. */
-  dismissible: boolean;
-  onSave(endpoint: { baseUrl: string; apiKey: string }): void;
-  onClose(): void;
+  open: boolean;
+  onOpenChange(open: boolean): void;
 }
 
-export function SettingsDialog({ initial, dismissible, onSave, onClose }: SettingsDialogProps) {
-  const [baseUrl, setBaseUrl] = useState(initial?.baseUrl ?? "");
-  const [apiKey, setApiKey] = useState(initial?.apiKey ?? "");
-  const [status, setStatus] = useState("");
-
-  const test = async (): Promise<void> => {
-    setStatus("Testing…");
-    try {
-      const models = await listModels({
-        baseUrl: normalizeBaseUrl(baseUrl),
-        apiKey,
-        apiKeyHeader: initial?.apiKeyHeader,
-      });
-      setStatus(`Connected: ${models.length} model(s) available.`);
-    } catch (error) {
-      const { message, hint } = describeError(error);
-      setStatus(`Failed: ${message}${hint == null ? "" : ` ${hint}`}`);
-    }
-  };
+export function SettingsDialog({ open, onOpenChange }: SettingsDialogProps) {
+  const panels = orderPanels(useSlot(settingsPanelsSlot));
+  const first = panels[0];
 
   return (
-    <Modal title="Connection settings">
-      <form
-        className="flex flex-col gap-3"
-        onSubmit={(event) => {
-          event.preventDefault();
-          onSave({ baseUrl, apiKey });
-        }}
-      >
-        <label className="flex flex-col gap-1 text-sm">
-          Base URL
-          <input
-            className={inputClass}
-            type="url"
-            required
-            placeholder="https://api.openai.com/v1"
-            value={baseUrl}
-            onChange={(event) => setBaseUrl(event.target.value)}
-          />
-        </label>
-        <label className="flex flex-col gap-1 text-sm">
-          API key
-          <input
-            className={inputClass}
-            type="password"
-            autoComplete="off"
-            placeholder="optional"
-            value={apiKey}
-            onChange={(event) => setApiKey(event.target.value)}
-          />
-        </label>
-        <p role="status" className="min-h-5 text-sm text-gray-600">
-          {status}
-        </p>
-        <div className="flex justify-end gap-2">
-          <button
-            type="button"
-            className={buttonClass}
-            disabled={baseUrl === ""}
-            onClick={() => void test()}
-          >
-            Test
-          </button>
-          {dismissible && (
-            <button type="button" className={buttonClass} onClick={onClose}>
-              Cancel
-            </button>
-          )}
-          <button type="submit" className={primaryButtonClass}>
-            Save
-          </button>
-        </div>
-      </form>
-    </Modal>
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent>
+        <DialogHeader>
+          <DialogTitle>Settings</DialogTitle>
+        </DialogHeader>
+        {first != null && (
+          <Tabs defaultValue={first.id} className="flex flex-col gap-3">
+            <TabsList>
+              {panels.map((panel) => (
+                <TabsTrigger key={panel.id} value={panel.id}>
+                  {panel.title}
+                </TabsTrigger>
+              ))}
+            </TabsList>
+            {panels.map((panel) => (
+              <TabsContent key={panel.id} value={panel.id}>
+                <panel.Component />
+              </TabsContent>
+            ))}
+          </Tabs>
+        )}
+      </DialogContent>
+    </Dialog>
   );
 }

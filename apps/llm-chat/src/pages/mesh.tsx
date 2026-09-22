@@ -38,8 +38,8 @@ import {
 import { JoinWidgetView } from "../mesh/join-widget.js";
 import { MemberKeyButton } from "../mesh/member-key.js";
 import { startMeshSession } from "../mesh/session.js";
+import { buttonClass, inputClass, primaryButtonClass } from "../ui/button-styles.js";
 import { ChatApp } from "../ui/ChatApp.js";
-import { buttonClass, inputClass, primaryButtonClass } from "../ui/Modal.js";
 import "../ui/styles.css";
 
 const configStore = idbConfigStore("mesh");
