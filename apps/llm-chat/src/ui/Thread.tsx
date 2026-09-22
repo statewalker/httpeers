@@ -27,6 +27,23 @@
  * up a second, independent assistant-ui runtime purely to render a textarea seemed like more
  * machinery than the job needs; a controlled textarea calling `onSend` directly does the same job
  * with far less surface.
+ *
+ * Why this is hand-rolled on raw primitives rather than assistant-ui's `r.assistant-ui.com/thread`
+ * shadcn-registry component (Fix round 1: actually tried, not assumed): `pnpm dlx shadcn@latest add
+ * "https://r.assistant-ui.com/thread" --overwrite` installs cleanly against React 19.3.0 and
+ * `@assistant-ui/react` 0.15.19 -- no version was forced -- but its output conflicts with this
+ * package on every other axis. It rewrites `primitives/button.tsx`, `dialog.tsx` and `tooltip.tsx`
+ * (owned by Tasks 3/5, not this one) to import `cn` from an npm package literally named `cn` and
+ * `Slot`/`Tooltip` from the consolidated `radix-ui` meta-package -- both exactly what Task 3's
+ * report rejected, and the latter left installed *alongside* the individual `@radix-ui/react-*`
+ * packages rather than replacing them, i.e. the "both" outcome Task 3 flagged as a trap. It also
+ * adds `remark-gfm`, `tw-shimmer` and `zustand`, and 17 new component files (attachments, files,
+ * images, reasoning steps, tool-call groups, branch picker, follow-up suggestions) for a richer,
+ * multi-modal/tool-calling assistant this OpenAI-compatible text chat has no use for and this
+ * `useExternalStoreRuntime` adapter does not back. Adopting it would mean rewriting three files two
+ * other tasks own and absorbing a much larger dependency/surface footprint to get a Thread that
+ * still could not satisfy this file's controller-free, standalone-renderable interface without
+ * further surgery. Kept the hand-rolled version; see the task report for the full diff.
  */
 
 import {
