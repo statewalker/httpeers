@@ -11,7 +11,10 @@
  * `firstTokenDelayMs` (default 0, so `smoke.mjs`/`mesh-smoke.mjs` are unaffected) holds the
  * response open, headers and all, before writing the first SSE event -- standing in for a cold
  * llama.cpp model load or slow prompt processing, so `waiting` actually lasts long enough to look
- * at (Task 7, Step 5: `PORT=4000 FIRST_TOKEN_DELAY_MS=6000 node scripts/fake-llm.mjs`).
+ * at (Task 7, Step 5: `PORT=4000 FIRST_TOKEN_DELAY_MS=6000 node scripts/fake-llm.mjs`). From the
+ * CLI it can also be set as `--first-token-delay-ms=6000` (Task 12: `standalone.spec.mjs` imports
+ * `startFakeLlm` directly and passes the option, but the flag keeps the standalone
+ * `node scripts/fake-llm.mjs` invocation able to reach the same knob without an env var).
  */
 
 import { createServer } from "node:http";
@@ -83,10 +86,25 @@ export async function startFakeLlm({ apiKey = "test-key", port = 0, firstTokenDe
   };
 }
 
+/**
+ * `--first-token-delay-ms=<n>` on the CLI, same knob as `FIRST_TOKEN_DELAY_MS` (Task 7) -- the CLI
+ * flag wins when both are given. One mechanism (the `firstTokenDelayMs` option above), two ways to
+ * reach it from the command line, not two competing config paths.
+ */
+function firstTokenDelayMsFromArgv(argv) {
+  for (const arg of argv) {
+    const match = /^--first-token-delay-ms=(\d+)$/.exec(arg);
+    if (match) return Number(match[1]);
+  }
+  return undefined;
+}
+
 if (import.meta.url === `file://${process.argv[1]}`) {
   const llm = await startFakeLlm({
     port: Number(process.env.PORT ?? 4000),
-    firstTokenDelayMs: Number(process.env.FIRST_TOKEN_DELAY_MS ?? 0),
+    firstTokenDelayMs:
+      firstTokenDelayMsFromArgv(process.argv.slice(2)) ??
+      Number(process.env.FIRST_TOKEN_DELAY_MS ?? 0),
   });
   console.log(`fake LLM at ${llm.baseUrl} (api key: test-key)`);
 }

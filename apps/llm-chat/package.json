@@ -13,7 +13,8 @@
     "lint": "biome check --write src tests scripts",
     "lint:check": "biome check src tests scripts",
     "smoke": "node scripts/smoke.mjs",
-    "mesh-smoke": "node scripts/mesh-smoke.mjs"
+    "mesh-smoke": "node scripts/mesh-smoke.mjs",
+    "e2e": "node tests/e2e/standalone.spec.mjs"
   },
   "dependencies": {
     "@assistant-ui/react": "0.15.19",
