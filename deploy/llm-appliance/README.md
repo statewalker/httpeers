@@ -458,6 +458,13 @@ a model tier, downloads the models, and writes `compose.models.yml` (one always-
 docker compose -f compose.yml -f compose.local.yml -f compose.models.yml up -d --wait
 ```
 
+**Or, in one step: `./bin/start.sh`.** It runs `prepare.sh` if this directory was never prepared
+(`--prepare [flags]` re-runs it, passing the flags on), brings up the same three-file stack, and
+then verifies it: `scripts/health.sh`, `scripts/verify-backend.sh` on a GPU backend, and one short
+chat per local model through Traefik (with the master key, so no virtual key is left behind). It is
+safe to re-run, and it is the quickest fix when a service was stopped by hand:
+`restart: unless-stopped` never restarts a container that was stopped on purpose.
+
 **After bring-up, when the selected backend is a GPU one (`intel`, `vulkan`, `cuda`, `musa`), run
 `./scripts/verify-backend.sh`.** `docker compose config`/`ps` only prove the backend was
 *requested*; only the running container's own log says whether it actually initialised a GPU
@@ -663,8 +670,10 @@ works against all of them unless you restrict it with `models` when minting it.
 
 ## Host networking (EXPERIMENTAL, Linux only)
 
-**EXPERIMENTAL: never brought up, only validated with `docker compose
-config`.** Test it yourself before relying on it.
+**EXPERIMENTAL.** Brought up on Compose 2.35.1 (2026-09-22), alone and with
+`compose.test.yml`: every service healthy, `scripts/health.sh` ALL PASS, a
+streamed chat through Traefik. Whether members then get `direct` links was not
+measured.
 
 
 By default the hub is bridge-networked, so members without a working WebRTC
@@ -686,10 +695,11 @@ older and doesn't support `!reset`, hand-edit `compose.yml` to drop the
 `networks:`/`ports:` lines from the `hub` and `traefik` services before
 layering `compose.host.yml` on top, or upgrade Compose.
 
-This needs **Compose >= 2.24** (the `!reset` merge tag). It was **not
-exercised beyond `docker compose config`** — the default bridge/relay-fallback
-`compose.yml` is the one verified; this variant was never brought up (it
-would also collide with the already-running bridge stack).
+This needs **Compose >= 2.24** (the `!reset`/`!override` merge tags). Bring
+the bridge stack down first — both publish the same door port. With
+`compose.test.yml`, `register-model` registers "fake" straight with LiteLLM
+(the hub is off the bridge network, so it cannot reach the door); the
+passthrough is still covered by `health.sh` through Traefik.
 
 In this variant the door listens on the host's `127.0.0.1:8787`, gated exactly
 as above (door secret, Host allowlist, Origin). **LiteLLM is not published on
@@ -946,6 +956,7 @@ than rediscovered.
 | --- | --- |
 | `../../apps/hub/Dockerfile` | The hub image (multi-stage; build context is the repo root) |
 | `bin/prepare.sh` | Probes the host and runs `apps/appliance-prepare` to select a backend/tier, download models, and write `compose.models.yml`, `litellm/config.local.yaml`, `.env` (see "Local models" above) |
+| `bin/start.sh` | Prepares if needed, brings up the full local stack, and verifies it end to end (see "Local models") |
 | `bin/invite.sh` | Mints an invitation blob-first, with a round-tripped QR (see "Inviting members") |
 | `models.json` | The model manifest `bin/prepare.sh` reads by default: tiers, per-model repo/file/size |
 | `compose.yml` | The appliance: hub, litellm, postgres, traefik |
