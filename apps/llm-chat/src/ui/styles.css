@@ -41,6 +41,12 @@
  * assertions) pushed the row wider than the drawer and clipped its own delete button out of view,
  * with no page-level horizontal scroll to show for it (the clipping happens inside the Sheet, not
  * the document). `!important` is required: only a later `!important` rule outranks an inline style.
+ *
+ * THIS RULE IS GLOBAL, NOT SCOPED TO `ThreadList`, and `ThreadList` is currently this app's only
+ * `ScrollArea` consumer. If a second one is added that actually WANTS the Viewport's natural-width
+ * sizing -- a horizontally scrolling code block, say -- this rule would silently defeat it too,
+ * since nothing here distinguishes one `ScrollArea` from another. Scope it (e.g. a `ThreadList`-only
+ * class) if/when that second consumer arrives; don't assume this is still safe to leave global.
  */
 [data-radix-scroll-area-viewport] > div {
   /* biome-ignore lint/complexity/noImportantStyles: overriding a library's own inline style, see above */

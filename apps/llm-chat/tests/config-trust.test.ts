@@ -80,6 +80,15 @@ describe("judgeConfigUrl", () => {
     }
   });
 
+  it('reports the WHATWG opaque origin "null" for a non-http scheme -- ChatApp is what substitutes the raw URL for display, not this function', () => {
+    for (const url of ["javascript:alert(1)", "data:application/json,{}", "file:///etc/passwd"]) {
+      expect(judgeConfigUrl(url, { pageUrl: PAGE, edgeBase: null })).toEqual({
+        trusted: false,
+        origin: "null",
+      });
+    }
+  });
+
   it("does not throw on an unparseable URL -- it distrusts it", () => {
     expect(judgeConfigUrl("::::", { pageUrl: PAGE, edgeBase: null }).trusted).toBe(false);
   });

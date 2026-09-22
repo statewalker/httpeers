@@ -74,7 +74,15 @@ export interface ChatAppProps {
   configStore: ConfigStore;
   sessionStore: SessionStore;
   title?: string;
-  /** Rendered in the header before the settings button: the mesh page's link status and links. */
+  /**
+   * Rendered in the header, before the settings button. STALE AS OF TASK 11: this used to be how
+   * `mesh.html` showed its link status and dashboard/key links; that content now lives in the
+   * pre-chat stages (`mesh.tsx`'s own header, shown before `ChatApp` mounts) and, for Sharing and
+   * Keys, as settings-dialog tabs contributed through `slots` below -- see `mesh.tsx`'s own
+   * comment on why it no longer passes this prop. Neither shipped page passes `headerExtra` today;
+   * kept as a general extension point rather than removed, since removing it is outside a
+   * documentation audit's scope.
+   */
   headerExtra?: ReactNode;
   /**
    * The confirmed mesh edge base, once `mesh.html`'s discovery has found it; `null` on the

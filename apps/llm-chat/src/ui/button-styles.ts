@@ -1,8 +1,11 @@
 /**
  * Plain Tailwind class strings for the few spots that still render a bare `<button>`/`<input>`
- * rather than a shadcn primitive: `Thread.tsx`'s composer controls and `pages/mesh.tsx`'s
- * pre-chat forms. Split out of the old `Modal.tsx` when it and `ModelDialog.tsx` were deleted
- * (Task 5) so those unrelated call sites keep compiling without pulling in the dialog rewrite.
+ * rather than a shadcn primitive: `pages/mesh.tsx`'s pre-chat forms (the join/finding/key screens
+ * shown before `ChatApp` mounts, which have no settings dialog or shadcn primitives available to
+ * them yet). Split out of the old `Modal.tsx` when it and `ModelDialog.tsx` were deleted (Task 5)
+ * so those call sites kept compiling without pulling in the dialog rewrite. `Thread.tsx`'s composer
+ * moved onto shadcn primitives since and no longer imports this file -- `pages/mesh.tsx` is now the
+ * only consumer.
  */
 
 export const buttonClass =

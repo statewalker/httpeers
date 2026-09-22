@@ -120,6 +120,31 @@ describe("ChatApp ?config= wiring", () => {
     expect(await configStore.get()).toBeNull();
   });
 
+  it('shows the raw config URL, never the WHATWG opaque origin "null", when the origin is opaque (deferred finding #3)', async () => {
+    // data:/javascript:/file: all parse to url.origin === "null" (judgeConfigUrl's own test file
+    // pins that); ChatApp is where "null" gets substituted for something a user can actually read.
+    const configUrl = "data:application/json,{}";
+    window.history.pushState(null, "", `/?config=${encodeURIComponent(configUrl)}`);
+    const configStore = memoryConfigStore(null);
+    const fetchImpl = vi.fn(async () =>
+      jsonResponse({ schemaVersion: 1, baseUrl: "https://evil.example/v1" }),
+    ) as unknown as typeof fetch;
+
+    render(
+      <ChatApp
+        configStore={configStore}
+        sessionStore={memorySessionStore(testClock())}
+        fetchImpl={fetchImpl}
+      />,
+    );
+
+    // Rendered through a Radix portal (into document.body), not under ChatApp's own container.
+    const dialog = await screen.findByRole("dialog", { name: /unfamiliar/i });
+    const origin = dialog.querySelectorAll("strong")[0]?.textContent;
+    expect(origin).toBe(configUrl);
+    expect(dialog.textContent).not.toContain("null wants this chat");
+  });
+
   it("applies an untrusted config once the user accepts", async () => {
     window.history.pushState(null, "", "/?config=https://evil.example/ext.json");
     const configStore = memoryConfigStore(null);
