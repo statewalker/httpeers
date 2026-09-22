@@ -34,7 +34,7 @@ export function ThreadList({
                 variant="ghost"
                 size="sm"
                 aria-current={session.id === activeId ? "true" : undefined}
-                className="flex-1 justify-start truncate font-normal aria-current:bg-accent"
+                className="min-w-0 flex-1 justify-start truncate font-normal aria-current:bg-accent"
                 disabled={disabled}
                 onClick={() => onSelect(session.id)}
               >

@@ -1,4 +1,7 @@
 smoke-failure.png
 mesh-smoke-failure-*.png
+standalone-spec-failure.png
+responsive-spec-failure.png
+mesh-spec-failure.png
 # Copied by scripts/copy-assets.mjs, never committed.
 public/sw.js

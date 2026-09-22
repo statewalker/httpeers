@@ -30,3 +30,19 @@
   color: #2563eb;
   text-decoration: underline;
 }
+
+/*
+ * `@radix-ui/react-scroll-area`'s Viewport wraps its children in an inline-styled
+ * `display: table; min-width: 100%` div (its own `dist/index.mjs`, not ours to edit) so it can
+ * measure content for the scrollbar. A `display: table` box always sizes to its content's natural
+ * (untruncated) width, which defeats every `truncate`/`min-w-0` further down the tree: a long
+ * session title in `ThreadList` (inside this `ScrollArea`, inside the mobile Sheet -- Task 13's
+ * `responsive.spec.mjs` at 390x844 with a long title, run by hand while diagnosing the ten
+ * assertions) pushed the row wider than the drawer and clipped its own delete button out of view,
+ * with no page-level horizontal scroll to show for it (the clipping happens inside the Sheet, not
+ * the document). `!important` is required: only a later `!important` rule outranks an inline style.
+ */
+[data-radix-scroll-area-viewport] > div {
+  /* biome-ignore lint/complexity/noImportantStyles: overriding a library's own inline style, see above */
+  display: block !important;
+}
