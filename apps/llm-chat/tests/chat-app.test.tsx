@@ -24,20 +24,27 @@ function renderApp(initial: Parameters<typeof memoryConfigStore>[0] = null) {
 }
 
 describe("ChatApp startup gating", () => {
-  it("shows the settings dialog, non-dismissibly, when there is no config", async () => {
+  it("shows the settings dialog, non-dismissibly, on the Connection tab, when there is no config", async () => {
     renderApp(null);
     const dialog = await screen.findByRole("dialog", { name: /settings/i });
     expect(screen.getByRole("tab", { name: "Connection" })).toBeTruthy();
     expect(screen.getByRole("tab", { name: "Models" })).toBeTruthy();
+    expect(screen.getByRole("tab", { name: "Connection" })).toHaveAttribute(
+      "aria-selected",
+      "true",
+    );
 
     await userEvent.setup().keyboard("{Escape}");
     // Still there: Escape is a dismiss attempt, and there is nothing to go back to yet.
     expect(screen.getByRole("dialog", { name: /settings/i })).toBe(dialog);
   });
 
-  it("keeps the dialog open, non-dismissibly, once a connection is set but no model is chosen", async () => {
+  it("keeps the dialog open, non-dismissibly, on the Models tab, once a connection is set but no model is chosen", async () => {
     renderApp({ baseUrl: "http://llm.test/v1", models: [] });
     const dialog = await screen.findByRole("dialog", { name: /settings/i });
+    // A user who just finished the Connection form is sent to Models, not back to what they
+    // already filled in.
+    expect(screen.getByRole("tab", { name: "Models" })).toHaveAttribute("aria-selected", "true");
 
     await userEvent.setup().keyboard("{Escape}");
     expect(screen.getByRole("dialog", { name: /settings/i })).toBe(dialog);

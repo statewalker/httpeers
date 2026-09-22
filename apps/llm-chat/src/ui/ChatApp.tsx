@@ -29,6 +29,10 @@ import { Thread } from "./Thread.js";
 import { ThreadList } from "./ThreadList.js";
 import { useChatState } from "./use-chat-state.js";
 
+/** Registered-panel ids, shared between the registration below and `initialPanelId`. */
+const CONNECTION_PANEL_ID = "connection";
+const MODELS_PANEL_ID = "models";
+
 export interface ChatAppProps {
   configStore: ConfigStore;
   sessionStore: SessionStore;
@@ -90,8 +94,8 @@ export function ChatApp({ configStore, sessionStore, title = "Chat", headerExtra
   const slots = useMemo(() => new Slots(), []);
 
   useEffect(() => {
-    const disposeConnection = slots.register(settingsPanelsSlot, "connection", {
-      id: "connection",
+    const disposeConnection = slots.register(settingsPanelsSlot, CONNECTION_PANEL_ID, {
+      id: CONNECTION_PANEL_ID,
       title: "Connection",
       order: 1,
       Component: () => (
@@ -101,8 +105,8 @@ export function ChatApp({ configStore, sessionStore, title = "Chat", headerExtra
         />
       ),
     });
-    const disposeModels = slots.register(settingsPanelsSlot, "models", {
-      id: "models",
+    const disposeModels = slots.register(settingsPanelsSlot, MODELS_PANEL_ID, {
+      id: MODELS_PANEL_ID,
       title: "Models",
       order: 2,
       Component: () => {
@@ -194,6 +198,7 @@ export function ChatApp({ configStore, sessionStore, title = "Chat", headerExtra
 
         <SettingsDialog
           open={showSettings}
+          initialPanelId={step === "models" ? MODELS_PANEL_ID : undefined}
           onOpenChange={(next) => {
             if (next) {
               setSettingsOpen(true);

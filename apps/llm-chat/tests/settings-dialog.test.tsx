@@ -19,10 +19,10 @@ const panel = (id: string, order: number, title = id) => ({
   Component: () => <div data-testid={`body-${id}`}>{id} body</div>,
 });
 
-const open = (slots: Slots) =>
+const open = (slots: Slots, initialPanelId?: string) =>
   render(
     <SlotsProvider slots={slots}>
-      <SettingsDialog open onOpenChange={() => {}} />
+      <SettingsDialog open onOpenChange={() => {}} initialPanelId={initialPanelId} />
     </SlotsProvider>,
   );
 
@@ -66,6 +66,24 @@ describe("SettingsDialog", () => {
       slots.register(settingsPanelsSlot, "m", panel("m", 5, "Mesh"));
     });
     expect(screen.getAllByRole("tab").map((t) => t.textContent)).toEqual(["First", "Mesh"]);
+  });
+
+  it("opens on `initialPanelId` when that panel is registered", () => {
+    const slots = new Slots();
+    slots.register(settingsPanelsSlot, "a", panel("a", 1, "First"));
+    slots.register(settingsPanelsSlot, "b", panel("b", 2, "Second"));
+    open(slots, "b");
+    expect(screen.getByTestId("body-b")).toBeTruthy();
+    expect(screen.getByRole("tab", { name: "Second" })).toHaveAttribute("aria-selected", "true");
+    expect(screen.getByRole("tab", { name: "First" })).toHaveAttribute("aria-selected", "false");
+  });
+
+  it("falls back to the first panel when `initialPanelId` names a panel that isn't registered", () => {
+    const slots = new Slots();
+    slots.register(settingsPanelsSlot, "a", panel("a", 1, "First"));
+    open(slots, "does-not-exist");
+    expect(screen.getByTestId("body-a")).toBeTruthy();
+    expect(screen.getByRole("tab", { name: "First" })).toHaveAttribute("aria-selected", "true");
   });
 
   it("has an accessible name", () => {
