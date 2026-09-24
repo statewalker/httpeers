@@ -104,6 +104,7 @@
  */
 import type { FetchHandler, PeerErrorKind, PeerIdStr } from "@statewalker/httpeers-core";
 import {
+  bodyOf,
   json,
   MESH_TOKEN_HEADER,
   PeerCallError,
@@ -237,7 +238,20 @@ export function createEdgeDispatch(init: EdgeDispatchInit): FetchHandler {
 
     const url = new URL(req.url);
     url.pathname = stripEdgePrefix(url.pathname, key);
-    const outbound = new Request(url, req);
+    // `new Request(url, req)` reads `req.body` off the init object -- and
+    // FIREFOX HAS NO `Request.prototype.body` (checked against 155), so that
+    // read is `undefined` there and the outbound request loses its body
+    // entirely, silently. Rebuilt explicitly through `bodyOf`, the one copy
+    // of this logic, exactly as `gateway.ts` and the ghost's `pin.ts` already
+    // do for the same reason.
+    const body = await bodyOf(req);
+    const outbound = new Request(url, {
+      method: req.method,
+      headers: req.headers,
+      body,
+      ...(body instanceof ReadableStream ? { duplex: "half" as const } : {}),
+      signal: req.signal,
+    });
     // NEVER OVERWRITE A CALLER'S OWN MEMBERSHIP TOKEN. A page that set one
     // deliberately -- calling a peer with a token it was handed out of band,
     // or testing what a provider does with a bad one -- meant it, and
