@@ -15,9 +15,29 @@
  *    to warn you it had happened. Normalising removes the trap instead of
  *    documenting it.
  */
+import { bodyOf } from "./http-body.js";
 import { copyPeerBinding, stripPeerBinding } from "./peer-context.js";
 import type { FetchHandler, Mounts, PeerIdStr, Remote } from "./types.js";
 import { json } from "./types.js";
+
+/**
+ * Rebuild `req` at `url`, carrying its body through `bodyOf` rather than
+ * letting `new Request(url, req)` read `req.body` off the init object --
+ * FIREFOX HAS NO `Request.prototype.body` (checked against 155), so that
+ * read is `undefined` there and the re-created request loses its body
+ * entirely, silently. `bodyOf` is the one copy of this logic; both call
+ * sites below use it rather than inlining a second one.
+ */
+async function reroute(req: Request, url: URL): Promise<Request> {
+  const body = await bodyOf(req);
+  return new Request(url, {
+    method: req.method,
+    headers: req.headers,
+    body,
+    ...(body instanceof ReadableStream ? { duplex: "half" as const } : {}),
+    signal: req.signal,
+  });
+}
 
 export interface PeerRouterInit {
   selfPeerId: PeerIdStr;
@@ -78,7 +98,7 @@ export function createPeerRouter(init: PeerRouterInit): FetchHandler {
 
     if (first === selfPeerId) {
       // Addressed to us by name. Strip the prefix and serve locally.
-      const stripped = new Request(new URL(remainder + url.search, url.origin), req);
+      const stripped = await reroute(req, new URL(remainder + url.search, url.origin));
       copyPeerBinding(req, stripped); // the re-creation the WeakMap must survive
       return guarded(stripped);
     }
@@ -93,7 +113,7 @@ export function createPeerRouter(init: PeerRouterInit): FetchHandler {
     // NOTE: there is no hop limit. Two relay-enabled peers can form a cycle.
     // A max-forwards header or a hop count in the envelope is required
     // before any relay ships.
-    const forwarded = new Request(new URL(remainder + url.search, url.origin), req);
+    const forwarded = await reroute(req, new URL(remainder + url.search, url.origin));
     // IDENTITY-FREE, DELIBERATELY. This used to hold for free: the binding
     // lived in a WeakMap and a re-created Request simply had no entry. A
     // header copies itself, so relaying without this line would tell the third

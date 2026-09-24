@@ -185,4 +185,22 @@ describe("R-1: peer-prefix routing", () => {
     const res = await route(new Request(`http://p/${SELF}/x`, { method: "POST", body: "payload" }));
     expect(await res.text()).toBe("payload");
   });
+
+  // FIREFOX HAS NO `Request.prototype.body` (checked against 155). The
+  // self-prefix branch rebuilds the request with `new Request(url, req)`,
+  // which reads `req.body` -- `undefined` there -- so a self-addressed POST
+  // arrived locally with no body at all, silently.
+  it("a self-prefixed POST keeps its body where the runtime has no Request.body (Firefox)", async () => {
+    const mounts = createMounts();
+    mounts.provide("/", async (req) => new Response(await req.text()));
+    const route = createPeerRouter({
+      selfPeerId: SELF,
+      mounts,
+      remote: async () => new Response(),
+    });
+    const post = new Request(`http://p/${SELF}/x`, { method: "POST", body: "payload" });
+    Object.defineProperty(post, "body", { value: undefined });
+    const res = await route(post);
+    expect(await res.text()).toBe("payload");
+  });
 });

@@ -87,6 +87,31 @@ describe("the edge strips a claimed identity", () => {
 
     expect((seen as unknown as Request).headers.get(MESH_TOKEN_HEADER)).toBe("REAL-TOKEN");
   });
+
+  // The edge rebuilt `outbound` with `new Request(url, req)`, which reads
+  // `req.body` -- `undefined` in Firefox (checked against 155, no
+  // `Request.prototype.body` there) -- so every POST through /peers/<peer>/
+  // arrived at the far side with no body at all, silently.
+  it("forwards a POST body where the runtime has no Request.body (Firefox)", async () => {
+    let received: string | null = null;
+    const edge = createEdgeDispatch({
+      key: "peers",
+      dispatch: async (req) => {
+        received = await req.text();
+        return new Response("ok");
+      },
+      token: () => "REAL-TOKEN",
+    });
+
+    const post = new Request(`http://local/peers/${BOB}/hello`, {
+      method: "POST",
+      body: "ping",
+    });
+    Object.defineProperty(post, "body", { value: undefined });
+
+    expect((await edge(post)).status).toBe(200);
+    expect(received).toBe("ping");
+  });
 });
 
 describe("the gateway strips a claimed identity", () => {
