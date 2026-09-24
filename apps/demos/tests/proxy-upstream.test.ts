@@ -12,7 +12,7 @@
 
 import { MESH_TOKEN_HEADER, PEER_ID_HEADER } from "@statewalker/httpeers-core";
 import { describe, expect, it } from "vitest";
-import { proxyUpstream } from "../src/shared/proxy-upstream.js";
+import { proxyUpstream, rewriteForUpstream } from "../src/shared/proxy-upstream.js";
 
 function echo(): { fetchImpl: typeof fetch; seen: Headers[] } {
   const seen: Headers[] = [];
@@ -65,5 +65,32 @@ describe("the proxy page's upstream", () => {
       typed.fetchImpl,
     )(new Request("http://mesh.local/x", { headers: { authorization: "Bearer app-key" } }));
     expect(typed.seen[0]?.get("authorization")).toBe("Bearer operator-key");
+  });
+
+  // THE FIREFOX CASE, at the one end of it this can reach without a browser:
+  // main.ts's `forward` rebuilds the inbound request with `rewriteForUpstream`
+  // before handing it to `upstream`. FIREFOX HAS NO `Request.prototype.body`
+  // (checked against 155), so hiding it on the inbound request is what that
+  // browser's Request looks like -- and a POST through the proxy page must
+  // still arrive at the outside origin with its body.
+  it("carries a POST body through the rewrite, where the runtime has no Request.body (Firefox)", async () => {
+    let received: string | null = null;
+    const fetchImpl = (async (input: RequestInfo | URL) => {
+      received = await (input as Request).text();
+      return new Response("ok");
+    }) as typeof fetch;
+    const upstream = proxyUpstream(
+      { prefix: "/api", upstream: "https://api.example", describe: "", secretHeader: null },
+      undefined,
+      fetchImpl,
+    );
+
+    const inbound = new Request("http://mesh.local/api/echo", { method: "POST", body: "ping" });
+    Object.defineProperty(inbound, "body", { value: undefined });
+
+    const rewritten = await rewriteForUpstream(inbound, "http://upstream/echo");
+    await upstream(rewritten);
+
+    expect(received).toBe("ping");
   });
 });
