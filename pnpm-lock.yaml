@@ -117,8 +117,8 @@ importers:
         specifier: ^0.6.0
         version: 0.6.0
       '@statewalker/webrun-http-proxy':
-        specifier: ^0.2.0
-        version: 0.2.0
+        specifier: ^0.2.1
+        version: 0.2.1
       hono:
         specifier: 'catalog:'
         version: 4.13.7
@@ -187,8 +187,8 @@ importers:
         specifier: workspace:*
         version: link:../../packages/httpeers-qr
       '@statewalker/webrun-http-proxy':
-        specifier: ^0.2.0
-        version: 0.2.0
+        specifier: ^0.2.1
+        version: 0.2.1
       libp2p:
         specifier: 3.3.8
         version: 3.3.8
@@ -560,8 +560,8 @@ importers:
         specifier: workspace:*
         version: link:../../apps/relay
       '@statewalker/webrun-http-proxy':
-        specifier: ^0.2.0
-        version: 0.2.0
+        specifier: ^0.2.1
+        version: 0.2.1
       '@types/node':
         specifier: 'catalog:'
         version: 26.4.1
@@ -2527,8 +2527,8 @@ packages:
   '@statewalker/webrun-http-browser@0.6.0':
     resolution: {integrity: sha512-lzYAE83hGh7qdzmizahMMCvZ3ocz5In/cISMz4e+BmN9cerRf5KsrhfWIpKSUnbTbnnt7dkSGjozXgSMLyxOPg==}
 
-  '@statewalker/webrun-http-proxy@0.2.0':
-    resolution: {integrity: sha512-yt9CaY8dyO5ZNUs2DprFElQbQ9r3VR6XY/9MJv3poAJGM9xPyz6mHsrjtsAWI90pciM1XhQormmACE94579pow==}
+  '@statewalker/webrun-http-proxy@0.2.1':
+    resolution: {integrity: sha512-+2OZcaNIysp/sQk3JwEAAWCjqQCh/i2Ry/q3gp+vvRqHOPH5Mr/hShFZCoqmKsdnYvV7WHNx7fWJZTWzu6X3fA==}
 
   '@statewalker/webrun-http-streams@0.2.2':
     resolution: {integrity: sha512-efzpjSrod+nllRC3cpNkxdsX+SojBzoax4O8HfDrLeB0ONPac+0hULBemjsSW3Rd5fjhMVyqFcokZCsuSB1ZyQ==}
@@ -6788,7 +6788,7 @@ snapshots:
       '@statewalker/webrun-streams': 0.2.0
       idb-keyval: 6.3.0
 
-  '@statewalker/webrun-http-proxy@0.2.0': {}
+  '@statewalker/webrun-http-proxy@0.2.1': {}
 
   '@statewalker/webrun-http-streams@0.2.2':
     dependencies:
