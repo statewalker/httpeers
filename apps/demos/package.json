@@ -40,7 +40,7 @@
     "@statewalker/webrun-files": "catalog:",
     "@statewalker/webrun-files-mem": "catalog:",
     "@statewalker/webrun-http-browser": "^0.6.0",
-    "@statewalker/webrun-http-proxy": "^0.2.0",
+    "@statewalker/webrun-http-proxy": "^0.2.1",
     "hono": "catalog:"
   },
   "devDependencies": {
