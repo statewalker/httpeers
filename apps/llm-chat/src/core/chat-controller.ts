@@ -23,9 +23,16 @@ export interface ChatClient {
   }): AsyncIterable<string>;
 }
 
+/** "waiting": request sent, nothing back yet. "streaming": at least one delta has arrived. */
+export type RunPhase = "idle" | "waiting" | "streaming";
+
 export interface ChatState {
   session: Session | null;
+  /** Derived from `phase` (`phase !== "idle"`) — the two can never disagree. */
   isRunning: boolean;
+  phase: RunPhase;
+  /** Set when a run starts, `null` once it returns to idle. Lets the UI show elapsed time. */
+  runStartedAt: number | null;
   error: ErrorNotice | null;
 }
 
@@ -50,6 +57,8 @@ export interface ChatControllerInit {
   resolveModel: (session: Session | null) => string | undefined;
   /** After every write, so a session list can refresh. */
   onSaved?: (session: Session) => void;
+  /** Defaults to `Date.now`; a seam for deterministic tests. */
+  now?: () => number;
 }
 
 export interface ChatController {
@@ -70,12 +79,21 @@ export interface ChatController {
 }
 
 export function createChatController(init: ChatControllerInit): ChatController {
-  let state: ChatState = { session: null, isRunning: false, error: null };
+  const now = init.now ?? (() => Date.now());
+  let state: ChatState = {
+    session: null,
+    isRunning: false,
+    phase: "idle",
+    runStartedAt: null,
+    error: null,
+  };
   const listeners = new Set<() => void>();
   let abort: AbortController | null = null;
 
+  /** Every write flows through here, so `isRunning` can never drift from `phase`. */
   const set = (patch: Partial<ChatState>): void => {
-    state = { ...state, ...patch };
+    const next = { ...state, ...patch };
+    state = { ...next, isRunning: next.phase !== "idle" };
     for (const listener of listeners) listener();
   };
 
@@ -88,14 +106,14 @@ export function createChatController(init: ChatControllerInit): ChatController {
   /** One operation at a time. Every failure except a busy refusal becomes the error notice. */
   const exclusive = async (work: () => Promise<void>): Promise<void> => {
     if (state.isRunning) throw new ChatBusyError();
-    set({ isRunning: true, error: null });
+    set({ phase: "waiting", runStartedAt: now(), error: null });
     try {
       await work();
     } catch (error) {
       set({ error: describeError(error) });
     } finally {
       abort = null;
-      set({ isRunning: false });
+      set({ phase: "idle", runStartedAt: null });
     }
   };
 
@@ -113,13 +131,19 @@ export function createChatController(init: ChatControllerInit): ChatController {
 
     let text = "";
     let failure: unknown = null;
+    let first = true;
     set({ session: showing("") });
     try {
       const deltas = init.client.stream({ model, messages: history, signal: controller.signal });
       for await (const delta of deltas) {
         if (controller.signal.aborted) break;
         text += delta;
-        set({ session: showing(text) });
+        const patch: Partial<ChatState> = { session: showing(text) };
+        if (first) {
+          first = false;
+          patch.phase = "streaming";
+        }
+        set(patch);
       }
     } catch (error) {
       if (!isAbort(error)) failure = error;

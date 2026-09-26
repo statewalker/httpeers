@@ -64,7 +64,9 @@ async function completions(count) {
 try {
   step = "first run shows settings that cannot be dismissed";
   await page.goto(site.url);
-  const settings = page.getByRole("dialog", { name: "Connection settings" });
+  // One slot-filled, tabbed dialog now (Task 5) -- "Settings", not "Connection settings"; there is
+  // no separate "Choose a model" dialog any more, so `settings` is reused for both tabs below.
+  const settings = page.getByRole("dialog", { name: "Settings" });
   await settings.waitFor();
   check(
     (await settings.getByRole("button", { name: "Cancel" }).count()) === 0,
@@ -81,13 +83,13 @@ try {
   await page.getByRole("button", { name: "Test" }).click();
   await page.getByRole("status").filter({ hasText: "2 model(s)" }).waitFor();
 
-  step = "saving opens the model dialog with the fetched list";
+  step = "saving switches the same dialog to the Models tab with the fetched list";
   await page.getByRole("button", { name: "Save" }).click();
-  const models = page.getByRole("dialog", { name: "Choose a model" });
-  await models.getByLabel("beta").waitFor();
-  await models.getByLabel("beta").check();
-  await models.getByRole("button", { name: "Use model" }).click();
-  await models.waitFor({ state: "detached" });
+  await page.getByRole("tab", { name: "Models", selected: true }).waitFor();
+  await settings.getByLabel("beta").waitFor();
+  await settings.getByLabel("beta").check();
+  await settings.getByRole("button", { name: "Use model" }).click();
+  await settings.waitFor({ state: "detached" });
 
   step = "send streams a reply progressively";
   await page.getByLabel("Message").fill("hello");
@@ -173,8 +175,14 @@ try {
 
   step = "a wrong key shows the API key hint";
   await page.getByRole("button", { name: "Settings" }).click();
+  const reopened = page.getByRole("dialog", { name: "Settings" });
+  await reopened.waitFor();
   await page.getByLabel("API key").fill("wrong");
   await page.getByRole("button", { name: "Save" }).click();
+  // Saving does not close the dialog by itself (there is no per-tab "done" action any more) --
+  // the dialog is dismissible now (step is "chat"), so close it explicitly to reach the header.
+  await reopened.getByRole("button", { name: "Close" }).click();
+  await reopened.waitFor({ state: "detached" });
   await page.getByLabel("Message").fill("anyone?");
   await page.getByRole("button", { name: "Send" }).click();
   await page.getByRole("alert").filter({ hasText: "Check the API key." }).waitFor();
@@ -185,20 +193,28 @@ try {
 
   step = "changing the base URL asks for a model again";
   await page.getByRole("button", { name: "Settings" }).click();
+  await settings.waitFor();
   await page.getByLabel("Base URL").fill(llm.baseUrl.replace("127.0.0.1", "localhost"));
   await page.getByLabel("API key").fill("test-key");
   await page.getByRole("button", { name: "Save" }).click();
-  const stuckModels = page.getByRole("dialog", { name: "Choose a model" });
-  await stuckModels.waitFor();
+  // The base URL changed, so `applyEndpoint` cleared the model list -- the dialog is forced open
+  // again (no dismiss button reachable) and switches itself to the Models tab.
+  await page.getByRole("tab", { name: "Models", selected: true }).waitFor();
 
   step = "a wrong base URL leaves a way back to settings";
-  await stuckModels.getByRole("button", { name: "Change connection" }).click();
-  await page.getByRole("dialog", { name: "Connection settings" }).waitFor();
+  // No "Change connection" button any more -- the way back is the Connection tab itself, in the
+  // same dialog.
+  await settings.getByRole("tab", { name: "Connection" }).click();
+  await page.getByLabel("Base URL").waitFor();
   await page.getByLabel("Base URL").fill("http://127.0.0.1:9/v1");
   await page.getByRole("button", { name: "Save" }).click();
-  await stuckModels.getByRole("alert").filter({ hasText: "Could not list models" }).waitFor();
-  await stuckModels.getByRole("button", { name: "Change connection" }).click();
-  await page.getByRole("dialog", { name: "Connection settings" }).waitFor();
+  // `SettingsDialog` remembers a tab the user picked explicitly (its own doc comment: "once
+  // they have, their choice sticks") -- clicking Connection above means the dialog no longer
+  // auto-follows `startupStep` back to Models, unlike the first time through this flow.
+  await settings.getByRole("tab", { name: "Models" }).click();
+  await settings.getByRole("alert").filter({ hasText: "Could not list models" }).waitFor();
+  await settings.getByRole("tab", { name: "Connection" }).click();
+  await page.getByLabel("Base URL").waitFor();
 
   check(problems.length === 0, problems.join("\n"));
   console.log("smoke: all steps passed");

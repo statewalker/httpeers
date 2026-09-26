@@ -7,7 +7,10 @@
     "types": ["node", "vite/client"],
     "jsx": "react-jsx",
     "rootDir": ".",
-    "noEmit": true
+    "noEmit": true,
+    "paths": {
+      "@/*": ["./src/*"]
+    }
   },
   "include": ["src", "tests", "*.ts"]
 }
