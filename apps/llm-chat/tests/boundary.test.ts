@@ -93,6 +93,14 @@ describe("the chat boundary", () => {
     }
   });
 
+  it(
+    "THE PROPERTY: the standalone page's closure contains no file under mesh/ (Task 11) -- " +
+      "Sharing and Keys are the mesh page's own contribution, never reachable from index.html",
+    () => {
+      expect([...page].map(named).filter((f) => f.startsWith("mesh/"))).toEqual([]);
+    },
+  );
+
   it("the mesh page reuses the chat and is the only page that reaches mesh code", () => {
     const mesh = closureOf("pages/mesh.tsx");
     expect([...mesh].map(named)).toEqual(

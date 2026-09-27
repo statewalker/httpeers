@@ -11,17 +11,22 @@
  *      any URL outside `<edge><hubPeerId>/llm/`).
  *   4. Store them in the "mesh" config, keeping a key stored earlier for the same endpoint only.
  *   5. No key yet: paste one, or request one from the hub (admins only; a member sees the 403).
- *   6. The chat, with the link mode (the widget's compact mode, whose menu holds Disconnect, Leave
- *      and, for a mesh admin, Invite: member or admin invitations with link, QR code, Share and
- *      Copy) and, for an admin, "Key for a member" (`../mesh/member-key.tsx`: mint a key to hand
- *      to a member) and the LiteLLM dashboard link in its header.
+ *   6. The chat -- `ChatApp`, the same one the standalone page renders. Its settings dialog gains
+ *      two tabs this page contributes (`registerMeshPanels`, Task 11): Sharing (the widget's
+ *      compact mode, whose menu holds Disconnect, Leave and, for a mesh admin, Invite: member or
+ *      admin invitations with link, QR code, Share and Copy) and, for an admin, Keys ("Key for a
+ *      member" -- `../mesh/member-key.tsx` mints a key to hand to a member -- plus the LiteLLM
+ *      dashboard link). Before the chat is reached (the stages below), there is no settings
+ *      dialog to contribute into yet, so the pre-chat header keeps showing its own link status
+ *      and dashboard link directly, exactly as before.
  *
  * THE ONE PAGE THAT REACHES HTTPEERS. Everything mesh-specific is here and in `../mesh/`; the chat
- * itself is `ChatApp` unchanged, handed a different config store.
+ * itself is `ChatApp` unchanged apart from Task 11's `slots` prop, handed a different config store.
  */
 
 import type { PeerSession, SessionState } from "@statewalker/httpeers-member";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { Slots } from "@statewalker/shared-slots";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createRoot } from "react-dom/client";
 import type { ChatConfig } from "../core/config.js";
 import { idbConfigStore, idbSessionStore } from "../core/idb.js";
@@ -37,9 +42,11 @@ import {
 } from "../mesh/discover.js";
 import { JoinWidgetView } from "../mesh/join-widget.js";
 import { MemberKeyButton } from "../mesh/member-key.js";
+import { createMeshSessionHandle, registerMeshPanels } from "../mesh/panels/index.js";
+import { DashboardLink } from "../mesh/panels/KeysPanel.js";
 import { startMeshSession } from "../mesh/session.js";
+import { buttonClass, inputClass, primaryButtonClass } from "../ui/button-styles.js";
 import { ChatApp } from "../ui/ChatApp.js";
-import { buttonClass, inputClass, primaryButtonClass } from "../ui/Modal.js";
 import "../ui/styles.css";
 
 const configStore = idbConfigStore("mesh");
@@ -136,30 +143,19 @@ function KeyStep({
   );
 }
 
-/**
- * `href` is `service.dashboardUrl` — always the dashboard's MOUNT,
- * `<edge><hub>/llm/ui/`, never a page inside it: `dashboardEntry` in
- * `../mesh/discover.ts` says why LiteLLM's login page must not be linked directly.
- */
-function DashboardLink({ href }: { href: string }) {
-  return (
-    <a
-      className="text-xs text-blue-700 underline"
-      href={href}
-      target="_blank"
-      rel="noopener noreferrer"
-    >
-      LiteLLM dashboard
-    </a>
-  );
-}
-
 function MeshPage() {
   const [state, setState] = useState<SessionState | null>(null);
   const [stage, setStage] = useState<Stage>({ kind: "session" });
   const [fatal, setFatal] = useState<string | null>(null);
   /** `true` once a key request succeeded, `false` once it was refused, `null` before either. */
   const [mintOutcome, setMintOutcome] = useState<boolean | null>(null);
+  /**
+   * The edge base discovery found, handed to `ChatApp` as the trust context for its own `?config=`
+   * handling (Task 10). `null` until discovery has run at least once -- `ChatApp` is not mounted
+   * before then (the "chat" stage below is the only place it renders), so a `?config=` on this
+   * page is naturally held rather than fetched until this is set.
+   */
+  const [edgeBase, setEdgeBase] = useState<string | null>(null);
   const sessionRef = useRef<PeerSession | null>(null);
   /** The handle discovery last ran for: a new join or reconnect gets a new handle, and runs it again. */
   const discoveredFor = useRef<unknown>(null);
@@ -169,6 +165,19 @@ function MeshPage() {
    * again") can never overwrite what a newer one decided.
    */
   const discoveryRun = useRef(0);
+
+  /**
+   * The bus `ChatApp`'s own settings dialog reads (passed in as its `slots` prop below), shared
+   * with `meshSession` so `registerMeshPanels`'s Sharing and Keys tabs land in the very same
+   * dialog Connection and Models do. One instance for the page's lifetime.
+   */
+  const slots = useMemo(() => new Slots(), []);
+  /** Written fresh on every render, below; read fresh by `SharingPanel`/`KeysPanel` on theirs. */
+  const meshSession = useMemo(() => createMeshSessionHandle(pageFetch), []);
+  useEffect(() => {
+    const dispose = registerMeshPanels(slots, meshSession);
+    return dispose;
+  }, [slots, meshSession]);
 
   useEffect(() => {
     let timer: ReturnType<typeof setInterval> | undefined;
@@ -208,9 +217,10 @@ function MeshPage() {
         setStage({ kind: "unavailable", message: "This mesh's hub advertises no LLM service." });
         return;
       }
-      const edgeBase = new URL(handle.baseUrl ?? "/peers/", location.href).href;
-      const service = await discoverLlm(pageFetch, edgeBase, hubPeerId);
+      const discoveredEdgeBase = new URL(handle.baseUrl ?? "/peers/", location.href).href;
+      const service = await discoverLlm(pageFetch, discoveredEdgeBase, hubPeerId);
       if (!current()) return;
+      setEdgeBase(discoveredEdgeBase);
       const config = meshConfig(await configStore.get(), service);
       if (!current()) return;
       await configStore.set(config);
@@ -235,6 +245,7 @@ function MeshPage() {
       discoveredFor.current = null;
       discoveryRun.current++;
       setStage({ kind: "session" });
+      setEdgeBase(null);
       return;
     }
     if (discoveredFor.current === handle) return;
@@ -269,18 +280,31 @@ function MeshPage() {
       </>
     ) : null;
 
+  // Kept fresh on every render, for `SharingPanel`/`KeysPanel` (Task 11) to read on theirs --
+  // see `mesh-session.ts`'s own comment for why this is a ref write, not a subscription.
+  meshSession.current = {
+    admin,
+    session,
+    state,
+    service: stage.kind === "chat" ? stage.service : null,
+    pageUrl: location.href,
+  };
+
   if (stage.kind === "chat") {
+    // The same call `standalone.tsx` makes, plus the mesh's own `configStore`/`edgeBase` and the
+    // shared `slots` bus -- no `headerExtra` any more: Sharing and Keys (Task 11) arrive as
+    // settings-dialog tabs through `registerMeshPanels`, not header elements.
     return (
       <ChatApp
         configStore={configStore}
         sessionStore={sessionStore}
         title="LLM chat"
-        headerExtra={
-          <>
-            {linkStatus}
-            {dashboard}
-          </>
-        }
+        // Discovery has already succeeded by the time this stage is reached, so `edgeBase` is
+        // never null here in practice -- see the field's own comment for why that is what makes
+        // a `?config=` on this page held until discovery, rather than fetched before it.
+        edgeBase={edgeBase}
+        fetchImpl={pageFetch}
+        slots={slots}
       />
     );
   }

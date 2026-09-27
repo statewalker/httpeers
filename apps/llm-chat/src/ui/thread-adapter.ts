@@ -6,7 +6,19 @@
  */
 
 import type { AppendMessage, ThreadMessageLike } from "@assistant-ui/react";
+import type { RunPhase } from "../core/chat-controller.js";
 import type { ChatMessage } from "../core/sessions.js";
+
+/**
+ * assistant-ui's `useExternalStoreRuntime` only knows a boolean `isRunning`; `phase` (Task 2) is
+ * our own richer source of truth (`idle` / `waiting` / `streaming`). Deriving `isRunning` from
+ * `phase` here -- rather than reading `ChatState.isRunning` directly -- keeps `phase` the one
+ * thing `Thread` has to pass through: the runtime still gets the field it reads, but it is
+ * computed, not duplicated.
+ */
+export function isRunningFor(phase: RunPhase): boolean {
+  return phase !== "idle";
+}
 
 export function messageId(index: number): string {
   return `m${index}`;

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { indexOfId, messageId, toThreadMessage } from "../src/ui/thread-adapter.js";
+import { indexOfId, isRunningFor, messageId, toThreadMessage } from "../src/ui/thread-adapter.js";
 
 describe("thread adapter", () => {
   it("round-trips a message index through its id", () => {
@@ -20,5 +20,11 @@ describe("thread adapter", () => {
       role: "assistant",
       content: [{ type: "text", text: "hi" }],
     });
+  });
+
+  it("treats only idle as not running", () => {
+    expect(isRunningFor("idle")).toBe(false);
+    expect(isRunningFor("waiting")).toBe(true);
+    expect(isRunningFor("streaming")).toBe(true);
   });
 });
