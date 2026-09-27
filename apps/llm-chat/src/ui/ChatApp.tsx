@@ -122,9 +122,11 @@ export function ChatApp({
   /** An untrusted `?config=` document, fetched and parsed, awaiting the user's decision. */
   const [pendingExternal, setPendingExternal] = useState<PendingExternalConfig | null>(null);
 
-  // The controller outlives renders; it reads the current config through this ref.
+  // The controller outlives renders; it reads the current config and fetch through these refs.
   const configRef = useRef<ChatConfig | null>(null);
   configRef.current = config ?? null;
+  const fetchRef = useRef(fetchImpl);
+  fetchRef.current = fetchImpl;
 
   const refreshSessions = useCallback(async () => {
     setSessions(await sessionStore.list());
@@ -134,7 +136,10 @@ export function ChatApp({
     () =>
       createChatController({
         sessions: sessionStore,
-        client: endpointClient(() => configRef.current),
+        client: endpointClient(
+          () => configRef.current,
+          () => fetchRef.current,
+        ),
         resolveModel: (session) => resolveModel(configRef.current, session?.model),
         onSaved: () => void refreshSessions(),
       }),

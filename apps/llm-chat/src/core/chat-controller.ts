@@ -236,13 +236,19 @@ export function createChatController(init: ChatControllerInit): ChatController {
   };
 }
 
-/** A `ChatClient` over whatever endpoint the config holds at call time. */
-export function endpointClient(getConfig: () => EndpointConfig | null): ChatClient {
+/**
+ * A `ChatClient` over whatever endpoint the config holds at call time, fetching through
+ * `getFetch()` when it returns one (the platform `fetch` otherwise).
+ */
+export function endpointClient(
+  getConfig: () => EndpointConfig | null,
+  getFetch: () => typeof fetch | undefined = () => undefined,
+): ChatClient {
   return {
     stream({ model, messages, signal }) {
       const config = getConfig();
       if (config == null) throw new Error("No endpoint is configured.");
-      return streamChat({ config, model, messages, signal });
+      return streamChat({ config, model, messages, signal, fetchImpl: getFetch() });
     },
   };
 }

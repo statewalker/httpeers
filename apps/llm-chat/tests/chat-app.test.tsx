@@ -6,7 +6,7 @@
  * two-dialog `SettingsDialog`/`ModelDialog` pair did.
  */
 
-import { act, fireEvent, render, screen } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { memoryConfigStore } from "../src/core/config.js";
@@ -350,6 +350,38 @@ describe("ChatApp ?config= wiring", () => {
     expect(screen.queryByRole("dialog", { name: /unfamiliar/i })).toBeNull();
     const saved = await configStore.get();
     expect(saved?.baseUrl).toBe("http://discovered.test/v1");
+  });
+});
+
+describe("ChatApp chat requests", () => {
+  // `fetchImpl` used to stop at the config and model calls: the chat stream went to the global
+  // `fetch`, so a test's stubbed endpoint was a real DNS lookup, and the elapsed-time test below
+  // failed whenever that lookup lost its race with the fake clock.
+  it("streams the reply through the injected fetchImpl, not the global fetch", async () => {
+    const configStore = memoryConfigStore({
+      baseUrl: "http://llm.test/v1",
+      models: ["m1"],
+      defaultModel: "m1",
+    });
+    const fetchImpl = vi.fn(() => new Promise<Response>(() => {})) as unknown as typeof fetch;
+
+    render(
+      <ChatApp
+        configStore={configStore}
+        sessionStore={memorySessionStore(testClock())}
+        fetchImpl={fetchImpl}
+      />,
+    );
+
+    fireEvent.change(await screen.findByLabelText("Message"), { target: { value: "hello" } });
+    fireEvent.click(screen.getByRole("button", { name: "Send" }));
+
+    await waitFor(() =>
+      expect(fetchImpl).toHaveBeenCalledWith(
+        "http://llm.test/v1/chat/completions",
+        expect.objectContaining({ method: "POST" }),
+      ),
+    );
   });
 });
 
