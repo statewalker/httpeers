@@ -1,6 +1,6 @@
-# EXPERIMENTAL -- NOT EXERCISED. Validated with `docker compose config` only;
-# never brought up (this machine's Compose, v2.3.3, cannot run it -- see
-# below). Do not rely on it without testing it yourself.
+# EXPERIMENTAL. Brought up on Compose 2.35.1 (2026-09-22) with and without
+# compose.test.yml: every service healthy, scripts/health.sh ALL PASS, and a
+# streamed chat through Traefik. Mesh reachability from outside was not tested.
 #
 # OPTIONAL, LINUX ONLY. Direct WebRTC instead of the relay-circuit fallback:
 #
@@ -65,7 +65,10 @@ services:
     network_mode: host
     networks: !reset []
     ports: !reset []
-    volumes: !reset
+    # `!override`, NOT `!reset`: `!reset` followed by a list clears the field
+    # to nothing, so Traefik started with no mounts, no /etc/traefik, and
+    # crash-looped on writing its usersfile (see compose.local.yml).
+    volumes: !override
       - ./traefik/dynamic.host.yml:/etc/traefik/dynamic/dynamic.yml:ro
     # `entrypoint:` is inherited from the base file; this replaces only
     # `command:` (a plain sequence, which DOES replace cleanly even on Compose

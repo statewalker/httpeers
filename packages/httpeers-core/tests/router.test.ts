@@ -103,6 +103,31 @@ describe("createPeerRouter: allowForward — deny by default (R-2)", () => {
     expect(new URL(forwarded.url).search).toBe("?a=1");
   });
 
+  // FIREFOX HAS NO `Request.prototype.body` (checked against 155). The
+  // relay-forward branch rebuilds the outbound request with `new
+  // Request(url, req)`, which reads `req.body` -- `undefined` there -- so a
+  // forwarded POST arrived at the target peer with no body at all, silently.
+  it("forwards a POST body where the runtime has no Request.body (Firefox)", async () => {
+    const { mounts } = build();
+    let received: string | null = null;
+    const remote = vi.fn(async (_peer: string, req: Request) => {
+      received = await req.text();
+      return new Response("ok");
+    });
+    const route = createPeerRouter({
+      selfPeerId: SELF,
+      mounts,
+      remote,
+      allowForward: async () => true,
+    });
+
+    const post = new Request(`http://p/${OTHER}/x`, { method: "POST", body: "ping" });
+    Object.defineProperty(post, "body", { value: undefined });
+
+    await route(post);
+    expect(received).toBe("ping");
+  });
+
   it("a denied forward never dials out even when the local mount table would have matched the remainder", async () => {
     // Guards against a router that only checks allowForward for the RESPONSE
     // shape but still constructs/dispatches the outbound request first.

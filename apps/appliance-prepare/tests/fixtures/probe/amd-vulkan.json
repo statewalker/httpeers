@@ -1,0 +1,33 @@
+{
+  "schemaVersion": 1,
+  "collectedAt": "2026-09-20T22:04:00.000Z",
+  "os": {
+    "kernel": "Linux",
+    "arch": "x86_64",
+    "prettyName": "Ubuntu 24.04.4 LTS"
+  },
+  "cpu": {
+    "cores": 8
+  },
+  "memory": {
+    "totalBytes": 33336774656
+  },
+  "docker": {
+    "engine": "28.1.1",
+    "compose": "2.35.1"
+  },
+  "dockerRuntimes": ["io.containerd.runc.v2", "runc"],
+  "nvidiaSmi": null,
+  "pciDisplay": [
+    {
+      "raw": "0000:03:00.0 VGA compatible controller [0300]: Advanced Micro Devices, Inc. [AMD/ATI] Navi 31 [Radeon RX 7900 XTX] [1002:744c] (rev c8)",
+      "vendorId": "1002",
+      "deviceId": "744c"
+    }
+  ],
+  "deviceNodes": {
+    "dri": ["renderD128"],
+    "mtgpu": [],
+    "kfd": false
+  }
+}

@@ -48,32 +48,51 @@ const body = JSON.stringify({
     api_key: "x",
   },
 });
-const { status, text } = await new Promise((resolve, reject) => {
-  const req = request(
-    {
-      host: "hub",
-      port: 8787,
-      method: "POST",
-      path,
-      headers: {
-        host: doorHost,
-        "x-hub-door-secret": doorSecret,
-        "content-type": "application/json",
-        "content-length": Buffer.byteLength(body),
-        "x-litellm-api-key": `Bearer ${masterKey}`,
+const post = (host, port, extraHeaders) =>
+  new Promise((resolve, reject) => {
+    const req = request(
+      {
+        host,
+        port,
+        method: "POST",
+        path,
+        headers: {
+          ...extraHeaders,
+          "content-type": "application/json",
+          "content-length": Buffer.byteLength(body),
+          "x-litellm-api-key": `Bearer ${masterKey}`,
+        },
       },
-    },
-    (res) => {
-      let text = "";
-      res.setEncoding("utf8");
-      res.on("data", (chunk) => {
-        text += chunk;
-      });
-      res.on("end", () => resolve({ status: res.statusCode ?? 0, text }));
-    },
+      (res) => {
+        let text = "";
+        res.setEncoding("utf8");
+        res.on("data", (chunk) => {
+          text += chunk;
+        });
+        res.on("end", () => resolve({ status: res.statusCode ?? 0, text }));
+      },
+    );
+    req.on("error", reject);
+    req.end(body);
+  });
+
+// UNDER compose.host.yml the hub is host-networked with its door on host
+// loopback: "hub" does not resolve and this bridge container cannot reach it.
+// LiteLLM stays on the bridge and serves the same root-mounted path itself, so
+// register there; the passthrough is still covered by scripts/health.sh
+// through Traefik.
+let target = "hub:8787";
+let result;
+try {
+  result = await post("hub", 8787, { host: doorHost, "x-hub-door-secret": doorSecret });
+} catch (error) {
+  if (error?.code !== "ENOTFOUND") throw error;
+  console.log(
+    "register-model: hub is not on this network (compose.host.yml); using LiteLLM directly",
   );
-  req.on("error", reject);
-  req.end(body);
-});
-console.log(`register-model: POST hub:8787${path} -> ${status} ${text}`);
+  target = "litellm:4000";
+  result = await post("litellm", 4000, {});
+}
+const { status, text } = result;
+console.log(`register-model: POST ${target}${path} -> ${status} ${text}`);
 process.exit(status >= 200 && status < 300 ? 0 : 1);

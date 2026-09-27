@@ -1,0 +1,99 @@
+# The llama-swap overlay. Hand-written and reviewed -- like compose.local.yml,
+# unlike compose.models.yml, which prepare generates.
+#
+# ALTERNATIVE to compose.models.yml, not an addition to it: where
+# compose.models.yml starts one always-resident `llama-server` container per
+# model in the tier, this file starts a SINGLE `llamaswap` container that
+# holds at most one model resident at a time, loading (and unloading the
+# previous one) on the first request for it -- llama-swap's own undeclared
+# default behaviour (verified against the bundled example config in
+# ghcr.io/mostlygeek/llama-swap:vulkan: "group1 reproduces llama-swap's
+# default behaviour: only one model runs at a time across the entire
+# instance"). See BACKENDS.md and BENCHMARK.md for what that trades away.
+#
+# LiteLLM still sits in front of it, unchanged in shape: `bin/prepare.sh
+# --llamaswap` (apps/appliance-prepare's `run()`) writes
+# litellm/config.local.yaml with every local model's `api_base` pointed at
+# `http://llamaswap:8080/v1` instead of one `llamacpp-<id>` service each --
+# LiteLLM still mints and revokes every member's key (apps/hub/src/services/
+# llm/keys.ts -> POST /key/generate), llama-swap never sees a member's key at
+# all. compose.local.yml's own `litellm.volumes` mount (config.local.yaml ->
+# /app/config.yaml) is untouched and does not need to be, since prepare
+# writes to that SAME path either way -- this file only adds the `llamaswap`
+# service itself.
+#
+# THE FOUR-FILE INVOCATION (see README.md "Local models: llama-swap
+# alternative" and BENCHMARK.md):
+#
+#   docker compose -f compose.yml -f compose.local.yml -f compose.models.yml \
+#     -f compose.llamaswap.yml up -d --wait hub postgres litellm traefik llamaswap
+#
+# compose.models.yml is still in the file list -- `bin/prepare.sh` always
+# writes it, llama-swap or not, and dropping it from `-f` would desync this
+# invocation from composeCommand()'s three-file one for no benefit. It is
+# harmless to REFERENCE: `docker compose up` only starts the services named
+# on the command line (plus their dependencies) -- naming exactly
+# hub/postgres/litellm/traefik/llamaswap, and never a bare `up` with no
+# service list, is what keeps its `llamacpp-<id>` services from starting
+# alongside `llamaswap` and silently doubling the resident-model count this
+# overlay exists to avoid.
+#
+# NO PORT. Like every llama-server service in compose.models.yml, `llamaswap`
+# is reachable only on the "appliance" network, by service name -- LiteLLM is
+# still the only path a member's request takes to reach a model.
+#
+# DEVICES. `/dev/dri:/dev/dri` is baked in, unconditionally -- unlike
+# compose.models.yml's `devicesFor(backend)`, this file is hand-written, not
+# generated per backend, and Intel Iris Xe via `/dev/dri` (vulkan/intel) is
+# the only backend this project's appliance has ever run on real hardware
+# (BACKENDS.md). A cpu-only host has no reason to use this overlay -- N=1
+# already on cpu, since compose.models.yml's cpu llama-server processes are
+# already both always resident and cheap to keep that way, nothing to swap
+# for. If this overlay is ever needed on a different GPU backend (cuda,
+# musa), add that backend's device wiring here by hand, the same way
+# compose.host.yml's own header tells the next editor to hand-adjust it.
+#
+# IMAGE TAG. ghcr.io/mostlygeek/llama-swap publishes the same five backend
+# suffixes (cpu, cuda, vulkan, intel, musa) apps/appliance-prepare/src/
+# backend.ts's own Backend type uses for ghcr.io/ggml-org/llama.cpp, so
+# ${LLAMA_BACKEND} (written to .env by every prepare run, --llamaswap or not)
+# selects the matching llama-swap image the same way LLAMA_IMAGE already
+# selects compose.models.yml's llama.cpp image -- verified against the real
+# ghcr.io/mostlygeek/llama-swap:vulkan image (`docker image inspect`):
+# entrypoint `/app/llama-swap -config /app/config.yaml -watch-config`, its
+# own bundled `/app/llama-server` binary, `curl` present.
+services:
+  llamaswap:
+    image: ghcr.io/mostlygeek/llama-swap:${LLAMA_BACKEND:-cpu}
+    restart: unless-stopped
+    networks:
+      - appliance
+    devices:
+      - "/dev/dri:/dev/dri"
+    volumes:
+      - ${APPLIANCE_MODELS_DIR:-./models}:/models:ro
+      - ./llamaswap/config.yaml:/app/config.yaml:ro
+    healthcheck:
+      # llama-swap's own HTTP server answers "/" as soon as it starts --
+      # before any model has ever been requested, since model processes are
+      # spawned lazily per request, not at container start. A healthy
+      # `llamaswap` therefore says nothing about whether a model has loaded
+      # yet, only that llama-swap itself is up and its config parsed.
+      test: ["CMD-SHELL", "curl -fsS http://127.0.0.1:8080/ || exit 1"]
+      interval: 5s
+      timeout: 5s
+      retries: 24
+      start_period: 15s
+
+  litellm:
+    # Merges into compose.yml's own litellm.depends_on map (postgres,
+    # service_healthy; hub, service_started) rather than replacing it --
+    # Compose merges mapping-type fields like this one across files, unlike
+    # the list-type fields (see compose.local.yml's `ports: !override`
+    # comment for the contrast). Makes `--wait` also wait for `llamaswap`
+    # before considering the stack up, instead of racing LiteLLM's own
+    # readiness against a `llamaswap` container that has not finished
+    # starting.
+    depends_on:
+      llamaswap:
+        condition: service_healthy

@@ -1,0 +1,33 @@
+{
+  "schemaVersion": 1,
+  "collectedAt": "2026-09-20T22:04:00.000Z",
+  "os": {
+    "kernel": "Linux",
+    "arch": "x86_64",
+    "prettyName": "Ubuntu 24.04.4 LTS"
+  },
+  "cpu": {
+    "cores": 8
+  },
+  "memory": {
+    "totalBytes": 33336774656
+  },
+  "docker": {
+    "engine": "28.1.1",
+    "compose": "2.35.1"
+  },
+  "dockerRuntimes": ["io.containerd.runc.v2", "runc"],
+  "nvidiaSmi": null,
+  "pciDisplay": [
+    {
+      "raw": "0000:00:02.0 VGA compatible controller [0300]: Intel Corporation TigerLake-LP GT2 [Iris Xe Graphics] [8086:9a49] (rev 01)",
+      "vendorId": "8086",
+      "deviceId": "9a49"
+    }
+  ],
+  "deviceNodes": {
+    "dri": ["card1", "renderD128"],
+    "mtgpu": [],
+    "kfd": false
+  }
+}

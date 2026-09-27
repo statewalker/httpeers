@@ -1,0 +1,15 @@
+llamacpp-qwen2-5-3b-instruct  | 0.00.004.918 I srv  llama_server: initializing ...
+llamacpp-qwen2-5-3b-instruct  | 0.00.133.864 I cmn  common_param: build 11058 (f072b1037) with IntelLLVM 2025.3.3 for Linux x86_64
+llamacpp-qwen2-5-3b-instruct  | 0.00.133.867 I cmn  common_param: device_info:
+llamacpp-qwen2-5-3b-instruct  | 0.00.133.890 I cmn  common_param:   - SYCL0   : Intel(R) Iris(R) Xe Graphics (11029 MiB, 9480 MiB free)
+llamacpp-qwen2-5-3b-instruct  | 0.00.133.895 I cmn  common_param:   - CPU     : 11th Gen Intel(R) Core(TM) i7-1165G7 @ 2.80GHz (31792 MiB, 31792 MiB free)
+llamacpp-qwen2-5-3b-instruct  | 0.00.174.130 I llama_model_loader: loaded meta data with 29 key-value pairs and 291 tensors from /models/qwen2.5-3b-instruct/qwen2.5-3b-instruct-q4_k_m.gguf
+llamacpp-qwen2-5-3b-instruct  | 0.00.208.845 I llama_prepare_model_devices: using device SYCL0 (Intel(R) Iris(R) Xe Graphics) (unknown id) - 9480 MiB free
+llamacpp-qwen2-5-3b-instruct  | 0.00.316.065 I load_tensors: offloading output layer to GPU
+llamacpp-qwen2-5-3b-instruct  | 0.00.316.065 I load_tensors: offloading 35 repeating layers to GPU
+llamacpp-qwen2-5-3b-instruct  | 0.00.316.065 I load_tensors: offloaded 36/36 layers to GPU
+llamacpp-qwen2-5-3b-instruct  | 0.00.316.067 I load_tensors:        SYCL0 model buffer size =  1918.35 MiB
+llamacpp-qwen2-5-3b-instruct  | 0.01.271.190 I llama_kv_cache:      SYCL0 KV buffer size =    28.00 MiB
+llamacpp-qwen2-5-3b-instruct  | 0.01.276.237 I sched_reserve:      SYCL0 compute buffer size =    76.50 MiB
+llamacpp-qwen2-5-3b-instruct  | 1.49.064.117 I srv  llama_server: model loaded
+llamacpp-qwen2-5-3b-instruct  | 1.49.064.128 I srv  llama_server: listening on http://0.0.0.0:8080

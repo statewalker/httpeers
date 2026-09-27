@@ -32,7 +32,7 @@ import { createSession } from "@statewalker/httpeers-member/browser";
 import { MARKER, type Upstream } from "@statewalker/webrun-http-proxy";
 import { Hono } from "hono";
 import { EDGE_KEY, meshRules } from "../shared/policy.js";
-import { proxyUpstream } from "../shared/proxy-upstream.js";
+import { proxyUpstream, rewriteForUpstream } from "../shared/proxy-upstream.js";
 import { needsPermissiveGater, readRelayAddrs } from "../shared/relay.js";
 import { localStorageRouteStore, type StoredRoute } from "../shared/route-store.js";
 
@@ -77,10 +77,11 @@ function buildRouter(stored: readonly StoredRoute[]): (request: Request) => Prom
 
   for (const route of stored) {
     const upstream = upstreamFor(route);
-    const forward = (c: { req: { url: string; raw: Request } }): Promise<Response> => {
+    const forward = async (c: { req: { url: string; raw: Request } }): Promise<Response> => {
       const url = new URL(c.req.url);
       const rest = url.pathname.slice(route.prefix.length) || "/";
-      return upstream(new Request(`http://upstream${rest}${url.search}`, c.req.raw));
+      const rewritten = await rewriteForUpstream(c.req.raw, `http://upstream${rest}${url.search}`);
+      return upstream(rewritten);
     };
     app.all(`${route.prefix}/:rest{.*}`, forward);
     app.all(route.prefix, forward);

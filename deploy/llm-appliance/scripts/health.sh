@@ -1,11 +1,13 @@
 #!/bin/sh
 # Smoke-checks the appliance through the same door a real client uses:
-# Traefik, on 127.0.0.1:8080 (basic auth except on LiteLLM's own paths). Run from deploy/llm-appliance:
+# Traefik, on 127.0.0.1:${APPLIANCE_DOOR_PORT:-8080} (basic auth except on
+# LiteLLM's own paths). Run from deploy/llm-appliance:
 #
 #   ./scripts/health.sh
 #
-# Reads .env for credentials — never run this against a directory without one.
-# Prints PASS/FAIL per check; exits non-zero if any check failed.
+# Reads .env for credentials AND the door port — never run this against a
+# directory without one. Prints PASS/FAIL per check; exits non-zero if any
+# check failed.
 set -u
 cd "$(dirname "$0")/.."
 
@@ -49,7 +51,7 @@ if [ -z "${HUB_PEER_ID:-}" ]; then
 fi
 
 AUTH="${ADMIN_USER:-admin}:${ADMIN_PASSWORD:-}"
-BASE="http://127.0.0.1:8080"
+BASE="http://127.0.0.1:${APPLIANCE_DOOR_PORT:-8080}"
 
 # 3. Through Traefik, with basic auth: the admin REST API.
 STATUS=$(curl -s -o /tmp/health-mesh.json -w '%{http_code}' -u "$AUTH" "$BASE/hub/api/mesh")

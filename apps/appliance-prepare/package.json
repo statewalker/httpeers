@@ -1,0 +1,19 @@
+{
+  "name": "@statewalker/httpeers-appliance-prepare",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Detects the host's hardware and generates the local-model appliance's compose and LiteLLM configuration. Stdlib only: it runs in a stock node:22-alpine with the repo bind-mounted.",
+  "scripts": {
+    "test": "vitest run",
+    "typecheck": "tsc --noEmit",
+    "lint": "biome check --write src tests",
+    "lint:check": "biome check src tests"
+  },
+  "devDependencies": {
+    "@biomejs/biome": "catalog:",
+    "@types/node": "catalog:",
+    "typescript": "catalog:",
+    "vitest": "catalog:"
+  }
+}

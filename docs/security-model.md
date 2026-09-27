@@ -305,16 +305,26 @@ restarted; and a second ghost asking for a key outside
 local origin serves every session name there, so it measures the protocol and
 the routing, not the per-name isolation (that is the 2026-09-18 run above).
 
-**Written but NOT yet run (2026-09-21):** the same explicit `/peers/<peerId>/...`
-GET and POST made by a real mesh app inside a real session origin, over libp2p,
-on `*.p.httpeers.net` — plus the refusal a `/peers/` path naming a non-member
-gets. The checks exist in `apps/demos/scripts/session-smoke.mjs`; they have not
-been run, because the shell, hub and app pages on the live domains are older
-than the branch that added the mesh mount, and a smoke run against them would
-measure the old deployment and say nothing about this one. Publishing is a
-deliberate, separate act (the bucket is a live FUSE mount — see
-`apps/demos/README.md`), so **treat the real-domain mesh call as unverified
-until that run is recorded here.**
+**Measured (2026-09-26, Chromium and Firefox, the real `*.p.httpeers.net`
+domains, a mesh app served by the hub over libp2p;
+`apps/demos/scripts/session-smoke.mjs`, 48/48):** an explicit
+`GET /peers/<peerId>/...` from inside a session origin reaches that peer, and a
+`POST /peers/<peerId>/...` arrives **with its body** — `76 bytes of 76` in BOTH
+engines. A `/peers/` path naming a peer that is not in the mesh is refused
+promptly (401 in 137 ms in Chromium, 3.4 s in Firefox), not hung.
+
+That POST is the case this file previously recorded as unverified, and running
+it is what found the defect: on 2026-09-21 the same check reported
+`0 bytes of 76 sent`, Firefox only, with a passing GET beside it. **Firefox has
+no `Request.prototype.body`**, so every forwarder that rebuilt a request with
+`body: request.body` — or with the init-from-`Request` form `new Request(url,
+req)`, which reads the same property — dropped the payload silently. Five sites
+carried it: `httpeers-member/src/edge-dispatch.ts`, both
+`httpeers-core/src/router.ts` sites, the demos proxy page's own rewrite, and
+`urlUpstream` in `@statewalker/webrun-http-proxy` (fixed in 0.2.1). None of them
+was caught by a local suite: the browser harness serves the mesh with a
+stand-in, so a POST there never crosses the gateway-and-edge chain where this
+breaks. Treat a green local run as saying nothing about this path.
 
 **Not yet verified (each a distinct future probe):** CSP relaxation across a
 redirect; whether a hostile ghost app can reach the viewer's *own* edge when both

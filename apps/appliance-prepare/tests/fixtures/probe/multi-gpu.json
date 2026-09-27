@@ -1,0 +1,56 @@
+{
+  "schemaVersion": 1,
+  "collectedAt": "2026-09-20T22:04:00.000Z",
+  "os": {
+    "kernel": "Linux",
+    "arch": "x86_64",
+    "prettyName": "Ubuntu 24.04.4 LTS"
+  },
+  "cpu": {
+    "cores": 8
+  },
+  "memory": {
+    "totalBytes": 33336774656
+  },
+  "docker": {
+    "engine": "28.1.1",
+    "compose": "2.35.1"
+  },
+  "dockerRuntimes": ["io.containerd.runc.v2", "runc", "nvidia"],
+  "nvidiaSmi": {
+    "gpus": [
+      {
+        "name": "NVIDIA GeForce RTX 4090",
+        "memoryTotalMiB": 24564,
+        "driver": "560.35.03"
+      }
+    ]
+  },
+  "pciDisplay": [
+    {
+      "raw": "0000:01:00.0 VGA compatible controller [0300]: NVIDIA Corporation AD102 [GeForce RTX 4090] [10de:2684] (rev a1)",
+      "vendorId": "10de",
+      "deviceId": "2684"
+    },
+    {
+      "raw": "0000:02:00.0 VGA compatible controller [0300]: Moore Threads Technology Co., Ltd. MTT S80 [1ed5:0100]",
+      "vendorId": "1ed5",
+      "deviceId": "0100"
+    },
+    {
+      "raw": "0000:00:02.0 VGA compatible controller [0300]: Intel Corporation TigerLake-LP GT2 [Iris Xe Graphics] [8086:9a49] (rev 01)",
+      "vendorId": "8086",
+      "deviceId": "9a49"
+    },
+    {
+      "raw": "0000:03:00.0 VGA compatible controller [0300]: Advanced Micro Devices, Inc. [AMD/ATI] Navi 31 [Radeon RX 7900 XTX] [1002:744c] (rev c8)",
+      "vendorId": "1002",
+      "deviceId": "744c"
+    }
+  ],
+  "deviceNodes": {
+    "dri": ["card1", "renderD128"],
+    "mtgpu": ["mtgpu0"],
+    "kfd": false
+  }
+}
