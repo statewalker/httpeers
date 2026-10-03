@@ -1,6 +1,6 @@
 {
   "name": "@statewalker/httpeers-bridge",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "type": "module",
   "description": "Fetch over a duplex, both directions, with no transport in it. The seam libp2p, MessagePorts and anything else plug into.",
   "license": "MIT",

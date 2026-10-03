@@ -13,7 +13,7 @@ catalog:
   "@libp2p/circuit-relay-v2": 4.2.11
   "@libp2p/crypto": 5.1.22
   "@libp2p/identify": 4.1.12
-  "@libp2p/interface": 3.2.5
+  "@libp2p/interface": 3.3.0
   "@libp2p/peer-id": 6.0.14
   "@libp2p/tcp": 11.0.26
   "@libp2p/utils": 7.4.1
@@ -90,12 +90,6 @@ onlyBuiltDependencies:
   # (`httpeers-conformance/tests/runtime-import.test.ts`).
   - node-datachannel
 
-# One @libp2p/interface for the whole graph. The packages pin 3.2.5 (catalog), but
-# libp2p and its plugins depend on ^3.x and resolve 3.3.0 on a fresh resolution:
-# two copies make Libp2p types incompatible (TS2322 in httpeers-libp2p). The
-# upstream lockfile only worked because it predates 3.3.0.
-overrides:
-  "@libp2p/interface": 3.2.5
 
 catalogs:
   peers:
