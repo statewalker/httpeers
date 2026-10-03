@@ -39,15 +39,15 @@
   },
   "dependencies": {
     "@statewalker/httpeers-core": "workspace:*",
-    "@statewalker/webrun-biscuit": "^0.2.1",
-    "multiformats": "14.0.5"
+    "@statewalker/webrun-biscuit": "workspace:*",
+    "multiformats": "catalog:"
   },
   "devDependencies": {
     "@biomejs/biome": "catalog:",
-    "@biscuit-auth/biscuit-wasm": "0.6.0",
-    "@libp2p/crypto": "5.1.22",
-    "@libp2p/interface": "3.2.5",
-    "@libp2p/peer-id": "6.0.14",
+    "@biscuit-auth/biscuit-wasm": "catalog:",
+    "@libp2p/crypto": "catalog:",
+    "@libp2p/interface": "catalog:",
+    "@libp2p/peer-id": "catalog:",
     "@types/node": "catalog:",
     "typescript": "catalog:",
     "vitest": "catalog:"

@@ -1,14 +1,14 @@
 /**
  * Candidates, against storage. The only module that decides what "exists".
  */
-import type { FileStats, FilesApi } from "@statewalker/webrun-files";
+import type { FileEntryStats, FilesApi } from "@statewalker/webrun-files";
 import { type CandidateKind, candidates, isConfigPath, normalizeRequestPath } from "./resolve.js";
 
 export interface FoundFile {
   found: true;
   /** The full storage path, including the site prefix. */
   storagePath: string;
-  stats: FileStats;
+  stats: FileEntryStats;
   kind: CandidateKind;
 }
 
@@ -29,7 +29,7 @@ const NOT_FOUND: LookupResult = { found: false };
 export async function statFile(
   files: FilesApi,
   storagePath: string,
-): Promise<FileStats | undefined> {
+): Promise<FileEntryStats | undefined> {
   const stats = await files.stats(storagePath);
   return stats?.kind === "file" ? stats : undefined;
 }

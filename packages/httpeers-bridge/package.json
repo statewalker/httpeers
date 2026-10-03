@@ -35,9 +35,9 @@
   },
   "dependencies": {
     "@statewalker/httpeers-core": "workspace:*",
-    "@statewalker/webrun-http-streams": "^0.2.2",
-    "@statewalker/webrun-rpc": "^0.4.0",
-    "@statewalker/webrun-streams": "^0.2.0"
+    "@statewalker/webrun-http-streams": "catalog:",
+    "@statewalker/webrun-rpc": "catalog:",
+    "@statewalker/webrun-streams": "catalog:"
   },
   "devDependencies": {
     "@biomejs/biome": "catalog:",

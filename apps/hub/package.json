@@ -25,31 +25,31 @@
     "lint:check": "biome check src tests ui"
   },
   "dependencies": {
-    "@chainsafe/libp2p-noise": "17.0.0",
-    "@chainsafe/libp2p-yamux": "8.0.1",
-    "@hono/node-server": "2.1.1",
-    "@libp2p/circuit-relay-v2": "4.2.11",
-    "@libp2p/identify": "4.1.12",
-    "@libp2p/interface": "3.2.5",
-    "@libp2p/webrtc": "6.0.29",
-    "@libp2p/websockets": "10.1.19",
+    "@chainsafe/libp2p-noise": "catalog:",
+    "@chainsafe/libp2p-yamux": "catalog:",
+    "@hono/node-server": "catalog:",
+    "@libp2p/circuit-relay-v2": "catalog:",
+    "@libp2p/identify": "catalog:",
+    "@libp2p/interface": "catalog:",
+    "@libp2p/webrtc": "catalog:",
+    "@libp2p/websockets": "catalog:",
     "@statewalker/httpeers-access": "workspace:*",
     "@statewalker/httpeers-core": "workspace:*",
     "@statewalker/httpeers-hub": "workspace:*",
     "@statewalker/httpeers-libp2p": "workspace:*",
     "@statewalker/httpeers-member": "workspace:*",
     "@statewalker/httpeers-qr": "workspace:*",
-    "@statewalker/webrun-http-proxy": "^0.2.1",
-    "libp2p": "3.3.8"
+    "@statewalker/webrun-http-proxy": "catalog:",
+    "libp2p": "catalog:"
   },
   "devDependencies": {
     "@biomejs/biome": "catalog:",
-    "@libp2p/crypto": "5.1.22",
+    "@libp2p/crypto": "catalog:",
     "@statewalker/httpeers-relay": "workspace:*",
     "@types/node": "catalog:",
-    "playwright": "^1.63.0",
+    "playwright": "catalog:",
     "typescript": "catalog:",
-    "vite": "^8.3.0",
+    "vite": "catalog:",
     "vitest": "catalog:"
   }
 }

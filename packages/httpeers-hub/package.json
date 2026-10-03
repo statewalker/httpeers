@@ -43,7 +43,7 @@
     "hono": "catalog:"
   },
   "peerDependencies": {
-    "@statewalker/webrun-files": "^0.9.0"
+    "@statewalker/webrun-files": "catalog:peers"
   },
   "peerDependenciesMeta": {
     "@statewalker/webrun-files": {

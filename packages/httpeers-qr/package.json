@@ -34,14 +34,14 @@
     "lint:check": "biome check src tests"
   },
   "dependencies": {
-    "jsqr": "^1.4.0",
-    "qrcode-generator": "^2.0.4"
+    "jsqr": "catalog:",
+    "qrcode-generator": "catalog:"
   },
   "devDependencies": {
     "@biomejs/biome": "catalog:",
     "@types/node": "catalog:",
-    "html5-qrcode": "^2.3.8",
-    "sharp": "^0.35.4",
+    "html5-qrcode": "catalog:",
+    "sharp": "catalog:",
     "typescript": "catalog:",
     "vitest": "catalog:"
   },
@@ -49,7 +49,7 @@
     "access": "public"
   },
   "peerDependencies": {
-    "html5-qrcode": "^2.3.8"
+    "html5-qrcode": "catalog:peers"
   },
   "peerDependenciesMeta": {
     "html5-qrcode": {

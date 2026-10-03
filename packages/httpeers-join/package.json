@@ -32,12 +32,12 @@
   "dependencies": {
     "@statewalker/httpeers-member": "workspace:*",
     "@statewalker/httpeers-qr": "workspace:*",
-    "html5-qrcode": "^2.3.8"
+    "html5-qrcode": "catalog:"
   },
   "devDependencies": {
     "@biomejs/biome": "catalog:",
     "@types/node": "catalog:",
-    "happy-dom": "^20.14.5",
+    "happy-dom": "catalog:",
     "typescript": "catalog:",
     "vitest": "catalog:"
   },
