@@ -3,6 +3,10 @@ packages:
   - "packages/*"
 
 catalog:
+  "@noble/curves": ^2.4.0
+  "@noble/hashes": ^2.4.0
+  rimraf: ^6.1.3
+  rolldown: ^1.2.4
   "@biomejs/biome": ^2.5.8
   "@statewalker/webrun-files": ^0.9.0
   "@statewalker/webrun-files-mem": ^0.9.0
