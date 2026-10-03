@@ -16,9 +16,9 @@
   },
   "devDependencies": {
     "@biomejs/biome": "catalog:",
-    "@statewalker/httpeers-access": "workspace:*",
-    "@statewalker/httpeers-core": "workspace:*",
-    "@statewalker/httpeers-member": "workspace:*",
+    "@statewalker/httpeers-access": "workspace:^",
+    "@statewalker/httpeers-core": "workspace:^",
+    "@statewalker/httpeers-member": "workspace:^",
     "@statewalker/webrun-http-browser": "catalog:",
     "@types/node": "catalog:",
     "@vitest/browser-playwright": "catalog:",

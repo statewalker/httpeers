@@ -38,8 +38,8 @@
     "lint:check": "biome check src tests"
   },
   "dependencies": {
-    "@statewalker/httpeers-core": "workspace:*",
-    "@statewalker/webrun-biscuit": "workspace:*",
+    "@statewalker/httpeers-core": "workspace:^",
+    "@statewalker/webrun-biscuit": "workspace:^",
     "multiformats": "catalog:"
   },
   "devDependencies": {

@@ -38,8 +38,8 @@
     "lint:check": "biome check src tests"
   },
   "dependencies": {
-    "@statewalker/httpeers-access": "workspace:*",
-    "@statewalker/httpeers-core": "workspace:*",
+    "@statewalker/httpeers-access": "workspace:^",
+    "@statewalker/httpeers-core": "workspace:^",
     "hono": "catalog:"
   },
   "peerDependencies": {

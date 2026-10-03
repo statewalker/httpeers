@@ -42,9 +42,9 @@
     "lint:check": "biome check src tests"
   },
   "dependencies": {
-    "@statewalker/httpeers-access": "workspace:*",
-    "@statewalker/httpeers-core": "workspace:*",
-    "@statewalker/httpeers-libp2p": "workspace:*",
+    "@statewalker/httpeers-access": "workspace:^",
+    "@statewalker/httpeers-core": "workspace:^",
+    "@statewalker/httpeers-libp2p": "workspace:^",
     "@libp2p/interface": "catalog:",
     "@libp2p/peer-id": "catalog:",
     "@multiformats/multiaddr": "catalog:"

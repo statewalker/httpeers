@@ -30,8 +30,8 @@
     "lint:check": "biome check src tests"
   },
   "dependencies": {
-    "@statewalker/httpeers-member": "workspace:*",
-    "@statewalker/httpeers-qr": "workspace:*",
+    "@statewalker/httpeers-member": "workspace:^",
+    "@statewalker/httpeers-qr": "workspace:^",
     "html5-qrcode": "catalog:"
   },
   "devDependencies": {

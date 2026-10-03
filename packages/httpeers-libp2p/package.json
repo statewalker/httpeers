@@ -50,8 +50,8 @@
     "@libp2p/webrtc": "catalog:",
     "@libp2p/websockets": "catalog:",
     "@multiformats/multiaddr": "catalog:",
-    "@statewalker/httpeers-bridge": "workspace:*",
-    "@statewalker/httpeers-core": "workspace:*",
+    "@statewalker/httpeers-bridge": "workspace:^",
+    "@statewalker/httpeers-core": "workspace:^",
     "@statewalker/webrun-http-streams": "catalog:",
     "@statewalker/webrun-streams": "catalog:",
     "@statewalker/webrun-streams-libp2p": "catalog:",
@@ -59,7 +59,7 @@
   },
   "devDependencies": {
     "@biomejs/biome": "catalog:",
-    "@statewalker/httpeers-access": "workspace:*",
+    "@statewalker/httpeers-access": "workspace:^",
     "@types/node": "catalog:",
     "typescript": "catalog:",
     "vitest": "catalog:"

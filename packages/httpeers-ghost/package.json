@@ -30,7 +30,7 @@
     "lint:check": "biome check src tests"
   },
   "dependencies": {
-    "@statewalker/httpeers-core": "workspace:*"
+    "@statewalker/httpeers-core": "workspace:^"
   },
   "devDependencies": {
     "@biomejs/biome": "catalog:",
