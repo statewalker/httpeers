@@ -980,36 +980,15 @@ importers:
 
   packages/httpeers-member:
     dependencies:
-      '@chainsafe/libp2p-noise':
-        specifier: 'catalog:'
-        version: 17.0.0
-      '@chainsafe/libp2p-yamux':
-        specifier: 'catalog:'
-        version: 8.0.1
-      '@libp2p/circuit-relay-v2':
-        specifier: 'catalog:'
-        version: 4.2.13
       '@libp2p/crypto':
         specifier: 'catalog:'
         version: 5.1.23
-      '@libp2p/identify':
-        specifier: 'catalog:'
-        version: 4.1.14
       '@libp2p/interface':
         specifier: 'catalog:'
         version: 3.3.0
       '@libp2p/peer-id':
         specifier: 'catalog:'
         version: 6.0.15
-      '@libp2p/tcp':
-        specifier: 'catalog:'
-        version: 11.0.28
-      '@libp2p/webrtc':
-        specifier: 'catalog:'
-        version: 6.0.33(react-native@0.87.1(@babel/core@7.29.7)(@types/react@19.3.0)(react@19.3.0))
-      '@libp2p/websockets':
-        specifier: 'catalog:'
-        version: 10.1.21
       '@multiformats/multiaddr':
         specifier: 'catalog:'
         version: 13.0.3
@@ -1022,13 +1001,31 @@ importers:
       '@statewalker/httpeers-libp2p':
         specifier: workspace:^
         version: link:../httpeers-libp2p
-      libp2p:
-        specifier: 'catalog:'
-        version: 3.3.11
     devDependencies:
       '@biomejs/biome':
         specifier: 'catalog:'
         version: 2.5.15
+      '@chainsafe/libp2p-noise':
+        specifier: 'catalog:'
+        version: 17.0.0
+      '@chainsafe/libp2p-yamux':
+        specifier: 'catalog:'
+        version: 8.0.1
+      '@libp2p/circuit-relay-v2':
+        specifier: 'catalog:'
+        version: 4.2.13
+      '@libp2p/identify':
+        specifier: 'catalog:'
+        version: 4.1.14
+      '@libp2p/tcp':
+        specifier: 'catalog:'
+        version: 11.0.28
+      '@libp2p/webrtc':
+        specifier: 'catalog:'
+        version: 6.0.33(react-native@0.87.1(@babel/core@7.29.7)(@types/react@19.3.0)(react@19.3.0))
+      '@libp2p/websockets':
+        specifier: 'catalog:'
+        version: 10.1.21
       '@statewalker/webrun-http-browser':
         specifier: 'catalog:'
         version: 0.6.0
@@ -1038,6 +1035,9 @@ importers:
       idb-keyval:
         specifier: 'catalog:'
         version: 6.3.0
+      libp2p:
+        specifier: 'catalog:'
+        version: 3.3.11
       typescript:
         specifier: 'catalog:'
         version: 7.0.2

@@ -93,7 +93,15 @@ onlyBuiltDependencies:
 
 catalogs:
   peers:
+    "@chainsafe/libp2p-noise": "^17.0.0"
+    "@chainsafe/libp2p-yamux": "^8.0.1"
+    "@libp2p/circuit-relay-v2": "^4.2.13"
+    "@libp2p/identify": "^4.1.14"
+    "@libp2p/tcp": "^11.0.28"
+    "@libp2p/webrtc": "^6.0.33"
+    "@libp2p/websockets": "^10.1.21"
     "@statewalker/webrun-files": "^0.9.0 || ^0.10.0"
     "@statewalker/webrun-http-browser": "^0.6.0"
     "html5-qrcode": "^2.3.8"
     "idb-keyval": "^6.3.0"
+    "libp2p": "^3.3.11"

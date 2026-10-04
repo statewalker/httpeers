@@ -46,39 +46,71 @@
     "lint:check": "biome check src tests"
   },
   "dependencies": {
-    "@chainsafe/libp2p-noise": "catalog:",
-    "@chainsafe/libp2p-yamux": "catalog:",
-    "@libp2p/circuit-relay-v2": "catalog:",
     "@libp2p/crypto": "catalog:",
-    "@libp2p/identify": "catalog:",
     "@libp2p/interface": "catalog:",
     "@libp2p/peer-id": "catalog:",
-    "@libp2p/tcp": "catalog:",
-    "@libp2p/webrtc": "catalog:",
-    "@libp2p/websockets": "catalog:",
     "@multiformats/multiaddr": "catalog:",
     "@statewalker/httpeers-access": "workspace:^",
     "@statewalker/httpeers-core": "workspace:^",
-    "@statewalker/httpeers-libp2p": "workspace:^",
-    "libp2p": "catalog:"
+    "@statewalker/httpeers-libp2p": "workspace:^"
   },
   "peerDependencies": {
+    "@chainsafe/libp2p-noise": "catalog:peers",
+    "@chainsafe/libp2p-yamux": "catalog:peers",
+    "@libp2p/circuit-relay-v2": "catalog:peers",
+    "@libp2p/identify": "catalog:peers",
+    "@libp2p/tcp": "catalog:peers",
+    "@libp2p/webrtc": "catalog:peers",
+    "@libp2p/websockets": "catalog:peers",
     "@statewalker/webrun-http-browser": "catalog:peers",
-    "idb-keyval": "catalog:peers"
+    "idb-keyval": "catalog:peers",
+    "libp2p": "catalog:peers"
   },
   "peerDependenciesMeta": {
+    "@chainsafe/libp2p-noise": {
+      "optional": true
+    },
+    "@chainsafe/libp2p-yamux": {
+      "optional": true
+    },
+    "@libp2p/circuit-relay-v2": {
+      "optional": true
+    },
+    "@libp2p/identify": {
+      "optional": true
+    },
+    "@libp2p/tcp": {
+      "optional": true
+    },
+    "@libp2p/webrtc": {
+      "optional": true
+    },
+    "@libp2p/websockets": {
+      "optional": true
+    },
     "@statewalker/webrun-http-browser": {
       "optional": true
     },
     "idb-keyval": {
       "optional": true
+    },
+    "libp2p": {
+      "optional": true
     }
   },
   "devDependencies": {
     "@biomejs/biome": "catalog:",
+    "@chainsafe/libp2p-noise": "catalog:",
+    "@chainsafe/libp2p-yamux": "catalog:",
+    "@libp2p/circuit-relay-v2": "catalog:",
+    "@libp2p/identify": "catalog:",
+    "@libp2p/tcp": "catalog:",
+    "@libp2p/webrtc": "catalog:",
+    "@libp2p/websockets": "catalog:",
     "@statewalker/webrun-http-browser": "catalog:",
     "@types/node": "catalog:",
     "idb-keyval": "catalog:",
+    "libp2p": "catalog:",
     "typescript": "catalog:",
     "vitest": "catalog:"
   },
