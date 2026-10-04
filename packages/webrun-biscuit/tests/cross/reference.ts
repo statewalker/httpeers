@@ -208,4 +208,6 @@ const normalizeChecks = (checks: any[]): Outcome["checks"] =>
 
 /** Failed checks of either implementation's result, for a field-by-field comparison. */
 export const checksOf = (outcome: { kind: string; checks?: unknown }): unknown =>
-  outcome.kind === "unauthorized" || outcome.kind === "noMatchingPolicy" ? outcome.checks : undefined;
+  outcome.kind === "unauthorized" || outcome.kind === "noMatchingPolicy"
+    ? outcome.checks
+    : undefined;

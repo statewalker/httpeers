@@ -15,6 +15,7 @@ import {
   sign,
 } from "./crypto.js";
 import type { Check, Op, Predicate, Rule, Scope, Term } from "./datalog.js";
+import type { Params } from "./parser.js";
 import {
   type BiscuitMsg,
   type BlockMsg,
@@ -30,7 +31,6 @@ import {
   type ScopeMsg,
   type TermMsg,
 } from "./proto.js";
-import type { Params } from "./parser.js";
 import { DATALOG_3_2, requiredVersion } from "./version.js";
 
 const SIGNATURE_VERSION = 1;

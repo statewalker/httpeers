@@ -118,8 +118,8 @@ const MUTATIONS = [
   {
     name: "parser/zero-term-predicates",
     file: "src/parser.ts",
-    find: "    if (this.peek(\")\")) throw new ParseError(`predicate ${name} takes at least one term`);",
-    replace: "    if (this.eat(\")\")) return { name, terms: [] };",
+    find: '    if (this.peek(")")) throw new ParseError(`predicate ${name} takes at least one term`);',
+    replace: '    if (this.eat(")")) return { name, terms: [] };',
     note: "`f()` parses — source the reference rejects, and a check that can never mean anything",
   },
   {

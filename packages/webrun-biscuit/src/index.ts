@@ -41,7 +41,7 @@ export {
   type RunLimits,
   type Term,
 } from "./datalog.js";
-export { type ParamValue, type Params, ParseError } from "./parser.js";
+export { type Params, type ParamValue, ParseError } from "./parser.js";
 export { ProtoError } from "./proto.js";
 export * from "./version.js";
 

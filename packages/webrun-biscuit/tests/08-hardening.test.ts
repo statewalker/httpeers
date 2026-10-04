@@ -159,7 +159,10 @@ const timed = <T>(run: () => T): [T, number] => {
 
 test("an exploding rule set stops on its budget, inside the iteration", () => {
   const root = generateKeypair();
-  const token = loadToken(attenuate(buildToken(root.secretKey, "user(1);"), EXPLOSION), root.publicKey);
+  const token = loadToken(
+    attenuate(buildToken(root.secretKey, "user(1);"), EXPLOSION),
+    root.publicKey,
+  );
 
   // The fact limit counts DISTINCT facts as they are derived, so it fires as
   // soon as the world would exceed it rather than after the whole product. Only
@@ -198,7 +201,9 @@ test("a query made after the evaluation is not charged against its expired budge
   // (every 1024 candidates): with one fact, a leaked deadline is never read.
   let facts = "";
   for (let i = 0; i < 3_000; i++) facts += `role(${i});`;
-  const ev = evaluate(null, facts, { limits: { maxFacts: 10_000, maxIterations: 10, maxTimeMs: 1 } });
+  const ev = evaluate(null, facts, {
+    limits: { maxFacts: 10_000, maxIterations: 10, maxTimeMs: 1 },
+  });
   assert.equal(ev.result.kind, "noMatchingPolicy");
   const until = Date.now() + 5;
   while (Date.now() < until) {

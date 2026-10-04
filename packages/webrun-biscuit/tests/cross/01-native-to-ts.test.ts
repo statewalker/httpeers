@@ -8,13 +8,7 @@
 import assert from "node:assert";
 import { authorize, loadToken } from "../../src/authorizer.js";
 import { CASES } from "./cases.js";
-import {
-  addCode,
-  checksOf,
-  loadReference,
-  type Reference,
-  referenceOutcome,
-} from "./reference.js";
+import { addCode, checksOf, loadReference, type Reference, referenceOutcome } from "./reference.js";
 
 const ref: Reference | null = await loadReference();
 const skipped: string[] = [];

@@ -15,13 +15,7 @@ import { authorize, loadToken } from "../../src/authorizer.js";
 import { toBase64 } from "../../src/base64.js";
 import { attenuate, buildToken, generateKeypair, sealToken } from "../../src/builder.js";
 import { describeProgram, type Program, randomProgram, rng } from "./generator.js";
-import {
-  addCode,
-  checksOf,
-  loadReference,
-  type Reference,
-  referenceOutcome,
-} from "./reference.js";
+import { addCode, checksOf, loadReference, type Reference, referenceOutcome } from "./reference.js";
 
 const ref: Reference | null = await loadReference();
 const noReference = !ref;

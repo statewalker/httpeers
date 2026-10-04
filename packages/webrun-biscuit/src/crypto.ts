@@ -275,7 +275,12 @@ type Subtle = {
     extractable: boolean,
     usages: string[],
   ): Promise<unknown>;
-  verify(algorithm: string, key: unknown, signature: Uint8Array, data: Uint8Array): Promise<boolean>;
+  verify(
+    algorithm: string,
+    key: unknown,
+    signature: Uint8Array,
+    data: Uint8Array,
+  ): Promise<boolean>;
   exportKey(format: "jwk", key: unknown): Promise<{ x?: string }>;
 };
 
@@ -332,7 +337,10 @@ async function verifySignatureAsync(
   }
 }
 
-async function publicKeyFromSecretAsync(secret: Uint8Array, algorithm: number): Promise<Uint8Array> {
+async function publicKeyFromSecretAsync(
+  secret: Uint8Array,
+  algorithm: number,
+): Promise<Uint8Array> {
   if (algorithm !== ALG_ED25519 || secret.length !== 32 || !subtle || !(await nativeEd25519()))
     return publicKeyFromSecret(secret, algorithm);
   try {

@@ -87,6 +87,9 @@ test.skipIf(!ref)("cross-reference coverage (ts → native)", () => {
 test.skipIf(!ref)("ts → native :: the reference reads our variable names as written", () => {
   const root = generateKeypair();
   const bytes = buildToken(root.secretKey, "f(1);\ncheck if f($k), f($subject);");
-  const token = ref!.Biscuit.fromBase64(toBase64(bytes), ref!.PublicKey.fromString(hex(root.publicKey), 0));
+  const token = ref!.Biscuit.fromBase64(
+    toBase64(bytes),
+    ref!.PublicKey.fromString(hex(root.publicKey), 0),
+  );
   assert.match(String(token.toString()), /check if f\(\$k\), f\(\$subject\)/);
 });

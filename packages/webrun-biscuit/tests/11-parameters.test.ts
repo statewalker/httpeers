@@ -24,20 +24,17 @@ test("a string parameter is one term, whatever it contains", () => {
 
 test("every supported value type binds to its term", () => {
   const bytes = new Uint8Array([1, 2, 255]);
-  const parsed = parseAuthorizer(
-    "v({s}, {n}, {b}, {t}, {z}, {bytes}, {date}, {arr}, {set});",
-    {
-      s: "x",
-      n: -42,
-      b: 9007199254740993n,
-      t: true,
-      z: null,
-      bytes,
-      date: new Date("2026-09-15T10:00:00.900Z"),
-      arr: ["a", 1],
-      set: new Set([2, 1]),
-    },
-  );
+  const parsed = parseAuthorizer("v({s}, {n}, {b}, {t}, {z}, {bytes}, {date}, {arr}, {set});", {
+    s: "x",
+    n: -42,
+    b: 9007199254740993n,
+    t: true,
+    z: null,
+    bytes,
+    date: new Date("2026-09-15T10:00:00.900Z"),
+    arr: ["a", 1],
+    set: new Set([2, 1]),
+  });
   assert.deepStrictEqual(parsed.facts[0].predicate.terms, [
     { t: "str", v: "x" },
     { t: "int", v: -42n },
@@ -46,8 +43,20 @@ test("every supported value type binds to its term", () => {
     { t: "null" },
     { t: "bytes", v: bytes },
     { t: "date", v: BigInt(Date.parse("2026-09-15T10:00:00Z") / 1000) },
-    { t: "array", v: [{ t: "str", v: "a" }, { t: "int", v: 1n }] },
-    { t: "set", v: [{ t: "int", v: 1n }, { t: "int", v: 2n }] },
+    {
+      t: "array",
+      v: [
+        { t: "str", v: "a" },
+        { t: "int", v: 1n },
+      ],
+    },
+    {
+      t: "set",
+      v: [
+        { t: "int", v: 1n },
+        { t: "int", v: 2n },
+      ],
+    },
   ]);
 });
 
@@ -80,7 +89,7 @@ test("values without an exact term are refused", () => {
 });
 
 test("braces that are not a parameter keep their meaning", () => {
-  const parsed = parseAuthorizer("v({true}, {,}, {}, {1, 2}, {\"k\": 1});");
+  const parsed = parseAuthorizer('v({true}, {,}, {}, {1, 2}, {"k": 1});');
   assert.deepStrictEqual(
     parsed.facts[0].predicate.terms.map((t) => t.t),
     ["set", "set", "map", "set", "map"],

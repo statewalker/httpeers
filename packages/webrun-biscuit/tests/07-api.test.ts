@@ -62,8 +62,14 @@ test("verifyAsync accepts what verify accepts, and refuses what it refuses", asy
     for (const token of [plain, plain.seal()]) {
       const text = token.toBase64();
       const verified = await Biscuit.fromBase64(text).verifyAsync(root.publicKey, algorithm);
-      assert.deepEqual(verified.revocationIds, Biscuit.fromBase64(text).verify(root.publicKey, algorithm).revocationIds);
-      await assert.rejects(Biscuit.fromBase64(text).verifyAsync(other.publicKey, algorithm), SignatureError);
+      assert.deepEqual(
+        verified.revocationIds,
+        Biscuit.fromBase64(text).verify(root.publicKey, algorithm).revocationIds,
+      );
+      await assert.rejects(
+        Biscuit.fromBase64(text).verifyAsync(other.publicKey, algorithm),
+        SignatureError,
+      );
     }
   }
 });
@@ -76,7 +82,9 @@ test("verifyAsync refuses a forged seal and a tampered block", async () => {
   await assert.rejects(Biscuit.fromBytes(forgedSeal).verifyAsync(root.publicKey));
   assert.throws(() => Biscuit.fromBytes(forgedSeal).verify(root.publicKey));
 
-  const unsealed = Biscuit.build(root.secretKey, 'user("alice");').attenuate("check if x(1);").bytes;
+  const unsealed = Biscuit.build(root.secretKey, 'user("alice");').attenuate(
+    "check if x(1);",
+  ).bytes;
   for (let i = 40; i < unsealed.length; i += 17) {
     const tampered = unsealed.slice();
     tampered[i] ^= 0x10;
@@ -98,8 +106,9 @@ test("verifyAsync refuses a forged seal and a tampered block", async () => {
 
 test("the facade binds parameters and evaluates with queries", () => {
   const root = generateKeypair();
-  const verified = Biscuit.build(root.secretKey, "user({u});", { params: { u: "alice" } })
-    .toBase64();
+  const verified = Biscuit.build(root.secretKey, "user({u});", {
+    params: { u: "alice" },
+  }).toBase64();
   const ev = Biscuit.fromBase64(verified)
     .verify(root.publicKey)
     .evaluate("operation({op});\nallow if user($u);", { params: { op: "read" } });

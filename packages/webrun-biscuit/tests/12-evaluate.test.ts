@@ -33,7 +33,10 @@ test("a query reads facts from the authority block and the authorizer", () => {
 
 test("a query sees derived facts, and nothing a later block asserted", () => {
   const t = token('role("member");', 'role("admin");\nsubject("mallory");');
-  const ev = evaluate(t, 'capability("read") <- role("member");\ncapability("root") <- role("admin");');
+  const ev = evaluate(
+    t,
+    'capability("read") <- role("member");\ncapability("root") <- role("admin");',
+  );
   assert.deepStrictEqual(ev.query("x($c) <- capability($c)"), [
     { name: "x", terms: [{ t: "str", v: "read" }] },
   ]);
@@ -41,7 +44,7 @@ test("a query sees derived facts, and nothing a later block asserted", () => {
 });
 
 test("a query returns each fact once", () => {
-  const ev = evaluate(null, 'a(1);\nb(1);\nx(1) <- a(1);\nx(1) <- b(1);');
+  const ev = evaluate(null, "a(1);\nb(1);\nx(1) <- a(1);\nx(1) <- b(1);");
   assert.deepStrictEqual(ev.query("y($v) <- x($v)"), [{ name: "y", terms: [{ t: "int", v: 1n }] }]);
 });
 
@@ -60,7 +63,10 @@ test("a query must be exactly one rule", () => {
 });
 
 test("no token: the authorizer alone", () => {
-  const ev = evaluate(null, 'role("member");\ncapability("read") <- role("member");\nallow if capability("read");');
+  const ev = evaluate(
+    null,
+    'role("member");\ncapability("read") <- role("member");\nallow if capability("read");',
+  );
   assert.deepStrictEqual(ev.result, { kind: "ok", policy: 0 });
   const denied = evaluate(null, "check if nope(true);\nallow if true;");
   assert.equal(denied.result.kind, "unauthorized");
@@ -69,7 +75,9 @@ test("no token: the authorizer alone", () => {
 });
 
 test("failed checks carry their rule text, as printed", () => {
-  const t = token("check if bound($k), connection_peer($k);\ncheck if right($r), $r.starts_with(\"/x\");");
+  const t = token(
+    'check if bound($k), connection_peer($k);\ncheck if right($r), $r.starts_with("/x");',
+  );
   const ev = evaluate(t, 'check if self_peer($p);\nbound("a");\nallow if true;');
   assert.deepStrictEqual(ev.result, {
     kind: "unauthorized",

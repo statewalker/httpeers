@@ -396,7 +396,9 @@ export function parseAuthorizer(src: string, params?: Params): AuthorizerCode {
   const statements: Statement[] = parser.parse();
   const unused = parser.unusedParameters();
   if (unused.length > 0)
-    throw new ParseError(`unused parameter${unused.length > 1 ? "s" : ""} {${unused.join("}, {")}}`);
+    throw new ParseError(
+      `unused parameter${unused.length > 1 ? "s" : ""} {${unused.join("}, {")}}`,
+    );
   out.varNames = parser.variableNames();
   for (const st of statements) {
     if (st.k === "fact") out.facts.push(st.fact);
@@ -640,7 +642,12 @@ export function evaluate(
     for (let id = 1; id < token.blocks.length; id++) {
       token.blocks[id].checks.forEach((check, j) => {
         if (!runCheck(check, id, blockTrusted[id]))
-          errors.push({ source: "block", blockId: id, checkId: j, rule: printCheck(check, name(id)) });
+          errors.push({
+            source: "block",
+            blockId: id,
+            checkId: j,
+            rule: printCheck(check, name(id)),
+          });
       });
     }
 
