@@ -1,6 +1,6 @@
 {
   "name": "@statewalker/httpeers-ghost",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "type": "module",
   "description": "A remote peer's app rendered as a page that can reach only that peer.",
   "license": "MIT",

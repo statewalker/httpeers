@@ -1,6 +1,6 @@
 {
   "name": "@statewalker/httpeers-access",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "type": "module",
   "description": "Who is calling, and may they. Biscuit tokens, Datalog policy, revocation and one middleware — with no libp2p in the graph.",
   "license": "MIT",
