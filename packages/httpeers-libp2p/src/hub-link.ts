@@ -8,7 +8,7 @@
 
 import type { Connection, Libp2p } from "@libp2p/interface";
 import { peerIdFromString } from "@libp2p/peer-id";
-import { multiaddr } from "@multiformats/multiaddr";
+import { type Multiaddr, multiaddr } from "@multiformats/multiaddr";
 import { lastPeerIdOf } from "./multiaddr-parts.js";
 import { type RelaySupervisor, superviseRelay } from "./reservation.js";
 
@@ -28,6 +28,44 @@ export function hubRoute(hubPeerId: string, peerId: string): string {
   return `/p2p/${hubPeerId}/p2p-circuit/webrtc/p2p/${peerId}`;
 }
 
+/** How many times `dialWebRTC` tries a WebRTC upgrade before giving up. */
+export const WEBRTC_UPGRADE_ATTEMPTS = 3;
+
+/**
+ * Dial a `/webrtc` address, trying the upgrade again when it fails.
+ *
+ * WHY. Under Node, WebRTC is libdatachannel (`node-datachannel`), and
+ * libdatachannel <= 0.24.5 can lose a race on the OFFERER: setting the remote
+ * answer hands it to the ICE agent before the answer's fingerprint is
+ * committed, ICE can complete at once (the answerer has been sending checks),
+ * and the DTLS handshake that follows finds no remote fingerprint to verify
+ * against -- `DTLS alert: unknown CA`, the peer connection fails, and
+ * libp2p's dial times out. It needs the threads to interleave badly, which a
+ * busy CPU makes common: the conformance suite lost it in most runs under
+ * load. Each attempt is an independent race, so one retry nearly always
+ * succeeds. Fixed upstream by libdatachannel 0235225 ("start DTLS after
+ * remote description"); drop the retry once node-datachannel ships it.
+ * Browsers implement WebRTC themselves and are not affected.
+ *
+ * A WebRTC path that cannot come up fails every attempt, and the caller's
+ * fallback (the relay circuit) runs as before.
+ */
+export async function dialWebRTC(
+  node: Libp2p,
+  target: Multiaddr | Multiaddr[],
+  attempts: number = WEBRTC_UPGRADE_ATTEMPTS,
+): Promise<Connection> {
+  let lastError: unknown;
+  for (let attempt = 1; attempt <= attempts; attempt++) {
+    try {
+      return await node.dial(target);
+    } catch (err) {
+      lastError = err;
+    }
+  }
+  throw lastError;
+}
+
 /**
  * Reach the hub over WebRTC through the public relay, and keep ONLY the
  * WebRTC connection.
@@ -41,7 +79,7 @@ export function hubRoute(hubPeerId: string, peerId: string): string {
  * prototype; the "connects two members directly" test fails without it.
  */
 export async function reachHub(node: Libp2p, relayAddr: string, hubPeerId: string): Promise<void> {
-  await node.dial(multiaddr(`${relayAddr}/p2p-circuit/webrtc/p2p/${hubPeerId}`));
+  await dialWebRTC(node, multiaddr(`${relayAddr}/p2p-circuit/webrtc/p2p/${hubPeerId}`));
   const limited = node.getConnections(peerIdFromString(hubPeerId)).filter((c) => c.limits != null);
   await Promise.all(limited.map((c) => c.close()));
 }

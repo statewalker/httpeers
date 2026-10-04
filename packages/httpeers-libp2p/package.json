@@ -1,6 +1,6 @@
 {
   "name": "@statewalker/httpeers-libp2p",
-  "version": "0.1.3",
+  "version": "0.1.4",
   "type": "module",
   "description": "The transport: nodes, identity, and servePeer — the one place in the extraction that knows what libp2p is.",
   "license": "MIT",

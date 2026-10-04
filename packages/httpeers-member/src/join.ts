@@ -21,7 +21,7 @@ import { multiaddr } from "@multiformats/multiaddr";
 import type { ChangeEntry, RevocationCache, RuleSet } from "@statewalker/httpeers-access";
 import type { MeshView, PeerIdStr } from "@statewalker/httpeers-core";
 import type { Peer } from "@statewalker/httpeers-libp2p";
-import { hubRoute, reachHub } from "@statewalker/httpeers-libp2p";
+import { dialWebRTC, hubRoute, reachHub } from "@statewalker/httpeers-libp2p";
 import { peerRequest } from "./peer-request.js";
 
 /**
@@ -46,7 +46,7 @@ export async function preDialPeer(
   peerId: PeerIdStr,
 ): Promise<void> {
   const target = multiaddr(`${relayAddr}/p2p-circuit/webrtc/p2p/${peerId}`);
-  await node.dial(target);
+  await dialWebRTC(node, target);
 }
 
 export interface RouteEnsurerInit {
@@ -126,7 +126,7 @@ export function createRouteEnsurer(init: RouteEnsurerInit): (peerId: PeerIdStr) 
     if (node.getConnections(target).some((conn) => conn.limits == null)) return;
 
     if (init.hubPeerId != null && init.hubPeerId !== selfPeerId) {
-      await node.dial(multiaddr(hubRoute(init.hubPeerId, peerId)));
+      await dialWebRTC(node, multiaddr(hubRoute(init.hubPeerId, peerId)));
       return;
     }
 
@@ -138,7 +138,7 @@ export function createRouteEnsurer(init: RouteEnsurerInit): (peerId: PeerIdStr) 
     // addresses of a single peer itself, and a sequential loop would pay the
     // full dial timeout for each unreachable interface address the provider
     // reported (a browser peer behind a relay routinely reports several).
-    if (advertised.length > 0) await node.dial(advertised);
+    if (advertised.length > 0) await dialWebRTC(node, advertised);
     else await preDialPeer(node, relayAddr, peerId);
   };
 }
