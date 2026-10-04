@@ -13,14 +13,17 @@
   "types": "./dist/index.d.ts",
   "exports": {
     ".": {
+      "source": "./src/index.ts",
       "types": "./dist/index.d.ts",
       "import": "./dist/index.js"
     },
     "./issuer": {
+      "source": "./src/issuer.ts",
       "types": "./dist/issuer.d.ts",
       "import": "./dist/issuer.js"
     },
     "./engine": {
+      "source": "./src/engine.ts",
       "types": "./dist/engine.d.ts",
       "import": "./dist/engine.js"
     }

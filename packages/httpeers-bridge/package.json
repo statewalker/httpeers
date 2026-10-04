@@ -13,10 +13,12 @@
   "types": "./dist/index.d.ts",
   "exports": {
     ".": {
+      "source": "./src/index.ts",
       "types": "./dist/index.d.ts",
       "import": "./dist/index.js"
     },
     "./ports": {
+      "source": "./src/ports.ts",
       "types": "./dist/ports.d.ts",
       "import": "./dist/ports.js"
     }

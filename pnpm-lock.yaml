@@ -980,28 +980,6 @@ importers:
 
   packages/httpeers-member:
     dependencies:
-      '@libp2p/interface':
-        specifier: 'catalog:'
-        version: 3.3.0
-      '@libp2p/peer-id':
-        specifier: 'catalog:'
-        version: 6.0.15
-      '@multiformats/multiaddr':
-        specifier: 'catalog:'
-        version: 13.0.3
-      '@statewalker/httpeers-access':
-        specifier: workspace:^
-        version: link:../httpeers-access
-      '@statewalker/httpeers-core':
-        specifier: workspace:^
-        version: link:../httpeers-core
-      '@statewalker/httpeers-libp2p':
-        specifier: workspace:^
-        version: link:../httpeers-libp2p
-    devDependencies:
-      '@biomejs/biome':
-        specifier: 'catalog:'
-        version: 2.5.15
       '@chainsafe/libp2p-noise':
         specifier: 'catalog:'
         version: 17.0.0
@@ -1017,6 +995,12 @@ importers:
       '@libp2p/identify':
         specifier: 'catalog:'
         version: 4.1.14
+      '@libp2p/interface':
+        specifier: 'catalog:'
+        version: 3.3.0
+      '@libp2p/peer-id':
+        specifier: 'catalog:'
+        version: 6.0.15
       '@libp2p/tcp':
         specifier: 'catalog:'
         version: 11.0.28
@@ -1026,6 +1010,25 @@ importers:
       '@libp2p/websockets':
         specifier: 'catalog:'
         version: 10.1.21
+      '@multiformats/multiaddr':
+        specifier: 'catalog:'
+        version: 13.0.3
+      '@statewalker/httpeers-access':
+        specifier: workspace:^
+        version: link:../httpeers-access
+      '@statewalker/httpeers-core':
+        specifier: workspace:^
+        version: link:../httpeers-core
+      '@statewalker/httpeers-libp2p':
+        specifier: workspace:^
+        version: link:../httpeers-libp2p
+      libp2p:
+        specifier: 'catalog:'
+        version: 3.3.11
+    devDependencies:
+      '@biomejs/biome':
+        specifier: 'catalog:'
+        version: 2.5.15
       '@statewalker/webrun-http-browser':
         specifier: 'catalog:'
         version: 0.6.0
@@ -1035,9 +1038,6 @@ importers:
       idb-keyval:
         specifier: 'catalog:'
         version: 6.3.0
-      libp2p:
-        specifier: 'catalog:'
-        version: 3.3.11
       typescript:
         specifier: 'catalog:'
         version: 7.0.2
@@ -3101,9 +3101,6 @@ packages:
   '@types/ms@2.1.0':
     resolution: {integrity: sha512-GsCCIZDE/p3i96vtEqx+7dBUGXrc7zeSK3wwPHIaRThS+9OhWIXRqzs4d6k1SVU8g91DrNRWxWUGhp5KXQb2VA==}
 
-  '@types/node@26.4.1':
-    resolution: {integrity: sha512-k97ENvZWtvA6yqz5/FS6a7duDgOPEeOQOc2iKS/nY6mX6qJUKtLnWzQS+Xj6tXweyj6ZcTAK2Qecetnvi9nCLA==}
-
   '@types/node@26.6.4':
     resolution: {integrity: sha512-ldVPDCzj7fsaGZrLB0NuHuTvJcsNasysBAqMolr/cgxrLd1xbqxIr3XJiPnHHJUCxj5sNF1vnRj9aWnrVh5Jcg==}
 
@@ -4959,9 +4956,6 @@ packages:
   uint8arrays@6.1.1:
     resolution: {integrity: sha512-iz7JN0XCSZYA111lhFG2Ui9EhFvTNekqSRHw3lvMHq+dzwWy1OQftxFQREEh4rffU0oSoXdQHsk2TiHKVm4fsA==}
 
-  undici-types@8.3.0:
-    resolution: {integrity: sha512-j375ScV60dom+YkPFIfTLcOiPxkN/buHz5GobjLhixFuANaNs3C9l4GmrWqejgXWJ7BbJcFYpTEUkS1Ge8bpZQ==}
-
   undici-types@8.9.0:
     resolution: {integrity: sha512-KTDyRTYX8sWmKXAikPHHSyc63CRPETMctyjKFupcC6OBLXT3xsN0e9aF7m+mIXutFWpUXuedtowG7iLOzp0kQg==}
 
@@ -5958,7 +5952,7 @@ snapshots:
       '@jest/schemas': 29.6.3
       '@types/istanbul-lib-coverage': 2.0.6
       '@types/istanbul-reports': 3.0.4
-      '@types/node': 26.4.1
+      '@types/node': 26.6.4
       '@types/yargs': 17.0.35
       chalk: 4.1.2
 
@@ -7526,10 +7520,6 @@ snapshots:
 
   '@types/ms@2.1.0': {}
 
-  '@types/node@26.4.1':
-    dependencies:
-      undici-types: 8.3.0
-
   '@types/node@26.6.4':
     dependencies:
       undici-types: 8.9.0
@@ -7813,7 +7803,7 @@ snapshots:
 
   chrome-launcher@0.15.2:
     dependencies:
-      '@types/node': 26.4.1
+      '@types/node': 26.6.4
       escape-string-regexp: 4.0.0
       is-wsl: 2.2.0
       lighthouse-logger: 1.4.2
@@ -7822,7 +7812,7 @@ snapshots:
 
   chromium-edge-launcher@0.3.0:
     dependencies:
-      '@types/node': 26.4.1
+      '@types/node': 26.6.4
       escape-string-regexp: 4.0.0
       is-wsl: 2.2.0
       lighthouse-logger: 1.4.2
@@ -8311,7 +8301,7 @@ snapshots:
   jest-util@29.7.0:
     dependencies:
       '@jest/types': 29.6.3
-      '@types/node': 26.4.1
+      '@types/node': 26.6.4
       chalk: 4.1.2
       ci-info: 3.9.0
       graceful-fs: 4.2.11
@@ -8328,7 +8318,7 @@ snapshots:
 
   jest-worker@29.7.0:
     dependencies:
-      '@types/node': 26.4.1
+      '@types/node': 26.6.4
       jest-util: 29.7.0
       merge-stream: 2.0.0
       supports-color: 8.1.1
@@ -9685,8 +9675,6 @@ snapshots:
   uint8arrays@6.1.1:
     dependencies:
       multiformats: 14.0.5
-
-  undici-types@8.3.0: {}
 
   undici-types@8.9.0: {}
 

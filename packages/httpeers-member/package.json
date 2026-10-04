@@ -13,18 +13,22 @@
   "types": "./dist/index.d.ts",
   "exports": {
     ".": {
+      "source": "./src/index.ts",
       "types": "./dist/index.d.ts",
       "import": "./dist/index.js"
     },
     "./node": {
+      "source": "./src/node.ts",
       "types": "./dist/node.d.ts",
       "import": "./dist/node.js"
     },
     "./browser": {
+      "source": "./src/browser.ts",
       "types": "./dist/browser.d.ts",
       "import": "./dist/browser.js"
     },
     "./reset": {
+      "source": "./src/reset.ts",
       "types": "./dist/reset.d.ts",
       "import": "./dist/reset.js"
     }
@@ -42,12 +46,21 @@
     "lint:check": "biome check src tests"
   },
   "dependencies": {
+    "@chainsafe/libp2p-noise": "catalog:",
+    "@chainsafe/libp2p-yamux": "catalog:",
+    "@libp2p/circuit-relay-v2": "catalog:",
+    "@libp2p/crypto": "catalog:",
+    "@libp2p/identify": "catalog:",
+    "@libp2p/interface": "catalog:",
+    "@libp2p/peer-id": "catalog:",
+    "@libp2p/tcp": "catalog:",
+    "@libp2p/webrtc": "catalog:",
+    "@libp2p/websockets": "catalog:",
+    "@multiformats/multiaddr": "catalog:",
     "@statewalker/httpeers-access": "workspace:^",
     "@statewalker/httpeers-core": "workspace:^",
     "@statewalker/httpeers-libp2p": "workspace:^",
-    "@libp2p/interface": "catalog:",
-    "@libp2p/peer-id": "catalog:",
-    "@multiformats/multiaddr": "catalog:"
+    "libp2p": "catalog:"
   },
   "peerDependencies": {
     "@statewalker/webrun-http-browser": "catalog:peers",
@@ -63,18 +76,9 @@
   },
   "devDependencies": {
     "@biomejs/biome": "catalog:",
-    "@chainsafe/libp2p-noise": "catalog:",
-    "@chainsafe/libp2p-yamux": "catalog:",
-    "@libp2p/circuit-relay-v2": "catalog:",
-    "@libp2p/crypto": "catalog:",
-    "@libp2p/identify": "catalog:",
-    "@libp2p/tcp": "catalog:",
-    "@libp2p/webrtc": "catalog:",
-    "@libp2p/websockets": "catalog:",
     "@statewalker/webrun-http-browser": "catalog:",
     "@types/node": "catalog:",
     "idb-keyval": "catalog:",
-    "libp2p": "catalog:",
     "typescript": "catalog:",
     "vitest": "catalog:"
   },
