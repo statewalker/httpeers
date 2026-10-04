@@ -40,6 +40,7 @@ export {
   requestRelayReservation,
 } from "./hop-reserve.js";
 export {
+  dialWebRTC,
   HubReservationError,
   type HubReservationRefusal,
   hubRoute,
@@ -49,6 +50,7 @@ export {
   reserveOnHub,
   type SuperviseHubReservationInit,
   superviseHubReservation,
+  WEBRTC_UPGRADE_ATTEMPTS,
 } from "./hub-link.js";
 export {
   HUB_MAX_RESERVATIONS,
