@@ -3,10 +3,14 @@
   "version": "0.1.3",
   "type": "module",
   "description": "The join-the-mesh widget: paste or scan an invitation, see the link to the hub, disconnect, reconnect or leave. Plain DOM, no framework.",
+  "bugs": {
+    "url": "https://github.com/statewalker/httpeers/issues"
+  },
+  "homepage": "https://github.com/statewalker/httpeers/tree/main/packages/httpeers-join#readme",
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "git+ssh://git@github.com/statewalker/httpeers.git",
+    "url": "git+https://github.com/statewalker/httpeers.git",
     "directory": "packages/httpeers-join"
   },
   "main": "./dist/index.js",

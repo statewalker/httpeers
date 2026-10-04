@@ -4,10 +4,15 @@
   "private": true,
   "type": "module",
   "description": "Static site host — one site per storage prefix, named after its domain.",
+  "bugs": {
+    "url": "https://github.com/statewalker/httpeers/issues"
+  },
+  "homepage": "https://github.com/statewalker/httpeers/tree/main/apps/sites#readme",
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "git+ssh://git@github.com/statewalker/httpeers.git"
+    "url": "git+https://github.com/statewalker/httpeers.git",
+    "directory": "apps/sites"
   },
   "scripts": {
     "build": "tsc -p tsconfig.json",

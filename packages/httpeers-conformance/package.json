@@ -4,10 +4,14 @@
   "private": true,
   "type": "module",
   "description": "Every prototype, rebuilt against the published API and judged by tsc. Never published, never depended on -- see the README for why it is its own package.",
+  "bugs": {
+    "url": "https://github.com/statewalker/httpeers/issues"
+  },
+  "homepage": "https://github.com/statewalker/httpeers/tree/main/packages/httpeers-conformance#readme",
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "git+ssh://git@github.com/statewalker/httpeers.git",
+    "url": "git+https://github.com/statewalker/httpeers.git",
     "directory": "packages/httpeers-conformance"
   },
   "scripts": {

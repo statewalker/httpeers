@@ -3,10 +3,14 @@
   "version": "0.1.3",
   "type": "module",
   "description": "A remote peer's app rendered as a page that can reach only that peer.",
+  "bugs": {
+    "url": "https://github.com/statewalker/httpeers/issues"
+  },
+  "homepage": "https://github.com/statewalker/httpeers/tree/main/packages/httpeers-ghost#readme",
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "git+ssh://git@github.com/statewalker/httpeers.git",
+    "url": "git+https://github.com/statewalker/httpeers.git",
     "directory": "packages/httpeers-ghost"
   },
   "main": "./dist/index.js",

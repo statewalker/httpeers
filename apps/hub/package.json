@@ -4,10 +4,14 @@
   "private": true,
   "type": "module",
   "description": "A Node hub daemon: persistent identity, state and rules, built-in service modules, and a local door.",
+  "bugs": {
+    "url": "https://github.com/statewalker/httpeers/issues"
+  },
+  "homepage": "https://github.com/statewalker/httpeers/tree/main/apps/hub#readme",
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "git+ssh://git@github.com/statewalker/httpeers.git",
+    "url": "git+https://github.com/statewalker/httpeers.git",
     "directory": "apps/hub"
   },
   "files": [

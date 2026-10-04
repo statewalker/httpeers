@@ -3,10 +3,14 @@
   "version": "0.1.5",
   "type": "module",
   "description": "Everything a participant does: hold an identity, redeem or resume, connect, keep the link, advertise, discover, call, and serve.",
+  "bugs": {
+    "url": "https://github.com/statewalker/httpeers/issues"
+  },
+  "homepage": "https://github.com/statewalker/httpeers/tree/main/packages/httpeers-member#readme",
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "git+ssh://git@github.com/statewalker/httpeers.git",
+    "url": "git+https://github.com/statewalker/httpeers.git",
     "directory": "packages/httpeers-member"
   },
   "main": "./dist/index.js",

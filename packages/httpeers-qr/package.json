@@ -3,10 +3,14 @@
   "version": "0.1.2",
   "type": "module",
   "description": "QR for httpeers: encoding and decoding as pure functions, plus a browser entry that scans from the live camera or a picture.",
+  "bugs": {
+    "url": "https://github.com/statewalker/httpeers/issues"
+  },
+  "homepage": "https://github.com/statewalker/httpeers/tree/main/packages/httpeers-qr#readme",
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "git+ssh://git@github.com/statewalker/httpeers.git",
+    "url": "git+https://github.com/statewalker/httpeers.git",
     "directory": "packages/httpeers-qr"
   },
   "main": "./dist/index.js",
