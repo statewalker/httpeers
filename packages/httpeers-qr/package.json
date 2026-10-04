@@ -1,6 +1,6 @@
 {
   "name": "@statewalker/httpeers-qr",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "type": "module",
   "description": "QR for httpeers: encoding and decoding as pure functions, plus a browser entry that scans from the live camera or a picture.",
   "license": "MIT",

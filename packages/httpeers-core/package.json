@@ -1,6 +1,6 @@
 {
   "name": "@statewalker/httpeers-core",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "type": "module",
   "description": "The httpeers handler contract, mount router, peer context, stores and errors. Isomorphic: no libp2p, no wasm, no node: builtins, no DOM.",
   "license": "MIT",
