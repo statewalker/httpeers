@@ -1,6 +1,6 @@
 {
   "name": "@statewalker/httpeers-bridge",
-  "version": "0.1.0",
+  "version": "0.1.3",
   "type": "module",
   "description": "Fetch over a duplex, both directions, with no transport in it. The seam libp2p, MessagePorts and anything else plug into.",
   "license": "MIT",
@@ -13,10 +13,12 @@
   "types": "./dist/index.d.ts",
   "exports": {
     ".": {
+      "source": "./src/index.ts",
       "types": "./dist/index.d.ts",
       "import": "./dist/index.js"
     },
     "./ports": {
+      "source": "./src/ports.ts",
       "types": "./dist/ports.d.ts",
       "import": "./dist/ports.js"
     }
@@ -34,10 +36,10 @@
     "lint:check": "biome check src tests"
   },
   "dependencies": {
-    "@statewalker/httpeers-core": "workspace:*",
-    "@statewalker/webrun-http-streams": "^0.2.2",
-    "@statewalker/webrun-rpc": "^0.4.0",
-    "@statewalker/webrun-streams": "^0.2.0"
+    "@statewalker/httpeers-core": "workspace:^",
+    "@statewalker/webrun-http-streams": "catalog:",
+    "@statewalker/webrun-rpc": "catalog:",
+    "@statewalker/webrun-streams": "catalog:"
   },
   "devDependencies": {
     "@biomejs/biome": "catalog:",

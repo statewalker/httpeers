@@ -1,6 +1,6 @@
 {
   "name": "@statewalker/httpeers-qr",
-  "version": "0.1.0",
+  "version": "0.1.2",
   "type": "module",
   "description": "QR for httpeers: encoding and decoding as pure functions, plus a browser entry that scans from the live camera or a picture.",
   "license": "MIT",
@@ -13,10 +13,12 @@
   "types": "./dist/index.d.ts",
   "exports": {
     ".": {
+      "source": "./src/index.ts",
       "types": "./dist/index.d.ts",
       "import": "./dist/index.js"
     },
     "./browser": {
+      "source": "./src/browser.ts",
       "types": "./dist/browser.d.ts",
       "import": "./dist/browser.js"
     }
@@ -34,14 +36,14 @@
     "lint:check": "biome check src tests"
   },
   "dependencies": {
-    "jsqr": "^1.4.0",
-    "qrcode-generator": "^2.0.4"
+    "jsqr": "catalog:",
+    "qrcode-generator": "catalog:"
   },
   "devDependencies": {
     "@biomejs/biome": "catalog:",
     "@types/node": "catalog:",
-    "html5-qrcode": "^2.3.8",
-    "sharp": "^0.35.4",
+    "html5-qrcode": "catalog:",
+    "sharp": "catalog:",
     "typescript": "catalog:",
     "vitest": "catalog:"
   },
@@ -49,7 +51,7 @@
     "access": "public"
   },
   "peerDependencies": {
-    "html5-qrcode": "^2.3.8"
+    "html5-qrcode": "catalog:peers"
   },
   "peerDependenciesMeta": {
     "html5-qrcode": {

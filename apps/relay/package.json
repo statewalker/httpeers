@@ -21,16 +21,16 @@
     "bootstrap": "tsx src/bootstrap.ts"
   },
   "dependencies": {
-    "@chainsafe/libp2p-noise": "17.0.0",
-    "@chainsafe/libp2p-yamux": "8.0.1",
-    "@libp2p/circuit-relay-v2": "4.2.11",
-    "@libp2p/crypto": "5.1.22",
-    "@libp2p/identify": "4.1.12",
-    "@libp2p/interface": "3.2.5",
-    "@libp2p/peer-id": "6.0.14",
-    "@libp2p/websockets": "10.1.19",
-    "@multiformats/multiaddr": "13.0.3",
-    "libp2p": "3.3.8"
+    "@chainsafe/libp2p-noise": "catalog:",
+    "@chainsafe/libp2p-yamux": "catalog:",
+    "@libp2p/circuit-relay-v2": "catalog:",
+    "@libp2p/crypto": "catalog:",
+    "@libp2p/identify": "catalog:",
+    "@libp2p/interface": "catalog:",
+    "@libp2p/peer-id": "catalog:",
+    "@libp2p/websockets": "catalog:",
+    "@multiformats/multiaddr": "catalog:",
+    "libp2p": "catalog:"
   },
   "devDependencies": {
     "@biomejs/biome": "catalog:",

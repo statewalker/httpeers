@@ -43,7 +43,7 @@ RUN corepack enable
 WORKDIR /repo
 
 # Manifests and workspace config first, for layer caching.
-COPY package.json pnpm-lock.yaml pnpm-workspace.yaml tsconfig.base.json ./
+COPY package.json pnpm-lock.yaml pnpm-workspace.yaml tsconfig.base.json rolldown.preset.js ./
 COPY packages ./packages
 COPY apps/hub ./apps/hub
 COPY apps/relay ./apps/relay

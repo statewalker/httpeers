@@ -16,13 +16,13 @@
   },
   "devDependencies": {
     "@biomejs/biome": "catalog:",
-    "@statewalker/httpeers-access": "workspace:*",
-    "@statewalker/httpeers-core": "workspace:*",
-    "@statewalker/httpeers-member": "workspace:*",
-    "@statewalker/webrun-http-browser": "^0.6.0",
+    "@statewalker/httpeers-access": "workspace:^",
+    "@statewalker/httpeers-core": "workspace:^",
+    "@statewalker/httpeers-member": "workspace:^",
+    "@statewalker/webrun-http-browser": "catalog:",
     "@types/node": "catalog:",
-    "@vitest/browser-playwright": "^4.1.11",
-    "playwright": "^1.63.0",
+    "@vitest/browser-playwright": "catalog:",
+    "playwright": "catalog:",
     "typescript": "catalog:",
     "vitest": "catalog:"
   }

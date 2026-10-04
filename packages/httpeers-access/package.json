@@ -1,6 +1,6 @@
 {
   "name": "@statewalker/httpeers-access",
-  "version": "0.1.0",
+  "version": "0.1.3",
   "type": "module",
   "description": "Who is calling, and may they. Biscuit tokens, Datalog policy, revocation and one middleware — with no libp2p in the graph.",
   "license": "MIT",
@@ -13,14 +13,17 @@
   "types": "./dist/index.d.ts",
   "exports": {
     ".": {
+      "source": "./src/index.ts",
       "types": "./dist/index.d.ts",
       "import": "./dist/index.js"
     },
     "./issuer": {
+      "source": "./src/issuer.ts",
       "types": "./dist/issuer.d.ts",
       "import": "./dist/issuer.js"
     },
     "./engine": {
+      "source": "./src/engine.ts",
       "types": "./dist/engine.d.ts",
       "import": "./dist/engine.js"
     }
@@ -38,16 +41,16 @@
     "lint:check": "biome check src tests"
   },
   "dependencies": {
-    "@statewalker/httpeers-core": "workspace:*",
-    "@statewalker/webrun-biscuit": "^0.2.1",
-    "multiformats": "14.0.5"
+    "@statewalker/httpeers-core": "workspace:^",
+    "@statewalker/webrun-biscuit": "workspace:^",
+    "multiformats": "catalog:"
   },
   "devDependencies": {
     "@biomejs/biome": "catalog:",
-    "@biscuit-auth/biscuit-wasm": "0.6.0",
-    "@libp2p/crypto": "5.1.22",
-    "@libp2p/interface": "3.2.5",
-    "@libp2p/peer-id": "6.0.14",
+    "@biscuit-auth/biscuit-wasm": "catalog:",
+    "@libp2p/crypto": "catalog:",
+    "@libp2p/interface": "catalog:",
+    "@libp2p/peer-id": "catalog:",
     "@types/node": "catalog:",
     "typescript": "catalog:",
     "vitest": "catalog:"

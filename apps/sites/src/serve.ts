@@ -2,7 +2,7 @@
  * The HTTP surface. Everything storage-shaped arrives through `FilesApi`, so
  * the whole app runs against an in-memory adapter with no I/O at all.
  */
-import type { FileStats, FilesApi } from "@statewalker/webrun-files";
+import type { FileEntryStats, FilesApi } from "@statewalker/webrun-files";
 import { Hono } from "hono";
 import { TtlCache } from "./cache.js";
 import { contentTypeFor } from "./content-type.js";
@@ -43,7 +43,7 @@ function toStream(chunks: AsyncIterable<Uint8Array>): ReadableStream<Uint8Array>
  * avoid. Omitted entirely when `size` is missing: a fabricated validator is
  * worse than none, because clients trust it.
  */
-function etagFor(stats: FileStats): string | undefined {
+function etagFor(stats: FileEntryStats): string | undefined {
   if (stats.size == null) return undefined;
   const mtime = stats.lastModified ?? 0;
   return `W/"${stats.size.toString(36)}-${mtime.toString(36)}"`;
@@ -121,7 +121,7 @@ export function createApp(options: ServeOptions): Hono {
     // biome-ignore lint/suspicious/noExplicitAny: Hono's context type is not exported in a usable form here
     c: any,
     storagePath: string,
-    stats: FileStats,
+    stats: FileEntryStats,
     config: SiteConfig,
     headOnly: boolean,
     status = 200,

@@ -1,6 +1,6 @@
 {
   "name": "@statewalker/httpeers-ghost",
-  "version": "0.1.0",
+  "version": "0.1.3",
   "type": "module",
   "description": "A remote peer's app rendered as a page that can reach only that peer.",
   "license": "MIT",
@@ -13,6 +13,7 @@
   "types": "./dist/index.d.ts",
   "exports": {
     ".": {
+      "source": "./src/index.ts",
       "types": "./dist/index.d.ts",
       "import": "./dist/index.js"
     }
@@ -30,7 +31,7 @@
     "lint:check": "biome check src tests"
   },
   "dependencies": {
-    "@statewalker/httpeers-core": "workspace:*"
+    "@statewalker/httpeers-core": "workspace:^"
   },
   "devDependencies": {
     "@biomejs/biome": "catalog:",

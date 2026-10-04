@@ -18,13 +18,13 @@
     "dev": "tsx src/main.ts"
   },
   "dependencies": {
-    "@aws-sdk/client-s3": "3.1127.0",
-    "@hono/node-server": "2.1.1",
-    "@statewalker/webrun-files": "0.7.0",
-    "@statewalker/webrun-files-mem": "0.7.2",
-    "@statewalker/webrun-files-node": "0.7.0",
-    "@statewalker/webrun-files-s3": "0.7.0",
-    "hono": "4.13.7"
+    "@aws-sdk/client-s3": "catalog:",
+    "@hono/node-server": "catalog:",
+    "@statewalker/webrun-files": "catalog:",
+    "@statewalker/webrun-files-mem": "catalog:",
+    "@statewalker/webrun-files-node": "catalog:",
+    "@statewalker/webrun-files-s3": "catalog:",
+    "hono": "catalog:"
   },
   "devDependencies": {
     "@biomejs/biome": "catalog:",

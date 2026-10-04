@@ -30,14 +30,14 @@
     "live-check": "node scripts/live-check.mjs"
   },
   "dependencies": {
-    "@statewalker/webrun-http-browser": "^0.6.0"
+    "@statewalker/webrun-http-browser": "catalog:"
   },
   "devDependencies": {
     "@biomejs/biome": "catalog:",
     "@types/node": "catalog:",
-    "playwright": "^1.63.0",
+    "playwright": "catalog:",
     "typescript": "catalog:",
-    "vite": "^8.3.0",
+    "vite": "catalog:",
     "vitest": "catalog:"
   }
 }

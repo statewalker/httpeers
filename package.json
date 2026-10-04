@@ -2,8 +2,8 @@
   "name": "@statewalker/httpeers-monorepo",
   "private": true,
   "type": "module",
-  "packageManager": "pnpm@10.16.0",
-  "description": "httpeers \u2014 the mesh's deployable services. Monorepo.",
+  "packageManager": "pnpm@10.16.1",
+  "description": "httpeers — the mesh's deployable services. Monorepo.",
   "homepage": "https://github.com/statewalker/httpeers",
   "author": {
     "name": "Mikhail Kotelnikov",
