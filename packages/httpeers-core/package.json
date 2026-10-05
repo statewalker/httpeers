@@ -3,10 +3,14 @@
   "version": "0.1.2",
   "type": "module",
   "description": "The httpeers handler contract, mount router, peer context, stores and errors. Isomorphic: no libp2p, no wasm, no node: builtins, no DOM.",
+  "bugs": {
+    "url": "https://github.com/statewalker/httpeers/issues"
+  },
+  "homepage": "https://github.com/statewalker/httpeers/tree/main/packages/httpeers-core#readme",
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "git+ssh://git@github.com/statewalker/httpeers.git",
+    "url": "git+https://github.com/statewalker/httpeers.git",
     "directory": "packages/httpeers-core"
   },
   "main": "./dist/index.js",

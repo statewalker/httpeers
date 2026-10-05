@@ -4,6 +4,15 @@
   "private": true,
   "type": "module",
   "description": "The four demo sites — hub, app, images and proxy — built on the extracted libraries.",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/statewalker/httpeers.git",
+    "directory": "apps/demos"
+  },
+  "bugs": {
+    "url": "https://github.com/statewalker/httpeers/issues"
+  },
+  "homepage": "https://github.com/statewalker/httpeers/tree/main/apps/demos#readme",
   "scripts": {
     "build": "pnpm run build:hub && pnpm run build:images && pnpm run build:app && pnpm run build:proxy",
     "build:hub": "node scripts/copy-assets.mjs && vite build --config vite.hub.config.ts",

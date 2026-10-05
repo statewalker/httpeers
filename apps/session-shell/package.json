@@ -4,10 +4,14 @@
   "private": true,
   "type": "module",
   "description": "The static shell every {session}.p.httpeers.net serves: a relay page and a ServiceWorker that answer every other path over a ghost app's MessagePort.",
+  "bugs": {
+    "url": "https://github.com/statewalker/httpeers/issues"
+  },
+  "homepage": "https://github.com/statewalker/httpeers/tree/main/apps/session-shell#readme",
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "git+ssh://git@github.com/statewalker/httpeers.git",
+    "url": "git+https://github.com/statewalker/httpeers.git",
     "directory": "apps/session-shell"
   },
   "exports": {

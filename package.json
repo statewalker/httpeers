@@ -4,7 +4,10 @@
   "type": "module",
   "packageManager": "pnpm@10.16.1",
   "description": "httpeers — the mesh's deployable services. Monorepo.",
-  "homepage": "https://github.com/statewalker/httpeers",
+  "bugs": {
+    "url": "https://github.com/statewalker/httpeers/issues"
+  },
+  "homepage": "https://github.com/statewalker/httpeers#readme",
   "author": {
     "name": "Mikhail Kotelnikov",
     "email": "mikhail.kotelnikov@gmail.com"
@@ -12,7 +15,7 @@
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "git+ssh://git@github.com/statewalker/httpeers.git"
+    "url": "git+https://github.com/statewalker/httpeers.git"
   },
   "engines": {
     "node": ">=22"
@@ -23,7 +26,8 @@
     "typecheck": "pnpm -r run typecheck",
     "lint": "biome check --write .",
     "lint:check": "biome check .",
-    "format": "biome format --write ."
+    "format": "biome format --write .",
+    "format:check": "biome format ."
   },
   "devDependencies": {
     "@biomejs/biome": "catalog:",

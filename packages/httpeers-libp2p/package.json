@@ -3,10 +3,14 @@
   "version": "0.1.4",
   "type": "module",
   "description": "The transport: nodes, identity, and servePeer — the one place in the extraction that knows what libp2p is.",
+  "bugs": {
+    "url": "https://github.com/statewalker/httpeers/issues"
+  },
+  "homepage": "https://github.com/statewalker/httpeers/tree/main/packages/httpeers-libp2p#readme",
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "git+ssh://git@github.com/statewalker/httpeers.git",
+    "url": "git+https://github.com/statewalker/httpeers.git",
     "directory": "packages/httpeers-libp2p"
   },
   "main": "./dist/index.js",

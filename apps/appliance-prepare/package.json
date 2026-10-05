@@ -4,6 +4,15 @@
   "private": true,
   "type": "module",
   "description": "Detects the host's hardware and generates the local-model appliance's compose and LiteLLM configuration. Stdlib only: it runs in a stock node:22-alpine with the repo bind-mounted.",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/statewalker/httpeers.git",
+    "directory": "apps/appliance-prepare"
+  },
+  "bugs": {
+    "url": "https://github.com/statewalker/httpeers/issues"
+  },
+  "homepage": "https://github.com/statewalker/httpeers/tree/main/apps/appliance-prepare#readme",
   "scripts": {
     "test": "vitest run",
     "typecheck": "tsc --noEmit",

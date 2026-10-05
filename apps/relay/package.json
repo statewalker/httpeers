@@ -4,10 +4,15 @@
   "private": true,
   "type": "module",
   "description": "The httpeers circuit relay — a stock libp2p Circuit Relay v2 server, and nothing else.",
+  "bugs": {
+    "url": "https://github.com/statewalker/httpeers/issues"
+  },
+  "homepage": "https://github.com/statewalker/httpeers/tree/main/apps/relay#readme",
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "git+ssh://git@github.com/statewalker/httpeers.git"
+    "url": "git+https://github.com/statewalker/httpeers.git",
+    "directory": "apps/relay"
   },
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",

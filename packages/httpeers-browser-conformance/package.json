@@ -4,6 +4,15 @@
   "private": true,
   "type": "module",
   "description": "What only a real browser can answer: the ServiceWorker edge, its lifecycle, and how a user gets rid of it.",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/statewalker/httpeers.git",
+    "directory": "packages/httpeers-browser-conformance"
+  },
+  "bugs": {
+    "url": "https://github.com/statewalker/httpeers/issues"
+  },
+  "homepage": "https://github.com/statewalker/httpeers/tree/main/packages/httpeers-browser-conformance#readme",
   "license": "MIT",
   "scripts": {
     "build": "echo \"no build: this package only runs tests\"",
