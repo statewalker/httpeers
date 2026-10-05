@@ -1,5 +1,7 @@
 # @statewalker/httpeers-join
 
+## What it is
+
 The **join-the-mesh widget**: one small piece of plain DOM that every page joining
 an httpeers hub shows the same way.
 
@@ -15,27 +17,30 @@ an httpeers hub shows the same way.
   (`session.resetIdentity()`, which forgets the identity), behind a confirmation.
 - **Invite** (mesh admins only): make an invitation as a member or an admin, valid for 1 hour,
   1 day or 7 days, and hand it over as a link, a QR code, the share sheet or the clipboard. See
-  [Invite](#invite).
+  [Invite](#invite-is-shown-only-to-an-admin-the-hub-confirms).
 
 Every button is shown only when `SessionState.controls` allows it. There is one addition: "Leave"
 is hidden while there is no identity (a first run has nothing to forget). The widget decides
 nothing else about the session: `PeerSession` already decides it, and the widget shows the
 result.
 
-```ts
-import { mountJoinWidget } from "@statewalker/httpeers-join";
-import { createSession } from "@statewalker/httpeers-member/browser";
+## Why it exists
 
-let widget;
-const session = createSession({ /* … */, onChange: (state) => widget?.update(state) });
-widget = mountJoinWidget(document.querySelector("#mesh-join")!, {
-  session,
-  state: session.state(),
-});
-await session.start();
+Several pages join a hub: llm-chat's `mesh.html` (React and Tailwind) and the demos' `app`,
+`images` and `proxy` pages (plain DOM). Each needs the same join form, QR scanning, Disconnect,
+Reconnect, Leave and, for an admin, Invite, with the same wording. Apps do not import from other
+apps, so a package is the one place they can all share it from, and plain DOM is the one shape both
+a React page and a framework-free page can use.
+
+## How to use
+
+```sh
+pnpm add @statewalker/httpeers-join
 ```
 
-## API
+One entry point (`.`). It needs a DOM at mount time, not at import. Dependencies:
+`@statewalker/httpeers-member` (types and `invitationFromQrText`) and `@statewalker/httpeers-qr`
+(the scanner and `qrSvg`, both loaded lazily); `html5-qrcode` comes with the QR scanner.
 
 | Export | What it is |
 |---|---|
@@ -69,7 +74,52 @@ await session.start();
 The state passed to `update()` may carry `handle` (a `SessionState` does). The widget reads only
 its `hubPeerId`, `baseUrl` and `meshView()`, and only for the Invite panel.
 
-**QR.** `defaultQrScanner()` loads `@statewalker/httpeers-qr/browser` (and with it
+## Examples
+
+A plain page:
+
+```ts
+import { type JoinWidget, mountJoinWidget } from "@statewalker/httpeers-join";
+import { createSession } from "@statewalker/httpeers-member/browser";
+
+let widget: JoinWidget | undefined;
+const session = createSession({ key: "peers", mounts, rules, onChange: (state) => widget?.update(state) });
+widget = mountJoinWidget(document.querySelector("#mesh-join")!, {
+  session,
+  state: session.state(),
+});
+await session.start();
+```
+
+In React. The widget is not a React component, and React pages wrap it in a few lines. The session and the
+state stay in React. The widget is mounted once and fed each state:
+
+```tsx
+import { useEffect, useRef } from "react";
+import { type JoinWidget, mountJoinWidget } from "@statewalker/httpeers-join";
+
+function JoinWidgetView({ session, state, compact }: Props) {
+  const host = useRef<HTMLDivElement>(null);
+  const widget = useRef<JoinWidget | null>(null);
+  useEffect(() => {
+    if (host.current == null) return;
+    const w = mountJoinWidget(host.current, { session, compact });
+    widget.current = w;
+    return () => { w.destroy(); widget.current = null; };
+  }, [session, compact]);
+  useEffect(() => widget.current?.update(state), [state]);
+  return <div ref={host} />;
+}
+```
+
+`apps/llm-chat/src/mesh/join-widget.tsx` is this wrapper. It lives in `mesh/` because the
+boundary test keeps httpeers out of everything the standalone page reaches.
+
+## Internals
+
+### The QR scanner loads on the first scan
+
+`defaultQrScanner()` loads `@statewalker/httpeers-qr/browser` (and with it
 `html5-qrcode`) with a dynamic `import()` on the **first scan**, so a page that only resumes
 never downloads the camera library, and a bundler gives it a chunk of its own. The camera button
 is hidden when `navigator.mediaDevices.getUserMedia` is missing, which covers an insecure origin
@@ -78,7 +128,9 @@ is reported when the button is pressed, with a pointer to the picture button. A 
 QR code that is not an invitation keeps scanning (camera) or says so (picture). A bare invitation
 id is not accepted from a QR code: nothing tells it apart from any other short string.
 
-**A picture gets two decoders.** html5-qrcode's `scanFile` could not read the demos hub's own
+### A picture gets two decoders, because one misses mid-size screenshots
+
+html5-qrcode's `scanFile` could not read the demos hub's own
 invitation QR (a 310-character join blob) from a clean 684 px screenshot, nor at 600 or 480 px.
 It read the same picture at 400 px and below. Phone screenshots and photos are larger than that.
 When html5-qrcode finds nothing, `defaultQrScanner` therefore draws the picture to a canvas at
@@ -88,19 +140,23 @@ built demos app, every size from 300 to 3000 px decodes, as does a blurred, tilt
 3000 px copy. The same run, scanning the hub page's real QR code, joined its mesh live. The
 camera path is html5-qrcode alone. It gets many frames and the person aims it.
 
-**Accessibility.** The status line is `role="status"`. The phase message is `role="alert"` when it
+### Status and errors are announced
+
+The status line is `role="status"`. The phase message is `role="alert"` when it
 reports trouble (a hub that does not know this peer, a refused invitation, `blocked`, `failed`) and
 `role="status"` when it gives instructions (a first run, `disconnected`, a live note). A rejected
 call and a failed scan go to a separate `role="alert"` line. The field has a `<label>`, every
 control is a `<button>` (or a labelled file input), and ids are unique per instance.
 
-**Styling.** The widget injects one `<style id="hp-join-style">` per document on its first mount.
+### Styles beat Tailwind's preflight without leaking
+
+The widget injects one `<style id="hp-join-style">` per document on its first mount.
 Every rule is on an `hp-join-` or `hp-invite-` class, and none is in a cascade layer, so the rules beat
 Tailwind's preflight (`@layer base`) without leaking into the page. Colours are custom properties
 on `.hp-join` (`--hp-join-accent`, `--hp-join-danger`, `--hp-join-bg`, …). The widget inherits
 the page's font.
 
-### Invite
+### Invite is shown only to an admin the hub confirms
 
 A mesh admin gets an **Invite someone** section: below the controls in the full widget, and in
 the "Mesh" menu in the compact one. It holds:
@@ -151,40 +207,10 @@ scanner. It encodes the hub's `link`, not the bare blob, so a phone's own camera
 join page directly. The widget's scanner accepts the same link.
 
 **On a phone**, below 30rem, the compact widget's menu becomes a sheet along the bottom of the
-screen (at most 70% of its height, scrolling), because anchored to its button it ran off the
-left edge. The header, and the toggle that closes the menu, stay in view.
+screen (at most 70% of its height, scrolling), because a menu anchored to its button would run off
+the left edge. The header, and the toggle that closes the menu, stay in view.
 
-### In React
-
-The widget is not a React component, and React pages wrap it in a few lines. The session and the
-state stay in React. The widget is mounted once and fed each state:
-
-```tsx
-function JoinWidgetView({ session, state, compact }: Props) {
-  const host = useRef<HTMLDivElement>(null);
-  const widget = useRef<JoinWidget | null>(null);
-  useEffect(() => {
-    if (host.current == null) return;
-    const w = mountJoinWidget(host.current, { session, compact });
-    widget.current = w;
-    return () => { w.destroy(); widget.current = null; };
-  }, [session, compact]);
-  useEffect(() => widget.current?.update(state), [state]);
-  return <div ref={host} />;
-}
-```
-
-`apps/llm-chat/src/mesh/join-widget.tsx` is this wrapper. It lives in `mesh/` because the
-boundary test keeps httpeers out of everything the standalone page reaches.
-
-## Design
-
-**What had to be shared.** Four pages join a hub: llm-chat's `mesh.html` (React and Tailwind)
-and the demos' `app`, `images` and `proxy` pages (plain DOM). Each had its own copy of the join
-form and the Disconnect/Reconnect buttons. None of them offered QR scanning or a way to leave, and
-the copies had already drifted in wording.
-
-**Three shapes were considered.**
+### A mount function, not a component or a custom element
 
 1. **A React component, with a DOM copy for the demos.** Rejected. That keeps two copies, which is
    the problem this package solves, and the demos would take on a framework to show one form.
@@ -193,18 +219,21 @@ the copies had already drifted in wording.
    ship a copy. Its state goes in through a property that React 19 sets but earlier versions do
    not. Its lifecycle (`connectedCallback`, upgrade order) is harder to test than a function call.
    None of this buys anything a function does not.
-3. **A function that mounts into a container and returns `{ update, destroy }`.** Chosen. It is
+3. **A function that mounts into a container and returns `{ update, destroy }`.** This one. It is
    plain TypeScript and DOM, has no globals and no registration, and is straightforward to test
    under happy-dom with a fake session. React wraps it in about ten lines, and a plain page calls
    it directly.
 
-**The widget holds no session state.** The session reports changes through one `onChange` that
+### The widget holds no session state
+
+The session reports changes through one `onChange` that
 the page wires up when it creates it. The page therefore owns the session and passes each
 state to `update()`. The widget keeps only what exists only on screen: the typed text, a running
 camera, a button whose call is in flight, and the last rejection.
 
-**Where it lives.** It is a new package rather than an entry in `@statewalker/httpeers-member`
-(`/join-widget`), for two reasons:
+### It is a package of its own, not an entry of `httpeers-member`
+
+Two reasons:
 
 - `httpeers-member` compiles without the DOM lib on purpose (see its `tsconfig.json`), and its
   boundary test keeps DOM out of everything the root reaches. A widget is DOM from top to bottom.
@@ -217,16 +246,18 @@ camera, a button whose call is in flight, and the last rejection.
 `httpeers-qr`, and nothing in `packages/` depends on it except the private conformance leaf. Apps
 never import from other apps, so a package is the only place both apps can share it from.
 
-**Nothing happens at import.** The widget touches no `document`, `window` or stylesheet until
+### Nothing happens at import
+
+The widget touches no `document`, `window` or stylesheet until
 `mountJoinWidget` runs, and the camera library is loaded by the first scan.
 `tests/import.test.ts` imports the built `dist/` under plain Node to check both.
 `httpeers-conformance`'s `runtime-import.test.ts` imports the entry again, together with every
 other published entry.
 
-## The `dist/` trap
+### Pages bundle `dist/`, so rebuild after changing `src/`
 
-The apps' Vite configs set no `resolve.conditions`, and this package's `exports` map offers no
-`source` condition. **Pages bundle `dist/`**, which is gitignored and holds whatever was last
+The `exports` map has a `source` condition, but the apps' Vite configs do not enable it (no
+`resolve.conditions`), so **pages bundle `dist/`**, which is gitignored and holds whatever was last
 built. After changing `src/`:
 
 ```sh
@@ -237,7 +268,7 @@ pnpm --filter @statewalker/httpeers-llm-chat build # and/or the demos
 Then check that the page's bundle hash changed. If it did not, the change did not reach the
 bundle. `turbo build` builds this package before the apps because they depend on it.
 
-## Tests
+### What the tests cover
 
 ```sh
 pnpm --filter @statewalker/httpeers-join test   # build, typecheck, vitest
@@ -263,3 +294,7 @@ pnpm --filter @statewalker/httpeers-join test   # build, typecheck, vitest
 Nothing here drives a real camera or a real hub. That is covered by the apps' Playwright smokes
 (`apps/demos/scripts/join-smoke.mjs`, `apps/llm-chat/scripts/mesh-smoke.mjs`), which join through
 this widget.
+
+## License
+
+MIT

@@ -1,94 +1,135 @@
 # @statewalker/httpeers-bridge
 
-HTTP over a duplex, both directions, with **no transport in it**.
+## What it is
 
-```ts
-import { createRemoteOverLink, serveFetchOverLink } from "@statewalker/httpeers-bridge";
+HTTP between peers over any duplex stream, in both directions, with **no
+transport in it**. A transport supplies a `PeerLink` — "open a duplex to this
+peer" and "accept duplexes, telling me who is on the other end". This package
+serves a `FetchHandler` over that link and calls other peers through it: a
+`Request` in, a `Response` out, one duplex per call.
 
-const stop = await serveFetchOverLink({ link, dispatch: myRouter });
-const call = createRemoteOverLink({ link });
+## Why it exists
 
-await call(otherPeerId, new Request("http://peer.local/hello"));
+Carrying HTTP over a duplex is done by `@statewalker/webrun-http-streams`. A
+mesh needs two more things that neither the streams layer nor the transport
+knows about: the transport-proven caller bound to every inbound request, and
+outbound calls that are bounded in number and time. Keeping both here, behind
+the two-method `PeerLink`, means libp2p, `MessagePort`s or a WebSocket all get
+the same behaviour, and the mesh logic can be tested without a relay, a hub or
+WebRTC.
+
+## How to use
+
+```sh
+pnpm add @statewalker/httpeers-bridge
 ```
 
-A peer call is a `Request` in and a `Response` out, carried over one duplex
-stream. `@statewalker/webrun-http-streams` does the carrying; this adds the two
-things a **mesh** needs and neither half of that knows about.
+No peer dependencies. Runs in Node, workers and browsers.
 
-## One: identity on arrival
-
-The peer the transport proved is bound to every inbound request *before*
-dispatch, replacing whatever the caller sent:
-
-```ts
-registerPeer(req, peer);   // strips first, then writes
-```
-
-That line is the reason a peer cannot lie about who it is. `registerPeer`
-deletes `x-httpeers-peer` before setting it, so a request arriving with a
-hand-set value is corrected here rather than believed downstream.
-
-## Two: one stream per call, bounded
-
-A concurrency permit, a per-call timeout, and cleanup that survives the timeout
-firing mid-dial. Without the permit, a page that fires a hundred calls opens a
-hundred streams and the far side's inbound limit starts refusing them — which
-surfaces as *unrelated* calls failing.
-
-**The connection is closed only on the error path.** `fetchOverDuplex` resolves
-as soon as the response HEAD is parsed, while the body is still streaming over
-that very duplex; closing it in a `finally` yields a `Response` whose `.text()`
-never resolves. That is not hypothetical — it is what the first version of this
-file did, and every test in the package timed out rather than failed, which is
-what duplex bugs look like.
-
-## `PeerLink` is the whole of what a transport must answer
+| Import | Gives |
+|---|---|
+| `.` | `serveFetchOverLink`, `createRemoteOverLink`, the `PeerLink` / `PeerConnection` types, `DEFAULT_MAX_CONCURRENT_OUTBOUND` (64), `DEFAULT_REQUEST_TIMEOUT_MS` (30 000) |
+| `./ports` | `pairedLinks` — two links joined back to back over `MessageChannel` |
 
 ```ts
 interface PeerLink {
-  open(peerId): Promise<PeerConnection>;                       // a duplex to that peer
-  serve(handlerFor: (peer: ProvenPeer) => Duplex): Promise<Stop>;  // accept duplexes
+  open(peerId: PeerIdStr): Promise<PeerConnection>;                        // a duplex to that peer
+  serve(handlerFor: (peer: ProvenPeer) => Duplex): Promise<() => Promise<void>>; // accept duplexes
 }
 ```
 
-Two questions. Everything else runs over anything.
+## Examples
 
-| Implementation | Where | Proves identity by |
+Two peers in one process, over `MessageChannel`:
+
+```ts
+import { createRemoteOverLink, serveFetchOverLink } from "@statewalker/httpeers-bridge";
+import { pairedLinks } from "@statewalker/httpeers-bridge/ports";
+import { lookupPeer } from "@statewalker/httpeers-core";
+
+const [linkA, linkB] = pairedLinks(peerA, peerB);
+
+const stop = await serveFetchOverLink({
+  link: linkB,
+  dispatch: async (req) => new Response(`hello, ${String(lookupPeer(req))}`),
+});
+
+const call = createRemoteOverLink({ link: linkA }); // options: maxConcurrentOutbound, requestTimeoutMs, mapError
+const res = await call(peerB, new Request("http://peer.local/hello"));
+await res.text(); // "hello, <peerA>"
+await stop();
+```
+
+A transport-specific error mapping:
+
+```ts
+import { PeerUnreachableError } from "@statewalker/httpeers-core";
+
+const call = createRemoteOverLink({
+  link,
+  mapError: (error, target) =>
+    String(error).includes("All multiaddr dials failed") ? new PeerUnreachableError(target) : undefined,
+});
+```
+
+## Internals
+
+### The caller's identity is overwritten on arrival
+
+`serveFetchOverLink` calls `registerPeer(req, peer)` on every inbound request
+before dispatch, with the peer the **link** proved. `registerPeer` deletes
+`x-httpeers-peer` before setting it, so a request that arrives with a hand-set
+value is corrected here rather than believed downstream. That one line is why a
+peer cannot lie about who it is.
+
+### Outbound calls are bounded, because unbounded calls fail somewhere else
+
+`createRemoteOverLink` holds a concurrency permit (64 by default) across all
+targets and a per-call timeout (30 s, dial included), and cleans up even when
+the timeout fires mid-dial. Without the permit, a page that fires a hundred
+calls opens a hundred streams, the far side's inbound limit refuses some of
+them, and the symptom is *unrelated* calls failing.
+
+### The duplex is closed only on the error path
+
+The call resolves as soon as the response head is parsed, while the body is
+still streaming over the same duplex. Closing it in a `finally` would yield a
+`Response` whose `.text()` never resolves — and a test suite that times out
+instead of failing, which is what duplex bugs look like.
+
+### Error mapping belongs to the transport
+
+`mapError` is a caller option because error text is transport-specific: libp2p
+says "All multiaddr dials failed", a WebSocket says something else. A bridge
+that matched one transport's wording would mis-classify every other. Return
+`undefined` to let the original error through.
+
+### A `MessagePort` proves nothing, so `./ports` asserts identity
+
+| Link | Where | Proves identity by |
 |---|---|---|
-| libp2p | `httpeers-libp2p`'s `libp2pLink` | the Noise handshake (`context.remotePeer`) |
-| MessagePorts | `./ports`'s `pairedLinks` | **assertion at construction** |
+| libp2p | `@statewalker/httpeers-libp2p` (`servePeer`) | the Noise handshake |
+| MessagePorts | `./ports` (`pairedLinks`) | **assertion at construction** |
 
-## `./ports` — and what a MessagePort cannot prove
+Whoever holds a port is whoever holds the port. `pairedLinks(peerA, peerB)`
+asserts the two identities when it is built, which is honest for a test harness
+and for an in-process or same-origin transport where the channel *is* the trust
+boundary. That is why it has its own entry point. Each `open()` creates a fresh
+channel, so "one duplex per call" holds exactly as it does over libp2p. Pass a
+`channel` factory to run over something other than the global `MessageChannel`.
+A link that cannot establish identity should pass `ANONYMOUS`, never a guess.
 
-`pairedLinks(a, b)` joins two peers back to back over a `MessageChannel`, so a
-mesh runs in one process with no relay, no WebRTC and no key generation. Each
-`open()` makes a fresh channel, so "one duplex per call" holds exactly as it
-does over libp2p.
+### Dependencies
 
-**A raw MessagePort establishes nothing** — whoever holds the port is whoever
-holds the port. So the two identities are asserted at construction. That is
-honest for a test harness and for an in-process or same-origin transport where
-the channel *is* the trust boundary, and it is why this sits behind its own
-entry point rather than looking like something you could deploy across a
-network. A link that cannot establish identity should pass `ANONYMOUS` rather
-than a guess: the whole authorization layer reads this value.
+`@statewalker/httpeers-core` (headers, types), `@statewalker/webrun-http-streams`
+(HTTP over a duplex), `@statewalker/webrun-streams` (the `Duplex` type),
+`@statewalker/webrun-rpc` (a duplex over a `MessagePort`, for `./ports`).
 
-## Why it is a package
+Tests run over MessagePorts — a request and a response in both directions, a
+forged `x-httpeers-peer` overwritten by what the link proved, and a 256 KiB
+body that streams: `pnpm --filter @statewalker/httpeers-bridge test`. The libp2p
+path is tested in `@statewalker/httpeers-libp2p`.
 
-All of this lived inside `httpeers-libp2p`, welded to `connect` and
-`serveConnections`. Only the two `PeerLink` questions were ever
-libp2p-specific, so the rest could not be exercised without standing up a
-relay, a hub and a WebRTC upgrade. Now a WebSocket or worker transport is a
-~40-line adapter instead of a fork of this logic — and `httpeers-libp2p` runs
-on this same code, so there is one implementation rather than two.
+## License
 
-Error mapping stays with the transport (`mapError`): libp2p says "All multiaddr
-dials failed", a WebSocket says something else, and a bridge that pattern-matched
-one transport's wording would mis-classify every other one.
-
-## Tests
-
-**3**, over MessagePorts: a request and a response both ways, a forged
-`x-httpeers-peer` overwritten by what the link proved, and a 256 KiB body
-streamed rather than a token-sized one. The libp2p path is covered by
-`httpeers-libp2p` and by the live mesh in `httpeers-conformance`.
+MIT

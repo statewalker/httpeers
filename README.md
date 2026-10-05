@@ -1,348 +1,194 @@
 # httpeers
 
-A peer-to-peer mesh where **everything is a `fetch()`**. Two halves live here:
+## What it is
 
-- **`packages/`** — nine libraries a page or a process builds a mesh out of,
-  plus a private conformance suite that holds them to it. The reverse proxy
-  moved to [`@statewalker/webrun-http-proxy`](https://github.com/statewalker/webrun-wire),
-  where nothing about it is mesh-specific.
-- **`apps/` and `deploy/`** — the deployable services the mesh needs to exist:
-  the circuit relay, the static-site host, the session shell, and the ingress
-  that fronts them. Live at `relay.httpeers.net`, `s3.httpeers.net`,
-  `*.httpeers.net` and `*.p.httpeers.net`. Also the demo pages that run on them.
+A peer-to-peer mesh where **everything is a `fetch()`**. Peers — Node
+processes and browser pages — serve HTTP handlers to each other over libp2p,
+and a page calls another peer with its own `fetch()` through a ServiceWorker
+edge. This repository holds both halves:
 
-**Before building on it, read [`docs/security-model.md`](docs/security-model.md)** —
-the mesh mounts every peer's HTTP surface into your own origin and calls it with
-your identity automatically, so *data* crosses that boundary safely but *code*
-does not. That document defines the valid uses and the ones to avoid, and is the
-frame the packages below sit inside.
+- **`packages/`** — the libraries a page or a process builds a mesh from,
+  published to npm under `@statewalker/*`, plus two private conformance suites.
+- **`apps/` and `deploy/`** — the services the mesh needs to exist and the
+  pages that run on them: the circuit relay (`relay.httpeers.net`), the
+  static-site host (`*.httpeers.net`), the session shell (`*.p.httpeers.net`),
+  the S3 storage behind them (`s3.httpeers.net`), the ingress, the Node hub
+  daemon with its LLM appliance, the LLM chat and the demo pages.
 
-Design and decisions live in the umbrella repository:
-`docs/superpowers/specs/2026-09-06-httpeers-relay-production-design.md`, the
-extraction's acceptance record at
-`docs/superpowers/plans/2026-09-13-httpeers-extraction-acceptance.md`, and the
-mesh's own vocabulary in `docs/httpeers/CONTEXT.md`.
+**Before building on it, read [`docs/security-model.md`](docs/security-model.md).**
+The mesh mounts every peer's HTTP surface into your own origin and calls it
+with your identity automatically, so *data* crosses that boundary safely but
+*code* does not. That document defines the valid uses and the ones to avoid.
 
 ## Layout
 
 ```
-packages/              the libraries -- see below
+packages/              the libraries (below)
 apps/relay/            the circuit relay, and its image
-apps/sites/            the static-site host -- one site per storage prefix
+apps/sites/            the static-site host: one site per storage prefix, and its image
 apps/session-shell/    the empty session every <name>.p.httpeers.net serves
 apps/hub/              the Node hub daemon (identity, rules, service modules, admin UI), and its image
+apps/appliance-prepare/ hardware probe and config generator for the local-model LLM appliance
 apps/llm-chat/         the chat page: standalone (index.html) or over the mesh (mesh.html)
 apps/demos/            the demo sites: hub, app, images, proxy
-deploy/                the compose stack, the Caddyfile, the ingress image
-deploy/llm-appliance/  hub + LiteLLM + Postgres + Traefik, locally or on the server via CI
-tools/publish/         shell toolkit: publish a site by editing a folder
-.github/workflows/     ci, and one image-publishing workflow per deployable
+deploy/                the production compose stack, the Caddyfile, the ingress image
+deploy/llm-appliance/  hub + LiteLLM + Postgres + Traefik, locally or on the server
+tools/publish/         shell toolkit: publish sites by editing a folder
+docs/                  the security model
+.github/workflows/     CI, and one image workflow per deployable
 ```
 
-## The libraries
+### The libraries
 
 One contract runs through all of them: `FetchHandler = (Request) => Promise<Response>`.
 A mount table routes it, a peer serves it over libp2p, an edge lets a page
-reach it through its own `fetch()`. Nothing below the transport package knows
-what libp2p is.
+reach it through its own `fetch()`. Only `httpeers-libp2p` knows what libp2p
+is.
 
-| Package | What it is |
-|---|---|
-| [`httpeers-core`](packages/httpeers-core) | The handler contract, the mount router, the peer-context sidecar. **No dependencies at all.** |
-| [`httpeers-access`](packages/httpeers-access) | Who is calling, and may they: Biscuit tokens, Datalog policy, revocation, one middleware. No libp2p. |
-| [`httpeers-bridge`](packages/httpeers-bridge) | Fetch over a duplex, both directions, with **no transport in it**. `PeerLink` is the seam; `./ports` runs a mesh over `MessageChannel`. |
-| [`httpeers-libp2p`](packages/httpeers-libp2p) | The transport — nodes, identity, reachability, `servePeer`. The only package that knows what libp2p is. |
-| [`httpeers-hub`](packages/httpeers-hub) | Minting membership and holding the registries. No transport, which is what lets a hub run in a tab. |
-| [`httpeers-member`](packages/httpeers-member) | Everything a participant does: `startMember`, the session, the edge, the gateway. |
-| [`httpeers-ghost`](packages/httpeers-ghost) | A remote peer's app rendered as a page that can reach only that peer. |
-| [`httpeers-qr`](packages/httpeers-qr) | Invitations as QR: pure encode/decode, plus a browser entry that scans from the camera. |
-| [`httpeers-join`](packages/httpeers-join) | The join-the-mesh widget every page shares: paste or scan an invitation, the link to the hub, disconnect, reconnect, leave, and for a mesh admin, invite others as members or admins. Plain DOM. |
-| [`httpeers-conformance`](packages/httpeers-conformance) | Private. Every prototype rebuilt on the published API, every entry point imported, and one real mesh. |
+| Package | npm | What it is |
+|---|---|---|
+| [`httpeers-core`](packages/httpeers-core) | [`@statewalker/httpeers-core`](https://www.npmjs.com/package/@statewalker/httpeers-core) | the handler contract, the mount router, the identity and token headers; no dependencies |
+| [`httpeers-access`](packages/httpeers-access) | [`@statewalker/httpeers-access`](https://www.npmjs.com/package/@statewalker/httpeers-access) | who is calling, and may they: Biscuit tokens, Datalog policy, revocation, one middleware; no libp2p |
+| [`httpeers-bridge`](packages/httpeers-bridge) | [`@statewalker/httpeers-bridge`](https://www.npmjs.com/package/@statewalker/httpeers-bridge) | fetch over a duplex, both directions, with no transport in it; `./ports` runs a mesh over `MessageChannel` |
+| [`httpeers-libp2p`](packages/httpeers-libp2p) | [`@statewalker/httpeers-libp2p`](https://www.npmjs.com/package/@statewalker/httpeers-libp2p) | the transport: nodes, identity, relay reservations, `servePeer` |
+| [`httpeers-hub`](packages/httpeers-hub) | [`@statewalker/httpeers-hub`](https://www.npmjs.com/package/@statewalker/httpeers-hub) | invitations, membership tokens and the registries; no transport, so a hub can run in a tab |
+| [`httpeers-member`](packages/httpeers-member) | [`@statewalker/httpeers-member`](https://www.npmjs.com/package/@statewalker/httpeers-member) | everything a participant does: `startMember`, the session, the edge, the gateway |
+| [`httpeers-ghost`](packages/httpeers-ghost) | [`@statewalker/httpeers-ghost`](https://www.npmjs.com/package/@statewalker/httpeers-ghost) | a remote peer's app rendered as a page that can reach only that peer |
+| [`httpeers-qr`](packages/httpeers-qr) | [`@statewalker/httpeers-qr`](https://www.npmjs.com/package/@statewalker/httpeers-qr) | invitations as QR: pure encode/decode, plus a browser camera scanner |
+| [`httpeers-join`](packages/httpeers-join) | [`@statewalker/httpeers-join`](https://www.npmjs.com/package/@statewalker/httpeers-join) | the join-the-mesh widget every page shares, in plain DOM |
+| [`webrun-biscuit`](packages/webrun-biscuit) | [`@statewalker/webrun-biscuit`](https://www.npmjs.com/package/@statewalker/webrun-biscuit) | Biscuit tokens in pure TypeScript: codec, signatures, Datalog, authorizer |
+| [`httpeers-conformance`](packages/httpeers-conformance) | private | every entry point resolved and imported as a dependent sees it, and one real mesh |
+| [`httpeers-browser-conformance`](packages/httpeers-browser-conformance) | private | what only a real browser can answer: the ServiceWorker edge, reset, reloads |
 
-### Three rules the packages are built on
+The apps (`apps/*`) are all private: they ship as container images or static
+sites, never to npm.
 
-**Proven identity is a header, and every ingress strips it.** `x-httpeers-peer`
-carries the peer the *transport* proved. It travels in a header rather than a
-side-table so that it survives a re-created `Request` — which is what handlers
-do — and so the security property can be tested in plain HTTP. The cost is that
-a header is whatever the caller typed, so `registerPeer`, `registerAnonymous`
-and `stripPeerBinding` all strip before they write, and every entry point calls
-exactly one of them. `httpeers-conformance` proves it over a real libp2p
-connection: a peer claiming to be somebody else is overwritten by the handshake.
+Other `@statewalker/*` packages used here come from npm: `webrun-streams`,
+`webrun-streams-libp2p`, `webrun-http-streams`, `webrun-http-browser`,
+`webrun-http-proxy`, `webrun-rpc` and `webrun-files*`.
 
-**The membership token has its own header; `Authorization` is the application's.**
-`x-httpeers-token` carries the bare token (`MESH_TOKEN_HEADER` in
-`httpeers-core`, the only place the name is spelled). The edge, `peerRequest`
-and the ghost write it; `withAccess` reads it and nothing else. `Authorization`
-passes through the mesh untouched, for whatever application the request is
-addressed to. When the token lived in `Authorization` the two collided — LiteLLM's
-Playground sent its own key there, the edge would not overwrite it, and the hub
-refused the key as a `malformed token`. A proxy re-issuing a request outside the
-mesh strips `MESH_CREDENTIAL_HEADERS` (the token and the proven peer), never
-`Authorization`. `httpeers-conformance` scans every library's source to keep it
-that way.
+## How to run it
 
-**Isomorphic by default, platform behind an entry point.** A package's root
-runs in Node, in a worker and in a page alike; anything that cannot goes behind
-`./node` or `./browser`. Each package's boundary test enforces it — in
-`httpeers-member` and `httpeers-qr` by walking the import closure of
-`index.ts`, so the rule is "nothing a root import reaches", not "these
-filenames are exempt".
+Requirements: **Node 24** and **pnpm 10** through corepack (the version is
+pinned in `package.json`'s `packageManager`).
 
-**A compile check and a runtime check are different claims.** Three real
-defects lived in that gap, including a published entry point that could not be
-imported while 637 type-checked tests stayed green. `httpeers-conformance`
-closes it: it compiles every entry, imports every isomorphic one, and stands up
-a live relay, hub and two members with nothing stubbed.
+1. `corepack enable`
+2. `pnpm install`
+3. `pnpm build` — every package and app (`pnpm -r run build`; `pnpm turbo build`
+   builds in dependency order and caches).
+4. `pnpm test` — every package's tests. They bind real ports and start real
+   libp2p nodes. A package's `test` script builds and typechecks it first.
+5. `pnpm typecheck`, `pnpm lint:check`, `pnpm format:check`.
 
-### Working on them
+One package: `pnpm --filter @statewalker/httpeers-member test`.
+
+A relay on this machine, where the bound address is reachable and so no
+announce address is needed:
 
 ```sh
-pnpm install
-pnpm turbo build
-pnpm turbo test          # 506 tests in packages/, 663 with the two apps
-```
-
-**None of the ten is on npm yet** — all are at `0.1.0`, and `npm view` returns
-404 for every one. They are consumed here through the workspace.
-
-> **One install note that bites silently.** `@libp2p/webrtc` needs
-> `node-datachannel`, a native module whose install script pnpm 10 blocks
-> unless it is named in `onlyBuiltDependencies` (it is, in
-> `pnpm-workspace.yaml`). Drop that entry and pnpm prints
-> `Ignored build scripts: node-datachannel` in a box, reports success, and
-> `@statewalker/httpeers-member/node` then throws on import.
-
-## Development
-
-The whole repository — the libraries above *and* the two apps. (*Working on
-them*, further up, is the narrower packages-only loop.)
-
-```sh
-pnpm install
-pnpm run typecheck
-pnpm run test        # binds real ports; starts real libp2p nodes
-pnpm run build
-```
-
-Running it locally, where the bound address *is* reachable and so no announce
-list is needed:
-
-```sh
-pnpm --filter @statewalker/httpeers-relay bootstrap     # writes .httpeers/relay.key
+pnpm --filter @statewalker/httpeers-relay bootstrap     # writes apps/relay/.httpeers/relay.key
 RELAY_REQUIRE_ANNOUNCE=false pnpm --filter @statewalker/httpeers-relay dev
 ```
 
-## Deployment
+Each app's README says how to run it: [relay](apps/relay/README.md),
+[sites](apps/sites/README.md), [session shell](apps/session-shell/README.md),
+[hub](apps/hub/README.md), [llm-chat](apps/llm-chat/README.md),
+[demos](apps/demos/README.md).
 
-See [`deploy/README.md`](deploy/README.md). In short: a wildcard A record and a
-wildcard certificate, after which **publishing a new subdomain changes nothing
-here** — no Caddyfile edit, no DNS record, no reload. Session origins
-(`*.p.httpeers.net`) are the one exception: one more wildcard, set up once —
-an `A *.p` record, a Caddy block with its own certificate, and the shell
-published to the `p.httpeers.net` prefix.
+### Deployment: merging to `main` publishes images
 
-## What the relay is, and is not
+[`deploy/README.md`](deploy/README.md) is the runbook for the production host:
+four containers (Caddy, relay, sites, RustFS) behind a wildcard DNS record and
+wildcard certificates, so publishing a new subdomain changes nothing there.
+The LLM appliance is a separate stack, described in
+[`deploy/llm-appliance/README.md`](deploy/llm-appliance/README.md).
 
-A stock libp2p **Circuit Relay v2** server over WebSockets, with **no
-application code**: it serves no discovery, announces itself as a member of
-nothing, and holds no directory. It is the one component in the system that is
-genuinely infrastructure, and also the only one containing no project logic.
+A push to `main` that touches a deployable builds and pushes its image
+(`.github/workflows/relay.yml`, `sites.yml`, `ingress.yml`, `llm-appliance.yml`).
+The relay and sites workflows then deploy over SSH when the repository variable
+`DEPLOY_ENABLED` is `true`, and the LLM appliance workflow when
+`LLM_DEPLOY_ENABLED` is `true`; the ingress is deployed by hand. The LLM
+appliance workflow watches all of `packages/**`, so any change there — a README
+included — rebuilds and redeploys the hub. On a pull request, CI runs and the
+LLM appliance image is built without being pushed.
 
-> **A note on the word.** `docs/httpeers/CONTEXT.md` marks this as a false
-> friend. The domain's **Relay** is *a peer that forwards on a third party's
-> behalf* — an application-level concern with a capability and a hop limit.
-> This is the *libp2p circuit relay*, a transport component, and a different
-> thing entirely. This repository contains only the second.
+## Why it is the way it is
 
-It is **open and capped**: anyone may reserve, and protection is quantitative
-rather than authenticated. See `apps/relay/src/limits.ts`, which is the only
-place those numbers are set and explains why the per-connection ones stay
-small.
+### Proven identity is a header, and every ingress strips it
 
-## The relay's per-connection limits — and why they are what they are
+`x-httpeers-peer` carries the peer the *transport* proved. A header survives a
+re-created `Request` — which is what handlers do — and lets the security
+property be tested in plain HTTP. Because a header is whatever the caller
+typed, `registerPeer`, `registerAnonymous` and `stripPeerBinding` all strip
+before they write, and every entry point calls exactly one of them.
+`httpeers-conformance` checks it over a real libp2p connection: a peer claiming
+to be somebody else is overwritten by the handshake.
 
-`apps/relay/src/limits.ts` applies **1 GiB and 6 hours** per relayed connection, plus
-`maxReservations: 512` and a 2 h reservation TTL. Those are ceilings against a runaway peer, not
-budgets a real session can reach. The numbers matter, and the reasoning behind them was arrived
-at the expensive way.
+### The membership token has its own header; `Authorization` is the application's
 
-### Why a limit exists at all
+`x-httpeers-token` carries the bare token (`MESH_TOKEN_HEADER` in
+`httpeers-core`, the only place the name is spelled). The edge, `peerRequest`
+and the ghost write it; `withAccess` reads it and nothing else.
+`Authorization` passes through the mesh untouched, for whatever application the
+request is addressed to — for example LiteLLM's own API key. A proxy
+re-issuing a request outside the mesh strips `MESH_CREDENTIAL_HEADERS` (the
+token and the proven peer), never `Authorization`. `httpeers-conformance` scans
+every library's source to keep it that way.
 
-Circuit Relay **v2** is a *limited* relay by design: v1 relays were unlimited, were treated as
-free public infrastructure, and people stopped running them. A cap buys three things:
+### A package's root is isomorphic; platform code sits behind an entry point
 
-- **Bounded egress.** A relay spends *its* bandwidth carrying traffic between two *third
-  parties*. A cap makes the worst case computable instead of open-ended.
-- **It is not an open proxy.** Without a cap, a public relay is free transport for arbitrary
-  libp2p traffic, leaving the operator's address and allowance.
-- **Pressure to upgrade.** If a circuit is unlimited, peers that could go direct have less reason
-  to.
+A package's root runs in Node, in a worker and in a page alike; anything that
+cannot goes behind `./node` or `./browser`. Each package's boundary test
+enforces it — in `httpeers-member` and `httpeers-qr` by walking the import
+closure of `index.ts`, so the rule is "nothing a root import reaches", not
+"these file names are exempt".
 
-### Why the stock numbers are wrong here
+### A compile check and a runtime check are different claims
 
-The library defaults — **128 KiB and 2 minutes** — are sized for an identify exchange plus
-hole-punch coordination, on the assumption that the circuit is only ever a signalling path. It is
-not. **NAT traversal is negotiated per peer pair**, so within one mesh some pairs go direct and
-others fall back — and for those, the circuit *is* the data path.
+A published entry point can type-check and still fail to import, and two
+packages that pass their own tests can still fail together.
+`httpeers-conformance` compiles every entry point the way a dependent does,
+imports every isomorphic one, and stands up a live relay, hub and two members
+with nothing stubbed.
 
-libp2p resets the stream when a reservation's budget is spent, so the application sees a
-truncated response and **nothing anywhere says why**. This relay ran at 1 MiB, and a phone
-loading an image gallery got roughly 1 MiB through before every remaining image broke; opening one
-of them in a fresh tab worked, because a new connection gets a new budget. That reads as random
-corruption rather than a quota.
+## What will surprise you
 
-*(The truncation that actually explained that gallery turned out to live elsewhere — a 5-second
-close bound in `webrun-streams-libp2p` that aborted healthy transfers under concurrency. This cap
-was not the culprit. It would have been the next one.)*
+- **`node-datachannel` must be allowed to build.** `@libp2p/webrtc` needs this
+  native module, and pnpm 10 blocks install scripts unless a package is named
+  in `onlyBuiltDependencies` (it is, in `pnpm-workspace.yaml`). Remove that
+  entry and pnpm prints `Ignored build scripts: node-datachannel`, reports
+  success, and `@statewalker/httpeers-member/node` then throws on import.
+- **Apps bundle workspace packages from `dist/`.** The packages' `exports` have
+  a `source` condition, but the Vite builds do not enable it. After changing a
+  package, rebuild it before building or testing an app that uses it.
+- **Merging to `main` changes production.** See
+  [Deployment](#deployment-merging-to-main-publishes-images).
+- **The word "relay" means two things.** In the mesh's vocabulary a Relay is a
+  peer that forwards on a third party's behalf; `apps/relay` is the libp2p
+  circuit relay, a transport component.
 
-### The rule for choosing the numbers
+## Reference
 
-**Any ceiling tight enough to matter against abuse is tight enough to truncate somebody's
-gallery, and that failure is invisible at both ends.** So set the ceiling well above real usage:
-a measured browser-to-browser gallery moved 63 MB across eighteen concurrent transfers, and 1 GiB
-sits far above it. If bandwidth ever becomes the problem, **measure egress first** and lower the
-ceiling to above observed usage rather than guessing below it.
+### Commands
 
-`applyDefaultLimit` is all-or-nothing — it either attaches both figures or drops data *and*
-duration together — which is why both are declared. Declaring one and omitting the other would
-imply a ceiling that is not enforced.
+| Command | What it does |
+|---|---|
+| `pnpm build` | `pnpm -r run build` |
+| `pnpm test` | `pnpm -r run test` |
+| `pnpm typecheck` | `pnpm -r run typecheck` |
+| `pnpm lint` / `pnpm lint:check` | Biome check, with or without `--write` |
+| `pnpm format` / `pnpm format:check` | Biome format, with or without `--write` |
+| `pnpm turbo build` / `pnpm turbo test` | the same through turbo: dependency order and caching |
 
-## Bootstrapping from a URL
+### Continuous integration and releases
 
-A peer that knows only `https://relay.httpeers.net` — with no peerId compiled
-into it — can learn what to dial from
+CI runs on every pull request and every push to `main`: a frozen
+`pnpm install`, a check of dependency-reference conventions (`workspace:^`
+inside the repository, `catalog:` for external versions), `lint:check`,
+`format:check`, `build`, `typecheck`, `test`, and checks that every published
+entry point exists in `dist/`, imports, and packs. The public packages are
+published to npm under `@statewalker/*`.
 
-```
-https://relay.httpeers.net/.well-known/httpeers-relay.json
-```
+### License
 
-```json
-{
-  "relayAddrs": [
-    "/dns4/relay.httpeers.net/tcp/443/tls/ws/p2p/12D3KooW…"
-  ]
-}
-```
-
-`relayAddrs` is the key `httpeers.json`'s invitation payload already uses; a
-second shape for the same fact is how two sources of truth start.
-
-**The relay does not serve this.** It writes the file at startup, to a path
-given by `RELAY_BOOTSTRAP_PATH`, and Caddy serves it. Unset, nothing is written
-and the relay behaves exactly as it did before this existed.
-
-**It is generated from `node.getMultiaddrs()`, not from `RELAY_ANNOUNCE_ADDRS`.**
-Generating it from configuration would look equivalent and would be a second
-source of truth for the relay's address, free to drift from what the relay
-actually advertises in the one direction nobody checks. See
-`apps/relay/src/bootstrap-doc.ts`, and the integration test that compares the
-written document against the node's own address list.
-
-**A missing document means the relay is not running.** It is deleted before
-every start attempt and written only once the relay is up, so a relay that
-crash-loops yields 404 rather than a confident answer pointing at a relay that
-is down.
-
-### The client contract — pin on first use
-
-This belongs in client code, not in this repository, but it is the entire
-security argument and it has a sharp edge.
-
-1. Fetch the document once, over HTTPS.
-2. Persist the peerId alongside the relay URL.
-3. Thereafter dial the **full** address including `/p2p/`, so Noise verifies
-   the relay's identity on every connection.
-4. If the published peerId ever differs from the pinned one, **fail loudly**.
-   Never silently re-pin.
-
-Trust before step 2 is DNS and the CA. Trust after step 2 is equal to a peerId
-compiled in. The trade is not "as secure as pinning" — it is "as secure as
-pinning, *after first contact*".
-
-> **The inversion, which is the real risk.** If first contact is compromised,
-> the client pins the **attacker's** peerId — permanently — and rule 4 then
-> fires against the *legitimate* relay. That is not a degradation to no
-> pinning; it is being locked to the attacker while loudly rejecting the real
-> relay. "Never silently re-pin" is right; **"never re-pin" is unrecoverable.**
-
-So a client MUST also carry a **deliberate reset path**: an explicit,
-human-initiated action that forgets the pin so the next contact pins afresh.
-Three properties make it safe rather than a hole in rule 4:
-
-- **Only a human starts it.** Never the relay, never the document, never a
-  header or a field in the JSON — nothing an attacker can also serve.
-- **It shows both peerIds**, the pinned one and the published one, so the human
-  can compare them against a source that is not the relay.
-- **It is the same mechanism a legitimate key rotation needs.** The client
-  cannot distinguish a rotated relay from a substituted one — which is exactly
-  why the decision is a person's and not the client's.
-
-### Why this is safe for a relay specifically
-
-The relay is the one component not trusted with content: peer↔peer Noise runs
-*inside* the circuit, and the target peer's id stays in the dialled address and
-is still verified. A substituted relay can deny service and observe traffic
-patterns; it cannot read what flows through.
-
-**This reasoning does not transfer to the hub**, whose peerId is the mesh
-identity. A hub bootstrap document would need its own argument, not this one.
-
-## What the static-site host is
-
-A site is a **first-level prefix in an S3 bucket, named after its domain**:
-`sites/abc.httpeers.net/index.html`. Publishing is writing files — no DNS record, no
-certificate, no ingress edit, no restart. The `Host` header resolves directly to a
-prefix, so there is no index to build, nothing to invalidate, and collisions are
-impossible because storage enforces key uniqueness.
-
-Two behaviours worth knowing, both easy to get wrong:
-
-- **`/foo` matching `/foo/index.html` returns 301 to `/foo/`.** Serving the body at the
-  un-slashed URL breaks every relative link in the document — `img.png` resolves to
-  `/img.png`, not `/foo/img.png` — and the symptom is missing images, not anything that
-  looks like routing.
-- **A missing file is a 404, never a 200 with an empty body.** `FilesApi.read()` returns
-  an empty iterable for a path that does not exist rather than throwing, so existence is
-  always established with `stats()` first.
-
-Storage is chosen by environment (`s3` | `node` | `mem`) in `apps/sites/src/store.ts`,
-which is the only module that knows which backend is in use.
-
-## What a session origin is
-
-`<name>.p.httpeers.net`, for any name: a separate **origin** — its own storage,
-cookies and ServiceWorker — that serves the same static shell as every other
-name, and shows whatever the page that opened it sends over a `MessagePort`.
-It is how a page runs another peer's app without letting it touch its own
-origin (see `docs/security-model.md` §6). The shell, its refusals and its
-tests are in [`apps/session-shell`](apps/session-shell/README.md); the demo
-that uses it is the app page's **Open in a new session**
-([`apps/demos`](apps/demos/README.md)).
-
-## Two things that are easy to get wrong
-
-**The address it binds is not the address peers dial.** TLS is terminated by
-the reverse proxy, so the relay speaks plain `ws` internally and must
-*advertise* `/dns4/relay.httpeers.net/tcp/443/tls/ws`. libp2p advertises what it
-listens on unless told otherwise, so without `RELAY_ANNOUNCE_ADDRS` the relay
-starts, reports healthy, and is undialable — with a symptom pointing at the
-relay's health rather than at its advertised address. It therefore refuses to
-start without one. See `apps/relay/src/addresses.ts`.
-
-**The signing key is the identity.** The relay's peerId is embedded in every
-multiaddr any client will ever dial, so a regenerated key silently invalidates
-every client's configuration at once. A missing key is a loud failure, never a
-fresh identity. The key lives on a volume, never in the image, and never in
-this repository. See `apps/relay/src/key.ts`.
-
-## Configuration
-
-| Variable | Default | Meaning |
-| --- | --- | --- |
-| `RELAY_PORT` | `9090` | The port the relay binds, inside the network. |
-| `RELAY_KEY_PATH` | `./.httpeers/relay.key` | The identity. `/data/.httpeers/relay.key` in the image. |
-| `RELAY_ANNOUNCE_ADDRS` | *(none — required)* | Comma-separated multiaddrs peers should dial. Must not contain `/p2p/`. |
-| `RELAY_REQUIRE_ANNOUNCE` | `true` | Set `false` for a local run with no proxy in front. |
-| `RELAY_KEY` | *(none)* | Base64 protobuf, to seed an empty volume. Ignored once a key exists. |
-| `RELAY_BOOTSTRAP_PATH` | *(none; `/srv/bootstrap/.well-known/httpeers-relay.json` in the image)* | Where to write the bootstrap document. Unset, none is written. |
+MIT — see [`LICENSE`](LICENSE).

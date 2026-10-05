@@ -1,113 +1,132 @@
 # @statewalker/httpeers-qr
 
-Encoding and decoding as **pure functions** at the root, and a browser entry
-that scans from a live camera.
+## What it is
 
-```ts
-import { qrSvg, decodeQr } from "@statewalker/httpeers-qr";
+QR codes for httpeers invitations. The root encodes a string to an SVG or a
+module matrix and decodes pixels back to a string, as pure functions. The
+`./browser` entry scans from a live camera or a picture file.
 
-const svg = qrSvg(invitation);              // an inline SVG string
-const text = decodeQr(imageData);           // string | null
+## Why it exists
+
+An invitation is a long string (around 300 characters as a join blob), and the
+way people move it between devices is a phone camera pointed at a screen. That
+needs an encoder tuned to be photographed, a decoder that runs anywhere (on a
+server, in a worker, in a test), and a live camera scanner. The encoder and the
+pure decoder must not pull a camera library into every consumer, so the camera
+lives behind its own entry point.
+
+## How to use
+
+```sh
+pnpm add @statewalker/httpeers-qr
+pnpm add html5-qrcode    # only if you use ./browser
 ```
 
-The root touches no camera, no canvas and no DOM, so the same code renders an
-invitation on a server and reads one in a page. `ImageData` satisfies `Pixels`
-structurally, so a browser caller passes one straight through.
-
-## Entry points
-
-| Import | Holds | Needs |
+| Import | Gives | Needs |
 |---|---|---|
-| `.` | `qrSvg`, `qrModules`, `decodeQr`, `Pixels` | nothing — isomorphic |
-| `./browser` | `scanFromCamera`, `scanFile`, `QrScan`, `CameraScan` | `html5-qrcode`, an **optional peer dependency** |
+| `.` | `qrSvg`, `qrModules`, `decodeQr`, the `Pixels` type | nothing — isomorphic |
+| `./browser` | `scanFromCamera`, `scanFile`, the `QrScan` and `CameraScan` types | `html5-qrcode`, an **optional peer dependency**; a DOM |
 
-Nothing browser-only is reachable from the root, and
-`tests/boundary.test.ts` measures that by **reachability** rather than by
-exempting a filename: it walks the import closure of `index.ts` and fails if
-`html5-qrcode` or a DOM global appears anywhere in it. Verified non-vacuous by
-re-exporting the camera from the root and watching three named tests fail.
+## Examples
 
-A consumer that only encodes never installs a camera library.
+Encode and decode:
 
-## What it encodes, and why that and nothing else
+```ts
+import { decodeQr, qrSvg } from "@statewalker/httpeers-qr";
 
-The bare invitation code — exactly the string the join field already accepts,
-never a deep link. An invitation is not tied to a page: any page redeems any
-code, and the hub never learns which origin its guests used. A QR carrying
-`https://app.example/?join=…` would quietly reverse that.
+const svg = qrSvg(invitation);       // an inline SVG string
+const text = decodeQr(imageData);    // string | null; ImageData satisfies Pixels
+```
 
-Error correction level **M** (~15%), because a code that will be *photographed
-off a screen* has to survive glare, moiré against the pixel grid, and a phone
-held at an angle. L leaves nothing for that; Q and H push a 315-character
-invitation to a denser grid, which photographs worse.
-
-## Two decoders, and the split is about the camera
-
-`decodeQr` (root, `jsqr`) takes pixels. `./browser` (`html5-qrcode`) takes a
-camera or a file. Both ship, and the reason is not that one decodes better.
-
-Measured over twelve manufactured degradations of a real 302-character join
-blob, `jsqr` scored **8/12** against `html5-qrcode`'s **9/12**, the two
-differing on heavy blur. That is close enough that decoder quality does not
-decide anything. What decides it is the number of attempts:
-
-- A **still frame gets exactly one**, and it has to survive whatever angle,
-  blur, glare and white balance the phone produced. The first version of this
-  feature was still-photo only and failed on real photographs — a screenshot
-  decoded, a photo of the same screen did not.
-- A **live camera gets dozens a second while the person watches the preview and
-  adjusts.** That aiming feedback is what makes scanning work, and no file
-  picker can offer it.
-
-So the root exists to make still-image decoding possible *anywhere* — on a
-server, in a worker, in a test — which the camera path cannot do at all; and
-`./browser` exists because the camera is the path people actually use. The file
-picker is kept there too, for a screenshot somebody sent and for a camera that
-is refused or absent.
-
-That evidence has a limit worth stating: the degradations are manufactured —
-blur, rotation, perspective, JPEG artefacts, low contrast, glare, small
-captures — because no photograph of a real invitation survives in the
-repository. A folder of phone photos would be better evidence.
-
-## The scanner does not know what an invitation is
-
-`scanFromCamera` and `scanFile` take an `accept` callback that turns a decoded
-string into whatever the caller was looking for, or `null`:
+Scan from the camera until an invitation appears:
 
 ```ts
 import { scanFromCamera } from "@statewalker/httpeers-qr/browser";
 import { invitationFromQrText } from "@statewalker/httpeers-member";
 
-const camera = await scanFromCamera(host, {
-  accept: invitationFromQrText,
+const camera = await scanFromCamera({ id: "scanner" }, {   // id of a host element
+  accept: invitationFromQrText,      // string -> invitation, or null to keep scanning
   onCode: (code) => session.join(code),
 });
+// later: await camera.stop();
 ```
 
-A QR package that knew the join format could not be used for anything else, so
-`invitationFromQrText` lives in `@statewalker/httpeers-member`, which owns that
-format. `accept` returning `null` is also what **keep scanning** means: a
-scanner pointed at a wifi sticker or a poster must not stop on the first wrong
-code, and must not hand that string to a hub.
+Scan a picture file:
 
-Two details in `./browser` were expensive to learn and are commented where they
-live. There is **no `qrbox`** — it is a crop, measured against the rendered
-viewfinder rather than the camera's resolution, and it cut QR codes that filled
-the frame. And a camera that cannot start **rejects** rather than resolving
-quietly, because that is exactly when the caller should offer the file picker.
+```ts
+import { scanFile } from "@statewalker/httpeers-qr/browser";
 
-## The test is a round trip
+const result = await scanFile(file, { accept: invitationFromQrText });
+if (result.ok) await session.join(result.value);
+else if (result.reason === "no-qr") showHint("No QR code found in that picture.");
+else showHint(`That QR code is not an invitation: ${result.text}`);
+```
 
-`tests/round-trip.test.ts` encodes a real join blob, rasterises the module
-matrix, decodes the pixels, and compares. The two halves check each other in
-Node, with nothing browser-shaped in the path — which is the root's claim,
-stated as something that can fail.
+## Internals
 
-`./browser` is not exercised here: it needs a camera and a DOM. What IS checked
-without one is that it stays out of the root's import closure (above), and that
-`@statewalker/httpeers-qr/browser` resolves for a consumer — the latter in
-`httpeers-conformance`, which compiles every published entry point the way a
-dependent does.
+### It encodes the bare invitation, never a deep link
 
-**21 tests.**
+The QR carries exactly the string the join field accepts. An invitation is not
+tied to a page: any page redeems any code, and the hub never learns which
+origin its guests used. A QR carrying `https://app.example/?join=…` would tie
+the two together.
+
+### Error correction is M because the code is photographed off a screen
+
+Level **M** (~15%) survives glare, moiré against the pixel grid and a phone
+held at an angle. L leaves no margin for that; Q and H push a 300-character
+invitation to a denser grid, which photographs worse.
+
+### Two decoders, because the camera gets many attempts and a photo gets one
+
+`decodeQr` (root, `jsqr`) takes pixels; `./browser` (`html5-qrcode`) takes a
+camera or a file. Over twelve manufactured degradations of a real
+302-character join blob (blur, rotation, perspective, JPEG artefacts, low
+contrast, glare, small captures), `jsqr` decoded 8 and `html5-qrcode` 9,
+differing on heavy blur. Decoder quality does not decide anything. The number
+of attempts does:
+
+- a **still photo gets one attempt** and must survive whatever the phone
+  produced — a screenshot decodes, a photo of the same screen often does not;
+- a **live camera gets dozens a second** while the person watches the preview
+  and adjusts, and that feedback is what makes scanning work.
+
+So the root makes still-image decoding possible anywhere, and `./browser` holds
+the camera, which is the path people use. The file picker stays in `./browser`
+for a screenshot someone sent and for a camera that is refused or absent.
+
+### The scanner does not know what an invitation is
+
+`accept` turns a decoded string into what the caller wants, or `null`.
+Returning `null` means **keep scanning**: a camera pointed at a wifi sticker
+must not stop on the first wrong code, and must not hand that string to a hub.
+`invitationFromQrText` lives in `@statewalker/httpeers-member`, which owns the
+join format.
+
+### Two camera details that look like bugs
+
+- **No `qrbox`.** In `html5-qrcode` it is a crop measured against the rendered
+  viewfinder, not the camera's resolution, and it cuts off QR codes that fill
+  the frame.
+- **A camera that cannot start rejects** rather than resolving quietly, because
+  that is when the caller should offer the file picker.
+
+### The root never reaches the camera
+
+`tests/boundary.test.ts` walks the import closure of `index.ts` and fails if
+`html5-qrcode` or a DOM global appears in it. A consumer that only encodes never
+installs a camera library.
+
+### Dependencies
+
+`qrcode-generator` (encoding) and `jsqr` (decoding) at the root;
+`html5-qrcode` as an optional peer for `./browser`.
+
+Tests: `pnpm --filter @statewalker/httpeers-qr test`. `tests/round-trip.test.ts`
+encodes a real join blob, rasterises the module matrix, decodes the pixels and
+compares, all in Node. `./browser` needs a camera and a DOM and is not exercised
+here; `httpeers-conformance` checks that the subpath resolves for a consumer.
+
+## License
+
+MIT

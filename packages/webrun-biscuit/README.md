@@ -1,11 +1,14 @@
 # @statewalker/webrun-biscuit
 
+## What it is
+
 [Biscuit](https://biscuitsec.org) authorization tokens in pure TypeScript: the protobuf codec, the
 signature chain, the Datalog engine, the text parser, the authorizer and the token builder. No WASM,
-no Node built-ins in `src/`, two runtime dependencies. It runs wherever the rest of the wire runs —
-Node, browsers, Workers and Durable Objects.
+no Node built-ins in `src/`, two runtime dependencies. It runs in Node, browsers, Workers and Durable
+Objects. It mints, attenuates, seals, verifies and authorizes tokens, and evaluates Datalog with or
+without a token.
 
-## Why this package exists
+## Why it exists
 
 There is no other pure JS/TS Biscuit implementation. npm carries `@biscuit-auth/biscuit-wasm` — the
 Rust crate compiled to WebAssembly — and a web-components package built on it. Nothing else.
@@ -18,10 +21,10 @@ megabyte of WebAssembly to do so.
 So this is a reimplementation, and the entire testing strategy below exists because a reimplementation
 of a security primitive is only worth having if you can show it agrees with the original.
 
-## Installing and calling it
+## How to use
 
 ```sh
-npm install @statewalker/webrun-biscuit
+pnpm add @statewalker/webrun-biscuit
 ```
 
 Two runtime dependencies, both external to the published bundle:
@@ -49,6 +52,8 @@ const result = verified.authorize('operation("read"); allow if user("alice");');
 type system then prevents authorizing a token whose signature chain was never checked, which is the
 mistake worth designing against.
 
+## Examples
+
 ### Parameters: never splice a value into Datalog
 
 Anything that did not come from you — a user id, a request path, a role name —
@@ -75,9 +80,9 @@ block and authorizer facts) unless it says `trusting`, so an attenuation block c
 inject what it reads:
 
 ```ts
-const ev = verified.evaluate("allow if true;");
+const ev = verified.evaluate('operation("read"); allow if true;');
 ev.result;                                   // { kind: "ok", policy: 0 }
-ev.query("claim($s) <- subject($s)");        // [{ name: "claim", terms: [{ t: "str", v: "alice" }] }]
+ev.query("claim($s) <- user($s)");           // [{ name: "claim", terms: [{ t: "str", v: "alice" }] }]
 ```
 
 Pass `null` instead of a token to decide from the authorizer's own facts and rules:
@@ -102,7 +107,7 @@ consume one list of signature checks, so neither can skip a check the other make
 const verified = await Biscuit.fromBase64(token).verifyAsync(root.publicKey);
 ```
 
-### Examples
+### secp256r1, key ids and third-party blocks
 
 secp256r1 works the same way, with the algorithm passed at both ends:
 
@@ -121,7 +126,8 @@ import { peekRootKeyId } from "@statewalker/webrun-biscuit";
 const key = roots[peekRootKeyId(bytes) ?? 0];
 ```
 
-A third party can sign a block without ever holding the token:
+A third party can sign a block without ever holding the token. The token must not be sealed —
+`appendThirdParty` on a sealed token throws `BuilderError`:
 
 ```ts
 const request = Biscuit.fromBase64(token).thirdPartyRequest();
@@ -174,7 +180,7 @@ millisecond, which is unreachably tight for a cold JS engine; this one defaults 
 exposed to untrusted tokens should lower it deliberately rather than treat the default as a
 denial-of-service bound. The limit is enforced where the work happens — inside the join, for rules,
 checks and policies alike — so it bounds a single combinatorial rule, not only the number of
-iterations (up to 0.2.0 it was read only between iterations).
+iterations.
 
 ### The corpus is fetched, not vendored
 
@@ -198,11 +204,13 @@ not to change the verdict.
 
 ### A green suite is not the claim; a suite that can fail is
 
+Run from `packages/webrun-biscuit` (or prefix with `pnpm --filter @statewalker/webrun-biscuit`):
+
 ```sh
-pnpm test          # the main suite, 182 tests
-pnpm test:cross    # against the reference implementation, 58 tests
+pnpm test          # the main suite (fetches the corpus first)
+pnpm test:cross    # against the reference implementation
 pnpm test:all      # both
-pnpm mutate        # inject 15 known defects, require the suite to catch each
+pnpm mutate        # inject known defects, require the suite to catch each
 pnpm build         # dist/ plus declarations
 ```
 
@@ -221,13 +229,13 @@ pnpm build         # dist/ plus declarations
 | `11-parameters` | `{name}` binding, hostile strings, unbound and unused parameters |
 | `12-evaluate` | queries, their scope, token-less evaluation, failed-check rule text |
 
-`scripts/mutate.mjs` is the check on all of it. It injects fifteen defects — a lenient protobuf decoder,
+`scripts/mutate.mjs` is the check on all of it. It injects seventeen defects — a lenient protobuf decoder,
 wrapping i64 arithmetic, `check all` degraded to `check if`, a universally trusting authorizer, `deny`
 treated as `allow`, unchecked seal signatures, an async verifier that ignores WebCrypto's verdict, a
 query that can read an attenuation block's facts, silently ignored parameters, zero-term predicates, non-ASCII names, missing version bounds,
 and more — and requires each to break at least one test. A surviving mutation is a hole in the tests,
-not a success. All fifteen are caught. Two of them were **not** caught when the harness was first written: nothing verified a forged
-seal signature, and nothing exercised a matching `deny` policy.
+not a success. All of them are caught; the forged-seal and matching-`deny` mutations are the ones a
+suite without `06-builder`'s negative cases would miss.
 
 Each mutation's `find` string is a literal excerpt of the source, and must match exactly once. That is
 why a reformat of `src/` makes the harness fail loudly rather than quietly stop testing anything.
@@ -254,7 +262,7 @@ because uniform sampling produces mostly `noMatchingPolicy`, where the engine ba
 That suite is kept out of `pnpm test` on purpose, and it skips gracefully when the reference is not
 installed, so it never becomes a hard dependency of the main suite.
 
-## What will surprise you
+### What will surprise you
 
 **The reference build's first `authorize` call reports a timeout that is not real.** Every fresh
 Authorizer reports a `RunLimit` timeout on its first call even with a 60-second budget; later calls on
@@ -275,25 +283,23 @@ reliable accessor.
 walking up to `node_modules`, reads the `.wasm`, and supplies its imports by hand. Running Node with
 `--experimental-wasm-modules` does work, but needing a flag for `pnpm test` is worse.
 
-**A failed corpus download used to poison `samples/` permanently.** `samples.json` was written before
-the tokens it names while the "already fetched" guard checked only `samples.json`, so an interrupted
-fetch left a directory that every later run skipped as complete — and the tests then failed on missing
-files forever. The manifest is now written last, and the guard checks every file it names. Downloads
-are also pooled at six with retries, because `raw.githubusercontent.com` resets connections when
+**An interrupted corpus download must not look complete.** `scripts/fetch-samples.mjs` writes the
+`samples.json` manifest last, and its "already fetched" guard checks every file the manifest names;
+otherwise an interrupted fetch would leave a directory every later run skips, and the tests would fail
+on missing files. Downloads are pooled at six with retries, because `raw.githubusercontent.com` resets connections when
 several dozen requests arrive at once and surfaces it as a bare `TypeError: fetch failed`.
 
 **`pnpm test` fetches the corpus explicitly, not through `pretest`.** pnpm does not run `pre`/`post`
 scripts by default, so a `pretest` hook would silently never fire and the suite would fail on a clean
 checkout with missing samples.
 
-## Known deviations from the reference
+### Known deviations from the reference
 
 **Names follow the reference parser, not the specification's prose.** A predicate or variable name
 is one or more of `[A-Za-z0-9_:]`, ASCII, with any of them first — so `_m`, `1a` and `::` are names
 and `ärger` is not — and a predicate takes at least one term. That is what
 `@biscuit-auth/biscuit-wasm` accepts; `tests/grammar-cases.ts` records it and `05-grammar` re-asks the
-reference, including for generated names. Versions up to 0.2.0 required a Unicode letter first and
-accepted `f()`.
+reference, including for generated names.
 
 **Regex uses JS `RegExp`, not RE2.** Every corpus pattern matches, but backreferences and lookaround
 are accepted where Rust would reject them. Documented, not enforced.
@@ -319,13 +325,6 @@ third-party flow works and is tested, but the cross-implementation one does not.
 Semi-naive evaluation is not implemented either. The fixpoint re-derives every fact each round; the
 index makes that cheap at token scale, but not at request scale with large fact sets.
 
-## Design notes
-
-`docs/webrun-biscuit/` in this repository carries the working documents from the implementation
-sessions: how the reference actually works, why `mapbox/pbf` was rejected for the protobuf layer, what
-the red-green cycle caught, the corpus findings, and what it took to make random differential testing
-actually detect a defect.
-
 ## License
 
-MIT — see the repository `LICENSE`.
+MIT

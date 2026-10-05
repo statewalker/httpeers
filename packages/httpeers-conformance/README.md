@@ -1,65 +1,76 @@
 # @statewalker/httpeers-conformance
 
-Every prototype in the ladder, rebuilt against the **published** API of the eight packages, and
-compiled. `tests/consumers.ts` is never executed — a missing export, a narrowed parameter or a type
-that moved surfaces here as a compile failure rather than in wave 5.
+## What it is
 
-Private. Never published, and nothing depends on it.
+Private. The checks that no single httpeers package can run on itself: that
+every published entry point resolves and imports the way a dependent sees it,
+that the reference consumers compile against the published API, that every
+library uses the same credential header, and that a relay, a hub and two
+members work together with nothing stubbed. It is never published and nothing
+depends on it.
 
-## Why this is its own package
+## Why it exists
 
-It used to live in `httpeers-core/tests/prototypes/`, which made `httpeers-core` devDepend on all
-seven siblings — and every one of them depends on core. pnpm tolerates a devDependency cycle;
-**turbo does not**, and refused to run any task across the workspace:
+A compile check and a runtime check are different claims. Type-checking an
+entry point proves nothing about importing it, and importing it proves nothing
+about two of them talking to each other. An entry point can type-check and
+still throw on import, and two packages that each pass their own tests can
+still fail together — a member unable to call another member, or authorization
+that depends on load. These tests close those gaps.
+
+## How to use
+
+```sh
+pnpm --filter @statewalker/httpeers-conformance test   # typecheck, then vitest
+```
+
+The tests compile and import the built `dist/` of the packages, so build first
+(`pnpm build` at the root, or `pnpm turbo build`). The mesh tests bind real
+ports and start real libp2p nodes.
+
+## Examples
+
+| File | Question it answers |
+|---|---|
+| `tests/prototypes.test.ts` + `tests/consumers.ts` | Can the reference consumers be **expressed** on the published API? `consumers.ts` is compiled by `tsc`, never executed. |
+| `tests/exports.test.ts` | Does every entry in every `exports` map **resolve** for a dependent? Compiles `import * as ns` against each under `NodeNext`. |
+| `tests/runtime-import.test.ts` | Does every isomorphic entry **import** under Node? Excludes `./browser` entries by name and asserts the exclusion matched something. |
+| `tests/mesh-credential-header.test.ts` | Does every library use `MESH_TOKEN_HEADER` and none read or write `Authorization`? Only `httpeers-core` may spell the header name. |
+| `tests/mesh.test.ts` | Do the packages **work together**? A Circuit Relay v2 server, a hub that reserves through it and relays for its own members, and members that redeem invitations and call each other. |
+| `tests/relay-fallback.test.ts` | A call over a kept relay circuit. |
+| `tests/member-relay-fallback.test.ts` | A member whose WebRTC upgrade to the hub fails falls back to relay mode. |
+| `tests/member-reservation-fallback.test.ts` | A member whose hub has no reservation slot left (`startMesh({ maxRelayReservations })`) falls back to relay mode instead of failing the join. |
+
+## Internals
+
+### It is a leaf, because a check on everything cannot be depended on
+
+It devDepends on every published httpeers package and on the relay app
+(`@statewalker/httpeers-relay`, for `startRelay`), and nothing depends on it.
+If any package depended on it, the workspace graph would have a cycle, and
+turbo refuses to run any task on a cyclic graph:
 
 ```
 x Cyclic dependency detected:
-| @statewalker/httpeers-access#build, @statewalker/httpeers-libp2p#build,
-| @statewalker/httpeers-member#build, ... @statewalker/httpeers-core#build
 ```
 
-A check that depends on everything has to be a **leaf**. Here it is one: it devDepends on every
-published package (the eight above, plus `httpeers-ghost` and the join widget `httpeers-join`)
-and nothing depends on it, so the graph is acyclic and `turbo test` works again.
+### `NodeNext` is the only resolution that tests a subpath
 
-**To reverse:** move `tests/` back under `httpeers-core`, restore the seven `workspace:*`
-devDependencies there, and delete this directory. The cycle comes back with it.
+`Bundler` resolution falls back to the legacy top-level `types` field when an
+export condition does not resolve, so it cannot see a broken map. A subpath
+(`./node`, `./browser`, `./issuer`) has no such fallback, which is why
+`exports.test.ts` compiles under `NodeNext`.
 
-## Four checks, and they answer different questions
+### `mesh-harness.ts` is the deployment shape in one process
 
-| File | Question | Found |
-|---|---|---|
-| `tests/consumers.ts` | Can every prototype be **expressed**? | `createGateway`, the duplex altitude, `guardStream` — three capabilities with no home |
-| `tests/exports.test.ts` | Does every published entry **resolve** for a dependent? | — (guards 20 entries across 8 packages) |
-| `tests/runtime-import.test.ts` | Does every isomorphic entry **import**? | `httpeers-member/node` threw on import, green across 637 type-checked tests |
-| `tests/mesh.test.ts` | Do the packages **work together**? | a member could not call a member; authorization was load-dependent |
+`startMesh()` starts a relay (`startRelay`) with a fresh key on port 0, a hub
+(`createHub` served with `servePeer`) that reserves on it and relays for its own
+members, and member nodes that dial through the relay. The member-fallback
+suites run the real `startMember` lifecycle against that hub.
+Behaviour of each package is still tested in that package, against its own
+source; this harness answers only what the packages cannot ask about
+themselves.
 
-`consumers.ts` is compiled, never executed. `exports.test.ts` enumerates the
-`exports` maps themselves and compiles `import * as ns` against each under
-`NodeNext` — the only resolution mode that honours an `exports` map, and for a
-subpath there is no legacy `types` field to fall back to. `runtime-import.test.ts`
-actually `import()`s each one, excluding `./browser` by name and asserting the
-exclusion excluded something.
+## License
 
-**`mesh.test.ts` stands up the deployment shape with nothing stubbed**: a
-Circuit Relay v2 server, a hub that reserves through it and relays for its own
-members, and members that redeem invitations and call each other. It is the
-extraction's acceptance at runtime, and it found two defects in its first hour
-that every compile check had passed. The same harness runs the relay-mode
-suites: `relay-fallback.test.ts` (a call over a kept circuit),
-`member-relay-fallback.test.ts` (a member whose WebRTC upgrade fails) and
-`member-reservation-fallback.test.ts` (a member whose hub has no reservation
-slot left — `startMesh({ maxRelayReservations })` — which failed the whole join
-in production).
-
-## The lesson these four encode
-
-A compile check and a runtime check are **different claims**, and three real
-defects lived in the gap between them. Type-checking an entry point proves
-nothing about importing it; importing it proves nothing about two of them
-talking to each other.
-
-## What it does not do
-
-Behaviour is still tested in each package, against its own source. This answers
-the questions a single package cannot ask about itself.
+MIT

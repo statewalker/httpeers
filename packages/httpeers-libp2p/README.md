@@ -1,173 +1,219 @@
 # @statewalker/httpeers-libp2p
 
-The transport: nodes, identity, reachability, and `servePeer` — **the one
-package in the extraction that knows what libp2p is.**
+## What it is
+
+The httpeers transport: libp2p nodes, identity keys, reachability through
+circuit relays, and `servePeer`, which puts a mount table on the wire and calls
+other peers. It is the only httpeers package that imports libp2p; everything
+above it speaks `FetchHandler` and `Mounts`.
+
+## Why it exists
+
+A hub, a Node member and a page all need the same arrangement: a node, a
+router, an inbound protocol handler and an outbound dialler — and, for a peer
+that cannot accept inbound connections, a relay reservation that stays alive.
+Getting reachability right is most of the work (a reservation that silently
+lapses makes a peer unreachable with no error anywhere), so it is written once,
+here, and every assembly takes it as a library instead of wiring libp2p by hand.
+
+## How to use
+
+```sh
+pnpm add @statewalker/httpeers-libp2p
+```
+
+libp2p and its transports are regular dependencies. Under Node,
+`@libp2p/webrtc` needs the native `node-datachannel` module; with pnpm 10 it
+must be listed in `onlyBuiltDependencies`, or pnpm skips its build script and
+the import fails at runtime (see the repository root README).
+
+| Import | Gives | Runs in |
+|---|---|---|
+| `.` | `createNode`, `servePeer`, identity (`generateKey`, `peerIdOf`, `signerOf`, `identityStore`), reachability, duplex | Node and browsers |
+| `./node` | `nodeTransports()` (TCP), `fileBytesStore` | Node only (`@libp2p/tcp`, `node:fs`) |
+| `./browser` | `browserTransports()` (WebSockets, circuit relay, WebRTC), `idbBytesStore` | browsers (IndexedDB) |
+
+The root never reaches `@libp2p/tcp` or a `node:` builtin; `tests/boundary.test.ts`
+asserts it. `@libp2p/webrtc` is at the root because a page needs it and a Node
+process can load it too.
+
+## Examples
+
+A Node peer serving a mount table and calling another peer:
 
 ```ts
+import { createMounts } from "@statewalker/httpeers-core";
 import { createNode, generateKey, servePeer } from "@statewalker/httpeers-libp2p";
 import { nodeTransports } from "@statewalker/httpeers-libp2p/node";
 
-const node = await createNode({ privateKey: await generateKey(), transports: nodeTransports() });
-const peer = await servePeer({ node, mounts, access: guard });
+const node = await createNode({
+  privateKey: await generateKey(),
+  transports: nodeTransports(),
+  listen: ["/ip4/0.0.0.0/tcp/0"],
+});
+const mounts = createMounts();
+const peer = await servePeer({ node, mounts, access: guard }); // guard: e.g. withAccess(...)
 
-await peer.call("12D3KooWOther", new Request("http://peer.local/hello"));
+const res = await peer.call(otherPeerId, new Request("http://peer.local/hello"));
 ```
 
-Everything above this package speaks `FetchHandler` and `Mounts`. Nothing above
-it imports `libp2p`.
+Keeping a relay reservation alive and exposing its health:
 
-## `servePeer` is the seam three assemblies collapse into
+```ts
+import { reservationHealthy, superviseRelay } from "@statewalker/httpeers-libp2p";
 
-A hub, a Node member and a page were each wiring a node, a router, an inbound
-handler and an outbound dialler by hand. `servePeer` is that arrangement, once:
-it owns the wire and the router, and it takes `access` as a parameter rather
-than knowing what a token is.
-
-```
-servePeer  ──owns──>  the protocol handler, the router, the outbound dialler
-           ──takes──> access: (handler) => handler        ← withAccess, from httpeers-access
+const supervisor = superviseRelay({ node, relayAddr });
+const healthy = reservationHealthy(supervisor.state()); // reserved, or lost < 2 min
 ```
 
-The two never import each other. `httpeers-access` has no transport and this
-has no crypto policy; the graph runs `core → access` and `core → libp2p`, and
-`tests/boundary.test.ts` fails if either starts pointing at the other.
+Signing tokens with the node's own key:
 
-`Peer.dispatch` is exposed deliberately — it is the inbound router *after*
-identity binding and policy, which is what lets a local edge reuse the same
-decision path instead of building a second one.
+```ts
+import { signerOf } from "@statewalker/httpeers-libp2p";
+import { mintToken } from "@statewalker/httpeers-access/issuer";
 
-## Transports are a parameter, and that was a defect fix
+const signer = signerOf(hubKey); // { mesh: peerIdOf(hubKey), seed }
+const token = await mintToken({ signer, sub, roles: ["member"], ttlMs: 60_000 });
+```
 
-`createNode` **requires** `transports`. The prototype hard-coded `tcp()` inside
-its node factory, so importing the transport module at all dragged a Node-only
-transport into a browser bundle — in a package whose whole claim was that one
-implementation runs on both.
+## Internals
 
-| Import | Holds | Why it cannot be at the root |
-|---|---|---|
-| `.` | `createNode`, `servePeer`, identity, reachability, duplex | — |
-| `./node` | `nodeTransports()` (adds `tcp`), `fileBytesStore` | `@libp2p/tcp` cannot run in a browser; `node:fs` cannot either |
-| `./browser` | `browserTransports()`, `idbBytesStore` | IndexedDB |
+### `servePeer` owns the wire and takes policy as a parameter
 
-The root's boundary test asserts `@libp2p/tcp` and `node:` never appear there.
-Note what is *not* forbidden: `@libp2p/webrtc` is at the root, because a page
-needs it and a Node process can load it too — though only if its native
-dependency actually built. See the note on `node-datachannel` at the repository
-root.
+```
+servePeer ──owns──>  the protocol handler (/httpeers/1.0.0), the router, the outbound dialler
+          ──takes──> access: (handler) => handler      e.g. withAccess from httpeers-access
+```
 
-An explicit export list, never `export *`: the barrel this code came from ended
-with `export * from "./transport-duplex.js"`, which is how a package that
-documented itself as isomorphic pulled libp2p, TCP, Noise and yamux into every
-consumer's bundle.
+`httpeers-access` has no transport and this package has no access policy; the
+graph runs `core → access` and `core → libp2p`, and the boundary test fails if
+either points at the other. `Peer.dispatch` is the inbound router *after*
+identity binding and policy, so a local edge reuses the same decision path.
+Inbound identity comes from the Noise handshake and is bound with
+`registerPeer` by `@statewalker/httpeers-bridge`.
 
-## Reachability, which is most of what is here
+### `createNode` requires transports
 
-A browser cannot listen for inbound TCP. It reserves a slot on a relay and
-accepts an upgrade brokered over it, and the modules here are the steps of
-that:
+There is no default transport list. A default containing `tcp()` would drag a
+Node-only transport into every browser bundle that imports the root. Pass
+`nodeTransports()` or `browserTransports()`; with none, `createNode` throws
+`createNode: at least one transport is required. Use \`nodeTransports()\` …`.
+The root uses an explicit export list, never `export *`, so nothing Node-only
+leaks in through a barrel.
+
+### A browser is reachable only through a relay reservation
+
+A page cannot listen for inbound connections. It reserves a slot on a relay and
+accepts a WebRTC upgrade brokered over it:
 
 | Module | What it does |
 |---|---|
-| `reservation` | `dialRelay`, `waitForCircuitReservation`, `circuitAddrs`, `superviseRelay` (+ `reservationHealthy`, `renewalIntervalMs`) |
-| `hop-reserve` | `requestRelayReservation` — ask the relay itself, in its own protocol |
+| `reservation` | `dialRelay`, `waitForCircuitReservation`, `circuitAddrs`, `superviseRelay`, `reservationHealthy`, `renewalIntervalMs` |
+| `hop-reserve` | `requestRelayReservation` — a circuit-relay v2 `HOP RESERVE` on the existing connection |
 | `timers` | the injectable `Timers` seam (`worker-timers` in a background tab) |
-| `hub-link` | `reachHub`, `reachHubRelayed`, `reserveOnHub` (+ `HubReservationError`), `leaveRelay`, `superviseHubReservation` |
-| `hub-relay` | `hubRelayService`, `membershipGater`, `releaseReservation` — a hub relaying for **its own members and nobody else** |
-| `identity` | `generateKey`, `peerIdOf`, `signerOf`, the persisted `identityStore` |
-| `duplex` | the second altitude — see below |
+| `hub-link` | `reachHub`, `reachHubRelayed`, `reserveOnHub`, `leaveRelay`, `superviseHubReservation` |
+| `hub-relay` | `hubRelayService`, `membershipGater`, `releaseReservation` — a hub relaying for its own members only |
+| `identity` | `generateKey`, `peerIdOf`, `signerOf`, `identityStore` |
+| `duplex` | `serveDuplex`, `openDuplex`, `createDuplexMounts` — see below |
 
-**A reservation yields two addresses and only one works.** The bare
-`/p2p-circuit` entry is a *limited* connection on which libp2p silently refuses
-the protocol; the `/webrtc`-suffixed one is the one to publish. `circuitAddrs`
-returns both, labelled, so nobody has to rediscover which is which by pasting
-the wrong one.
+**A reservation yields two addresses, and only one works.** The bare
+`/p2p-circuit` address is a *limited* connection on which libp2p silently
+refuses the httpeers protocol; the `/webrtc`-suffixed one is the one to
+publish. `circuitAddrs` returns both, labelled.
 
-**Only the relay knows whether you are reserved.** `node.getMultiaddrs()` is
-the node's own belief, and on 2026-09-19 a deployed hub held that belief for
-hours while the relay held no reservation at all: the websocket was still up,
-every member got `NO_RESERVATION`, and the supervisor — which decided from that
-address list — saw nothing wrong. So `superviseRelay` asks the relay, on a
-schedule derived from the TTL the relay itself granted (`renewalIntervalMs`: a
-quarter of it, jittered down into its upper quarter; 22.5–30 minutes against a
-two-hour TTL). The request is a circuit-relay v2 `HOP RESERVE` over the
-existing connection (`requestRelayReservation`) — libp2p's own `addRelay` short
--circuits on its cached entry, is not reachable from `Libp2p`, and blacklists a
-relay locally on failure. Because a relay's reservation store is keyed by peer,
-that one request renews an entry that exists and re-creates one that does not,
-reusing the slot and leaving live circuits alone.
+### Only the relay knows whether you are reserved
 
-The address list now proves a **loss** (it is gone) and never proves health (it
-is there). `supervisor.state()` carries the whole picture — status,
-`verifiedAt`, `expiresAt`, `lostSince`, consecutive failures, renewal and
-restore counts, last error — and `reservationHealthy(state)` is the rule a
-healthcheck should use: reserved, or lost for less than two minutes. Every
-transition logs one line naming the relay and the reason; the old
-implementation swallowed all of them.
+`node.getMultiaddrs()` is the node's own belief. A node can keep listing a
+circuit address for hours while the relay holds no reservation: the WebSocket
+is still up, and every member trying to reach it gets `NO_RESERVATION`. So the
+address list proves a **loss** (the address is gone), never health.
 
-`scripts/probe-hub.mjs <hubPeerId>` answers the same question from OUTSIDE, as
-a member would: it dials `<relay>/p2p-circuit/p2p/<hub>` with an independent
-libp2p client and prints one JSON line. Run it from this package's directory so
-its dependencies resolve. That probe is how the incident was confirmed to be
-real rather than a member-side fault, and it is the check to run first next
-time.
+`superviseRelay` therefore asks the relay, with a `HOP RESERVE` over the
+existing connection, on a schedule derived from the TTL the relay granted
+(`renewalIntervalMs`: a quarter of it, jittered down into its upper quarter;
+22.5–30 minutes against a two-hour TTL, clamped to 1–30 minutes). libp2p's own
+`addRelay` is not usable for this: it short-circuits on its cached entry, is not
+reachable from `Libp2p`, and blacklists a relay locally on failure. A relay
+keys reservations by peer, so one request renews an entry that exists and
+re-creates one that does not, keeping live circuits.
 
-**A refused reservation says which refusal it was.** libp2p reports every
-failed reservation alike ("Some configured addresses failed to be listened
-on"), with the relay's status only in the text. `reserveOnHub` reads it out and
-throws a `HubReservationError` with `status` (the circuit-relay status, or
-`null`) and `refusal`: `store-full` (`RESERVATION_REFUSED` — the hub's relay
-holds as many reservations as it grants), `resource-limit`
-(`RESOURCE_LIMIT_EXCEEDED`), `not-a-member` (`PERMISSION_DENIED`), `no-relay`
-(the hub runs no relay service), `no-answer` (a timeout or a dropped link) or
-`other`. It used to throw one message naming `PERMISSION_DENIED` whatever had
-happened, and a full store was diagnosed in production as a membership problem.
+`supervisor.state()` reports status, `verifiedAt`, `expiresAt`, `lostSince`,
+consecutive failures, renewal and restore counts and the last error.
+`reservationHealthy(state)` is the rule for a health check: reserved, or lost
+for less than `RESERVATION_LOSS_GRACE_MS` (2 minutes). Every transition logs one
+line naming the relay and the reason.
 
-**`membershipGater` takes a thunk, not a value.** A hub's node must exist
-before the member store that answers "is this a member" does, and the thunk is
-read at decision time, which is what closes that ordering cycle.
+`scripts/probe-hub.mjs <hubPeerId>` checks reachability from **outside**, as a
+member would: it reads the relay address from
+`https://relay.httpeers.net/.well-known/httpeers-relay.json`, dials
+`<relay>/p2p-circuit/p2p/<hub>` with an independent libp2p client and prints
+one JSON line. Run it from this package's directory so its imports resolve.
+It is the first check when members report a hub as unreachable.
 
-**A hub's reservation store is sized for a mesh, not for a public relay.**
-libp2p's default holds 15 reservations for two hours each and keeps one after
-its holder hangs up; a hub on it refused every member with
+### A refused hub reservation says which refusal it was
+
+libp2p reports every failed reservation the same way ("Some configured
+addresses failed to be listened on"), with the relay's status only in the text.
+`reserveOnHub` reads it out and throws `HubReservationError` with `status` and
+`refusal`:
+
+| `refusal` | Relay status | Message starts |
+|---|---|---|
+| `store-full` | `RESERVATION_REFUSED` | `hub-link: the hub (…) refused a reservation with RESERVATION_REFUSED: the hub's reservation store is full` |
+| `resource-limit` | `RESOURCE_LIMIT_EXCEEDED` | `… refused a reservation with RESOURCE_LIMIT_EXCEEDED: the hub's relay is at a resource limit.` |
+| `not-a-member` | `PERMISSION_DENIED` | `… this peer is not a member as far as the hub is concerned` |
+| `no-relay` | — | `… does not relay at all -- it has no circuit-relay service` |
+| `no-answer` | — | `… gave no answer to a reservation request.` |
+| `other` | any other | `… refused a reservation with <status>.` |
+
+A full store is not a membership problem, and the message says so.
+`tests/hub-link.test.ts` pins each case.
+
+### A hub's reservation store is sized for a mesh
+
+libp2p's relay default holds 15 reservations for two hours each and keeps one
+after its holder disconnects; a hub on that default refuses every member with
 `RESERVATION_REFUSED` after fifteen distinct peers. `hubRelayService` sizes the
 store at `HUB_MAX_RESERVATIONS` (4096; `{ maxReservations }` overrides it),
 releases a reservation when its holder's last connection closes, and
-`releaseReservation(relay, peerId)` frees a revoked member's slot at once. None
-of this touches the per-circuit data limits (128 KiB, 2 min), which are what
-keep a hub a signalling channel: the store says how *many* members are
+`releaseReservation(relay, peerId)` frees a revoked member's slot at once. The
+per-circuit data limits stay at libp2p's defaults (128 KiB, 2 minutes): they
+keep the hub a signalling channel. The store bounds how *many* members are
 reachable through the hub, not how *much* may cross it.
 
-## `signerOf` — the bridge that stops a mesh naming nobody
+`membershipGater` takes a thunk, not a value: the hub's node must exist before
+the member store that answers "is this a member", and the thunk is read at
+decision time.
 
-A hub signs membership tokens with the same key its node speaks with. Build the
-node from one key and mint with another, and every token's `mesh` claim names a
-peer nobody is talking to — a failure that looks like a policy bug.
+### `signerOf` keeps the mesh name and the signing key the same
 
-```ts
-const signer = signerOf(hubKey);   // { mesh: peerIdOf(hubKey), seed: key.raw.slice(0, 32) }
-```
+A hub signs membership tokens with the key its node speaks with. Build the node
+from one key and mint with another, and every token's `mesh` claim names a peer
+nobody is talking to — which looks like a policy bug. `signerOf(key)` returns
+`{ mesh: peerIdOf(key), seed }`. Its return type is declared structurally, so
+this package does not depend on `httpeers-access`; a mismatch is a compile error
+in the assembly that wires the two together.
 
-The return type is declared **structurally** rather than imported from
-`httpeers-access`, so this package does not depend on it. A mismatch is a
-compile error in whichever assembly wires the two together, which is where it
-belongs.
+### Duplex is a second protocol for a different shape
 
-## The second altitude: duplex
+A fetch contract cannot express a WebSocket: both sides talking, neither input
+closed. `serveDuplex` / `openDuplex` run one `Duplex` per libp2p stream on
+`/httpeers-duplex/1.0.0`, addressed by path through their own mount table
+(`createDuplexMounts`).
 
-A fetch-only contract cannot express a WebSocket — both sides talking with
-neither input closed. `serveDuplex` / `openDuplex` run one `Duplex` per libp2p
-stream, addressed by path through their own mount table, on a separate
-protocol. This exists because the requirement did, not because `FetchHandler`
-was inconvenient: it is a different shape, so it gets a different seam rather
-than a flag.
+### Dependencies
 
-## Tests
+libp2p (`libp2p`, `@libp2p/*`, `@chainsafe/libp2p-noise`, `@chainsafe/libp2p-yamux`,
+`@multiformats/multiaddr`), `@statewalker/httpeers-core`,
+`@statewalker/httpeers-bridge` (HTTP over the link), and
+`@statewalker/webrun-streams`, `@statewalker/webrun-streams-libp2p`,
+`@statewalker/webrun-http-streams` (duplex streams over libp2p).
 
-**68, plus 4 skipped** (the platform-entry exemptions in the boundary test).
-`tests/hub-link.test.ts` pins how `reserveOnHub` reads each refusal out of
-libp2p's error text. `tests/serve-peer.test.ts` stands up two real nodes over a real Noise
-handshake and checks that what arrives carries the identity the **transport**
-proved rather than anything the caller said.
+Tests: `pnpm --filter @statewalker/httpeers-libp2p test`. Files run serially
+because they start real libp2p nodes. `tests/serve-peer.test.ts` stands up two
+nodes over a real Noise handshake and checks that what arrives carries the
+identity the transport proved, not what the caller said.
 
-The whole stack — relay, hub, members, tokens — is exercised together in
-`@statewalker/httpeers-conformance`.
+## License
+
+MIT

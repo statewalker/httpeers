@@ -1,5 +1,7 @@
 # Publishing sites by changing a folder
 
+## What it is
+
 A site is a **first-level prefix in the `sites` bucket, named after its full domain**. The server
 lowercases the `Host` header, strips the port, and looks up exactly that string as a prefix — so
 publishing is writing files, and nothing else brings a site online: no DNS record, no
@@ -24,12 +26,33 @@ Two ways to do it:
 
 | | |
 |---|---|
-| **Sync mode** (default, works today) | you edit the tree, then run `httpeers-publish`. The tree is the source of truth; the publish is a reviewed, confirmed step. |
-| **Live mode** (NFS) | the tree *is* the bucket. No publish step, no confirmation, no undo. **Needs two things this machine does not have — see [Live mode](#live-mode-nfs).** |
+| **Sync mode** (default) | you edit the tree, then run `httpeers-publish`. The tree is the source of truth; the publish is a reviewed, confirmed step. |
+| **Live mode** | the tree *is* the bucket. No publish step, no confirmation, no undo. Needs FUSE (Linux) or docker and `mount.nfs` (macOS, or `--nfs`). |
 
----
+## Layout
 
-## Setup
+```
+tools/publish/
+  README.md
+  publish.env.example      # endpoint, bucket, credentials; publish.env is gitignored
+  lib/common.sh            # config, guards, hostname validation, the diff
+  bin/httpeers-setup       # preflight; creates the rclone remote
+  bin/httpeers-status      # what differs between the tree and the bucket
+  bin/httpeers-publish     # sync mode, with the dry-run + confirm gate
+  bin/httpeers-mount       # live mode: mount over FUSE, or start `rclone serve nfs` and mount it
+  bin/httpeers-unmount     # unmount whichever transport is mounted; stop the NFS server
+  docker-compose.yml       # the NFS server container (rclone/rclone, 127.0.0.1 only)
+  tests/run-tests.sh
+```
+
+The tree is `tools/publish/sites/` and the live-mode mount point `tools/publish/mnt/` by default
+(`HTTPEERS_SITES_DIR`, `HTTPEERS_MOUNT_POINT`). Both, and `publish.env`, are gitignored: the tree
+is site content, not source, and this is a public repository. Server side, the bucket and Caddy
+are described in [`deploy/README.md`](../../deploy/README.md).
+
+## How to run it
+
+### Set up once
 
 ```sh
 cd tools/publish
@@ -40,7 +63,7 @@ Fill in the two credentials. They exist in exactly one place — `/opt/httpeers/
 server, mode 600, generated there with `openssl rand`, never copied anywhere:
 
 ```sh
-ssh kotelnikov@163.172.46.87 'grep S3_ /opt/httpeers/.env'
+ssh <deploy-user>@<server> 'grep S3_ /opt/httpeers/.env'
 ```
 
 `publish.env` is gitignored. `statewalker/httpeers` is a public repository; nothing in this
@@ -87,9 +110,7 @@ than as a configuration one.
 If a remote of that name already exists, `httpeers-setup` refuses to overwrite it and tells you
 to pick another name with `HTTPEERS_RCLONE_REMOTE`.
 
----
-
-## Sync mode
+### Publish (sync mode)
 
 ```sh
 ./bin/httpeers-status                        # what differs
@@ -117,24 +138,25 @@ rm -rf sites/abc.httpeers.net
 (`rm -rf sites/abc.httpeers.net` followed by a full `httpeers-publish` also works, and prompts.
 `--delete-site` is preferred because it names what goes.)
 
-### Exit statuses
+### Mount (live mode)
 
-| | `httpeers-status` | `httpeers-publish` |
-|---|---|---|
-| `0` | in sync | done |
-| `1` | additions/changes pending | refused, or not confirmed |
-| `2` | a deletion is pending | — |
+The bucket is mounted locally, so the folder *is* the bucket and there is no publish step at all.
 
-`httpeers-status --porcelain` prints one `A`/`M`/`D` line per differing path, plus `S <name>` for
-each whole site that would disappear.
+```sh
+./bin/httpeers-mount          # FUSE on Linux, NFS on macOS -- see below
+./bin/httpeers-mount --fuse   # force FUSE   (no docker, no root)
+./bin/httpeers-mount --nfs    # force NFS    (container + mount.nfs + root)
+./bin/httpeers-mount --nfs --sudo   # ... and run the mount command for you
+./bin/httpeers-unmount        # works out which transport is mounted
+```
 
----
+## Why it is the way it is
 
-## Why the publish is guarded
+### The publish is guarded, because the dangerous command is the correct one
 
 `rclone sync` is `rsync --delete`. Run at the top of the bucket it removes every prefix the local
 tree does not contain — and a prefix is a whole site. The bucket is a **serving copy with no
-backup** (runbook §5), so the dangerous command is not a typo. It is the *correct* command run
+backup**, so the dangerous command is not a typo. It is the *correct* command run
 against a tree that is merely incomplete: a fresh clone before the content is in place, a
 half-finished checkout, a `cd` into the wrong directory. Each of those looks exactly like a
 deliberate "remove everything".
@@ -156,7 +178,7 @@ So every publish, in order:
 **`--yes` does not override the empty-tree refusal, the invalid-name refusal, or the empty-site
 refusal.** Those have no override at all. Removing the last site is done by naming it.
 
-### The two comparisons, and why they are different tools
+### The delete set comes from two listings, not from parsing rclone's output
 
 The delete set is computed from two `rclone lsf` listings, not by parsing `rclone sync
 --dry-run`, for two reasons that are both about trusting the answer:
@@ -176,14 +198,14 @@ size *and* modification time. A same-size edit is therefore reported as unchange
 anyway. That understates the change set and never understates the delete set, which is the only
 one a guard may not get wrong.
 
-### What is filtered
+### Top-level dot entries are filtered on both sides
 
 Top-level dot entries are excluded from **both** sides — `.git`, `.DS_Store`, a stray
 `publish.env` dropped in the tree. rclone filters apply to the destination listing too, so an
 excluded key is also protected from deletion. Only the *first* level is filtered:
 `abc.httpeers.net/.site/config.json` is per-site configuration and publishes normally.
 
-### Site names
+### A site name must be a host name the server would accept
 
 A directory name must be what the server would accept as a `Host`: lowercase labels of
 `[a-z0-9-]`, no leading or trailing `-`, each label at most 63 characters, 253 overall — the same
@@ -195,29 +217,36 @@ label, but no browser sends `Host: dist`. A dotless directory at the top of the 
 overwhelmingly a build output or a scratch folder in the wrong place — and treating it as a site
 would both publish it and make a wiped checkout look populated to the empty-tree guard.
 
-### After publishing
+### Removing a whole site must be named
 
-A **re-published** file can take up to `SITES_CACHE_TTL_MS` (default 60 s) to appear. Resolutions
-are cached in the `sites` app and there is no publish hook to invalidate on (design §11). A
-*newly created* site appears immediately — nothing negative was cached for it yet. Set the TTL to
-`0` on the server while iterating.
+Deleting a local directory and publishing **will not** remove the site on its own in a
+non-interactive run. Interactively it will, after you type `DELETE` at the prompt.
 
----
+`--yes` authorises changed and deleted **files**. It does **not** authorise removing whole
+sites, and that split is deliberate:
 
-## Live mode
+> The empty-tree refusal catches a tree with nothing in it. It does not catch the realistic
+> accident — a **partially** populated tree, from a sparse checkout, an interrupted clone, or a
+> CI job pointed one directory too deep. Such a tree looks healthy, passes every other guard,
+> and takes every site it does not happen to contain with it: with six sites in the bucket and
+> one in the tree, a `--yes` that covered sites would delete five.
 
-The bucket is mounted locally, so the folder *is* the bucket and there is no publish step at all.
+So removal has to be **named**, not inferred from an absence:
 
 ```sh
-./bin/httpeers-mount          # FUSE on Linux, NFS on macOS -- see below
-./bin/httpeers-mount --fuse   # force FUSE   (no docker, no root)
-./bin/httpeers-mount --nfs    # force NFS    (container + mount.nfs + root)
-./bin/httpeers-mount --nfs --sudo   # ... and run the mount command for you
-./bin/httpeers-unmount        # works out which transport is mounted
+httpeers-publish --delete-site abc.httpeers.net     # the sanctioned way
 ```
 
+For a genuine bulk removal that must run unattended, `--allow-site-removal` is the explicit
+escape hatch:
 
-### Two transports, and which one you get
+```sh
+httpeers-publish --yes --allow-site-removal
+```
+
+The empty-tree refusal outranks both flags together and has no override.
+
+### Live mode has two transports, and the default depends on the platform
 
 Both mount the bucket so the folder *is* the bucket. They differ in what they
 need, not in what they do — the cache and directory-cache settings are the same
@@ -244,7 +273,7 @@ remote in order to succeed: with bad credentials it mounts happily and every
 read afterwards fails with EIO, which looks like a broken disk. The FUSE path
 lists the remote first and refuses, naming `httpeers-setup` as the fix.
 
-### NFS: what the host needs
+### NFS needs docker and the host's NFS client
 
 None of this applies to FUSE — it needs neither docker nor root, which is why it is the Linux
 default. Read on only if you are mounting with `--nfs`, or you are on macOS where it is the only
@@ -262,7 +291,7 @@ refuses and starts nothing until both are there:
 Mounting NFS also needs root on Linux, with no unprivileged equivalent. `httpeers-mount` prints
 the exact `mount` command rather than running it, unless you pass `--sudo`.
 
-### The server is a container
+### The NFS server runs in a container to pin the rclone version
 
 `rclone serve nfs` arrived in **rclone 1.65**. Rather than make every machine upgrade its system
 rclone and then keep them in step, the server runs from the official image, which pins the
@@ -272,8 +301,8 @@ version for everyone:
 docker-compose.yml   ->  rclone/rclone:1.74.4, `serve nfs`, published on 127.0.0.1 only
 ```
 
-This host's rclone is `v1.60.1-DEV` and has no `serve nfs` at all; the image has `v1.74.4` and
-does. `httpeers-mount` starts the container, waits for the port, and then mounts it.
+A host rclone older than 1.65 has no `serve nfs` at all; the image's does. `httpeers-mount` starts
+the container, waits for the port, and then mounts it.
 
 **What the container cannot supply is the client.** Mounting is a kernel operation on the host,
 so `mount.nfs` (`nfs-common`) and root are still required outside the container. That is the one
@@ -283,7 +312,7 @@ remaining prerequisite:
 sudo apt install nfs-common
 ```
 
-### Why loopback only
+### The NFS export is bound to loopback because it is unauthenticated
 
 An rclone NFS export is **unauthenticated**. The port is published on `127.0.0.1` so that
 anyone who can route to this machine cannot mount the whole bucket. Do not change that binding
@@ -297,19 +326,12 @@ to `0.0.0.0`.
   reached the bucket yet; rclone flushes them on a clean stop, and discarding the volume loses
   them silently. `httpeers-unmount` does the right thing.
 
-### Credentials
+### Credentials never enter this directory
 
 Passed to the container as `RCLONE_CONFIG_*` environment variables, so no credential is written
 into this directory. They come from `publish.env`, which is gitignored.
 
-### The one leak in the mental model
-
-**S3 has no directories.** `mkdir abc.httpeers.net` in the mount does *not* create a site — an
-empty prefix does not exist in the bucket. A site begins when the first **file** lands and ends
-when the last one is removed. This is the only place "add and remove sites by changing the
-folder" is not literally true, and it is specific to live mode; sync mode has no such gap.
-
-### Two things that will surprise you
+## What will surprise you
 
 - **None of the safety above applies inside the mount.** There is no diff, no confirmation and no
   undo. `rm -rf mnt/abc.httpeers.net` takes the site off the internet the moment the last object
@@ -318,8 +340,25 @@ folder" is not literally true, and it is specific to live mode; sync mode has no
   bucket and is not a site. A site begins to exist when the first file lands in it, and stops
   existing when the last one is removed. "Creating a directory creates a site" is true only once
   a file is in it.
+- **A re-published file can take a minute to appear.** It can take up to `SITES_CACHE_TTL_MS` (default 60 s) to appear. Resolutions
+  are cached in the `sites` app and there is no publish hook to invalidate on. A
+  *newly created* site appears immediately — nothing negative was cached for it yet. Set the TTL
+  to `0` on the server while iterating.
 
-## Tests
+## Reference
+
+### Exit statuses
+
+| | `httpeers-status` | `httpeers-publish` |
+|---|---|---|
+| `0` | in sync | done |
+| `1` | additions/changes pending | refused, or not confirmed |
+| `2` | a deletion is pending | — |
+
+`httpeers-status --porcelain` prints one `A`/`M`/`D` line per differing path, plus `S <name>` for
+each whole site that would disappear.
+
+### Tests
 
 ```sh
 ./tests/run-tests.sh
@@ -361,60 +400,6 @@ of reading as empty.
 - **Anything the automated suite runs against the real deployment.** Nothing in `tests/` uses a
   credential or touches `s3.httpeers.net`.
 
-  The FUSE path was additionally verified by hand, once, against the **live** bucket, on a
-  throwaway mount point with its own remote: it mounted with no root, listed every live site, and
-  a file written into it appeared in the bucket in about six seconds with the right contents and
-  left it about a second after being removed. That is evidence that the S3 end works, not a
-  regression test — nothing re-runs it.
-- **`shellcheck`.** It is not installed on this machine, so the scripts are `bash -n` clean but
-  have not been linted.
-
----
-
-## Files
-
-```
-tools/publish/
-  README.md
-  publish.env.example      # endpoint, bucket, credentials; publish.env is gitignored
-  lib/common.sh            # config, guards, hostname validation, the diff
-  bin/httpeers-setup       # preflight; creates the rclone remote
-  bin/httpeers-status      # what differs between the tree and the bucket
-  bin/httpeers-publish     # sync mode, with the dry-run + confirm gate
-  bin/httpeers-mount       # NFS: start `rclone serve nfs`, mount it
-  bin/httpeers-unmount     # unmount, stop the server
-  tests/run-tests.sh
-```
-
-See also: `deploy/README.md` (§ *Publishing a site*), the design spec §5 and §8, and the server
-runbook §5, §7 and §8.
-
-
-## Removing a site
-
-Deleting a local directory and publishing **will not** remove the site on its own in a
-non-interactive run. Interactively it will, after you type `DELETE` at the prompt.
-
-`--yes` authorises changed and deleted **files**. It does **not** authorise removing whole
-sites, and that split is deliberate:
-
-> The empty-tree refusal catches a tree with nothing in it. It does not catch the realistic
-> accident — a **partially** populated tree, from a sparse checkout, an interrupted clone, or a
-> CI job pointed one directory too deep. Such a tree looks healthy, passes every other guard,
-> and takes every site it does not happen to contain with it. Measured before this guard
-> existed: six sites in the bucket, one in the tree, `--yes` deleted five and printed a warning.
-
-So removal has to be **named**, not inferred from an absence:
-
-```sh
-httpeers-publish --delete-site abc.httpeers.net     # the sanctioned way
-```
-
-For a genuine bulk removal that must run unattended, `--allow-site-removal` is the explicit
-escape hatch:
-
-```sh
-httpeers-publish --yes --allow-site-removal
-```
-
-The empty-tree refusal outranks both flags together and has no override.
+  The S3 end of the FUSE path has no automated test: a write through a live mount takes a few
+  seconds to appear in the bucket, and nothing re-checks that.
+- **`shellcheck`.** The scripts are `bash -n` clean; no shellcheck run is part of the tests.

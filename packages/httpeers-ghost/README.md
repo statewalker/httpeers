@@ -1,6 +1,39 @@
 # @statewalker/httpeers-ghost
 
-A remote peer's app, rendered as a page that can reach **only that peer**.
+## What it is
+
+A remote peer's app, rendered as a page that can reach **only that peer**. A
+ghost is the mechanism by which an app hosted by one peer is launched from
+another: one mount, one reachable peer. The host serves HTML, assets and
+endpoints under its own peerId; the viewer renders them; no source code
+travels.
+
+## Why it exists
+
+The ordinary edge reads the target peer from the first path segment and
+attaches the viewer's membership token to whatever it forwards. That is right
+for the viewer's own app and wrong for a foreign one: a page rendered through
+it could address *any* peer in the mesh, with the viewer's credentials, by
+fetching a different first segment. A ghost renders somebody else's HTML, and
+that HTML must not walk the mesh on the viewer's behalf.
+
+## How to use
+
+```sh
+pnpm add @statewalker/httpeers-ghost
+```
+
+One entry point (`.`), isomorphic, no peer dependencies. Exports `pinnedPeer`,
+`contain`, `policyFor`, `frameSandbox` and `PIN_REFUSED`.
+
+- `pinnedPeer(init)` — a `FetchHandler` that forwards only to one peer.
+- `contain(handler, { baseUrl, mode })` — wraps HTML responses so root-absolute
+  URLs cannot escape the ghost's mount. `mode` is `"none"`, `"csp"` or
+  `"sandbox"`.
+
+## Examples
+
+A ghost mounted at `/ghost/` in the viewer, with CSP containment:
 
 ```ts
 import { contain, pinnedPeer } from "@statewalker/httpeers-ghost";
@@ -16,109 +49,90 @@ const ghost = contain(
 );
 ```
 
-A ghost is not an application. It is *the mechanism by which an application
-hosted by one peer is launched from another*: an invitation, one mount, one
-reachable peer. The host serves HTML, assets and endpoints under its own
-peerId; the viewer renders them; **no source code travels.**
+An untrusted app in an origin of its own (a session origin fed over a
+`MessagePort`): the whole origin is the app's, so `basePath` is `/` and
+`contain` is not needed.
 
-## Two mechanisms, and both are needed
+```ts
+const handler = pinnedPeer({
+  landing: { peerId: hostPeer, appPath: "/app" },
+  basePath: "/",
+  token: () => viewerToken,
+  remote: (peerId, request) => peer.call(peerId, request),
+});
+```
 
-`pinnedPeer` is the pin. `contain` closes the hole the pin cannot. Neither
-replaces the other, and shipping only one leaves the feature unsafe.
+## Internals
 
-### The pin: the peer is not in the request
+### The pin has no parameter for "another peer"
 
-The stack's ordinary edge dispatch reads the target peer out of the **first
-path segment** and attaches the viewer's membership token to whatever it
-forwards. A page rendered through that can address *any* peer in the mesh,
-with the viewer's credentials, simply by fetching a different first segment.
+`pinnedPeer` never reads a peer id from the request. The peer is supplied once,
+at mount time, and the path is data. No string a rendered page can construct
+expresses "some other peer", because the parameter does not exist.
 
-Correct for the viewer's own app. Wrong for a foreign one — a ghost renders
-somebody else's HTML, and that HTML must not be able to walk the mesh on the
-viewer's behalf.
+A request the pin will not express is refused with **403** and the
+`x-httpeers-ghost: pinned` header (`PIN_REFUSED` is the header name), with a
+body of `ghost: outside the ghost's mount` or
+`ghost: a ghost may reach only <peerId>`. The header lets a caller tell "the
+page tried to leave its mount" from "the host has no such page". A path that
+looks like it addresses another peer is refused rather than forwarded as a
+path, so the attempt is visible.
 
-So `pinnedPeer` is **not** a wrapper over edge dispatch. It is a different
-handler that never reads a peer id from the request at all: the peer is
-supplied once, at mount time, and the path is data. There is no string a
-rendered page can construct that expresses "some other peer", because the
-parameter does not exist.
-
-### The containment: a root-absolute URL escapes anyway
+### A root-absolute URL escapes the pin, so `contain` exists
 
 `/static/app.css`, fetched from inside a rendered host page, resolves against
-the **viewer's** origin — silently. `<base href>` does not fix it: that governs
-relative URLs only.
-
-Three remedies were named. "Host apps must use relative URLs only" is not a
-mechanism — nothing enforces it — so it is not implemented. The other two are,
-and they are measured against the same escape:
+the **viewer's** origin, silently. `<base href>` does not help: it governs
+relative URLs only. "Host apps must use relative URLs" is not a mechanism,
+because nothing enforces it. `contain` applies one of two mechanisms to the
+responses the ghost already controls, so neither needs the host app's
+cooperation, DNS or TLS:
 
 | `mode` | What it does |
 |---|---|
-| `"none"` | no containment; the baseline the other two are measured against |
-| `"csp"` | a **path-scoped** Content-Security-Policy on the ghost's own responses |
-| `"sandbox"` | a sandboxed iframe with no `allow-same-origin`, giving the document an opaque origin |
+| `"none"` | no containment; the baseline the other two are tested against |
+| `"csp"` | a **path-scoped** Content-Security-Policy on the ghost's own HTML responses |
+| `"sandbox"` | a sandboxed iframe without `allow-same-origin`, giving the document an opaque origin |
 
-Both are applied by the **ghost**, to responses it already controls. That is
-what makes them viable: neither needs cooperation from the host app, and
-neither needs DNS or TLS — which is what sank the subdomain option.
-
-Only HTML is wrapped, because a CSP governs a *document* and an opaque origin
+Only HTML is wrapped, because a CSP governs a document and an opaque origin
 applies to one. Non-HTML responses get CORS headers instead: under `sandbox`
-the document's origin is opaque, so every fetch it makes — including one back
-through the ghost's own mount — is cross-origin. Without that, containment
-would also contain the host app's legitimate traffic, which is breakage rather
-than containment.
+every fetch the document makes, including one back through the ghost's own
+mount, is cross-origin, and without CORS the host app's legitimate traffic
+would break. `policyFor` and `frameSandbox` return the exact policy so a caller
+can inspect or reuse it.
 
-`policyFor` and `frameSandbox` are exported so a caller can inspect or reuse
-the exact policy rather than re-deriving it.
+### `contain` is not a boundary against a hostile app
 
-### What `contain` is not: a boundary against a hostile app
+Under `csp` the ghost document is **same-origin with the viewer**. A hostile
+host app can read the viewer's `localStorage`, enumerate the IndexedDB that
+holds the identity key and rewrite the viewer's DOM; a CSP governs where a
+document may *fetch*, not what same-origin script may *touch*. `csp` contains a
+trusted app's accidental escape, not an untrusted app.
 
-Under `csp` the ghost iframe is **same-origin with the viewer**. Measured on
-2026-09-15 against a deliberately hostile host app: it read the viewer's
-`localStorage`, enumerated the IndexedDB that holds the identity key, and
-rewrote the viewer's DOM, and the policy stopped none of it — a CSP governs
-where a document may *fetch*, not what same-origin script may *touch*. `csp`
-contains a trusted app's accidental escape; it does not contain an untrusted
-one.
+**For an app you do not trust, give it an origin of its own.** Each
+`<name>.p.httpeers.net` is an empty session origin that a viewer feeds over a
+`MessagePort` (see `apps/session-shell`). Use `pinnedPeer` as that port's
+handler with `basePath: "/"` and skip `contain`: in its own origin a
+root-absolute URL is the session's own path. `apps/demos`
+(`src/shared/session-frame.ts`) is the worked example.
 
-**For an app you do not trust, give it an origin of its own.** The subdomain
-option this package once rejected now exists: `apps/session-shell` serves every
-`<name>.p.httpeers.net` as an empty session that a viewer feeds over a
-`MessagePort`. Use `pinnedPeer` as that port's handler — with `basePath: "/"`,
-because the whole session origin is the app's — and skip `contain`: in its own
-origin a root-absolute URL is the session's own path, so the escape `contain`
-exists for cannot happen. `apps/demos` (`src/shared/session-frame.ts`) is the
-worked example, and its `scripts/session-smoke.mjs` measures the isolation in
-Chromium and Firefox.
+### Request bodies are forwarded in Firefox too
 
-## `PIN_REFUSED`
+Firefox has no `Request.prototype.body`, so a forwarder that passes
+`request.body` sends every POST with no body, silently. `pinnedPeer` uses
+`bodyOf` from `@statewalker/httpeers-core`, which streams where it can and reads
+the body whole where it cannot. A test hides the property to stand in for
+Firefox.
 
-A request the pin will not express comes back **403 with the
-`x-httpeers-ghost` header** (`PIN_REFUSED` is that header's name), so a caller
-can tell "the rendered page tried to leave its mount" from "the host app has no
-such page". A path that *looks* like it addresses another peer is refused
-outright rather than forwarded as a path — a foreign page trying exactly that
-is the attack this exists to stop, and swallowing it silently would hide the
-attempt.
+### Dependencies
 
-## No transport, no crypto
+One: `@statewalker/httpeers-core`. `remote` and `token` are callbacks, so the
+package neither dials nor knows what a token is; `tests/boundary.test.ts`
+asserts it.
 
-The dependency list is one entry: `@statewalker/httpeers-core`. `remote` and
-`token` are callbacks, so this package neither dials nor knows what a token is,
-and `tests/boundary.test.ts` asserts it.
+Tests: `pnpm --filter @statewalker/httpeers-ghost test`. `tests/contain.test.ts`
+drives a host app fixture (`tests/host-app.ts`) through all three modes against
+the same escape.
 
-## Request bodies in Firefox
+## License
 
-Firefox has no `Request.prototype.body` (checked against 155), so a forwarder
-that passes `request.body` on sends every POST with no body at all, silently.
-`pinnedPeer` streams the body where the runtime can and reads it whole where it
-cannot; a test hides the property to stand in for that browser.
-
-## Tests
-
-**21.** `tests/contain.test.ts` drives a real host app fixture
-(`tests/host-app.ts`) through all three modes against the same escape, which is
-the only way the comparison means anything — a containment tested against a
-different attack from the one that motivated it proves nothing.
+MIT
