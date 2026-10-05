@@ -1,6 +1,6 @@
 {
   "name": "@statewalker/httpeers-join",
-  "version": "0.1.3",
+  "version": "0.1.4",
   "type": "module",
   "description": "The join-the-mesh widget: paste or scan an invitation, see the link to the hub, disconnect, reconnect or leave. Plain DOM, no framework.",
   "bugs": {

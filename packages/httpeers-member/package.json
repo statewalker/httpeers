@@ -1,6 +1,6 @@
 {
   "name": "@statewalker/httpeers-member",
-  "version": "0.1.5",
+  "version": "0.1.6",
   "type": "module",
   "description": "Everything a participant does: hold an identity, redeem or resume, connect, keep the link, advertise, discover, call, and serve.",
   "bugs": {
