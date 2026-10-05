@@ -3,6 +3,7 @@ packages:
   - "packages/*"
 
 catalog:
+  "@changesets/cli": ^3.0.3
   "@assistant-ui/react": ^0.15.23
   "@assistant-ui/react-markdown": ^0.14.18
   "@aws-sdk/client-s3": ^3.1146.0
