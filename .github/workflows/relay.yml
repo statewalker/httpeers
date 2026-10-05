@@ -11,6 +11,18 @@ on:
     branches: [main]
     paths:
       - "apps/relay/**"
+      - "packages/**"
+      - "package.json"
+      - "pnpm-lock.yaml"
+      - "pnpm-workspace.yaml"
+      - "tsconfig.base.json"
+      - ".github/workflows/relay.yml"
+  # Pull requests build the image without pushing it: a Dockerfile that no longer builds shows
+  # on the PR, not after the merge.
+  pull_request:
+    paths:
+      - "apps/relay/**"
+      - "packages/**"
       - "package.json"
       - "pnpm-lock.yaml"
       - "pnpm-workspace.yaml"
@@ -21,14 +33,22 @@ on:
 concurrency:
   # A queued deploy of a superseded image is worse than no deploy: it would
   # roll the server backwards.
-  group: relay-deploy
+  group: relay-${{ github.event_name == 'pull_request' && github.ref || 'deploy' }}
   cancel-in-progress: true
 
 env:
   IMAGE: ghcr.io/${{ github.repository_owner }}/httpeers-relay
 
 jobs:
+  # The shared CI (statewalker/.github): an image is only built for deployment from a commit
+  # that passes it. Pull requests run CI in ci.yml already, so here it runs for main only.
+  ci:
+    if: github.event_name != 'pull_request'
+    uses: statewalker/.github/.github/workflows/ci.yml@main
+
   publish:
+    needs: ci
+    if: ${{ !cancelled() && (needs.ci.result == 'success' || needs.ci.result == 'skipped') }}
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -40,7 +60,8 @@ jobs:
 
       - uses: docker/setup-buildx-action@v3
 
-      - uses: docker/login-action@v3
+      - if: github.event_name != 'pull_request'
+        uses: docker/login-action@v3
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
@@ -51,7 +72,7 @@ jobs:
         with:
           images: ${{ env.IMAGE }}
           tags: |
-            type=raw,value=latest
+            type=raw,value=latest,enable={{is_default_branch}}
             type=sha,format=long
 
       - id: build
@@ -63,7 +84,7 @@ jobs:
           # amd64 only. The target is a known x86-64 host; adding arm64 roughly
           # doubles build time under QEMU for a platform nothing runs on.
           platforms: linux/amd64
-          push: true
+          push: ${{ github.event_name != 'pull_request' }}
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
           cache-from: type=gha
@@ -81,9 +102,31 @@ jobs:
     # Turn it on with:
     #   gh variable set DEPLOY_ENABLED --body true
     # once DEPLOY_HOST / DEPLOY_USER / DEPLOY_SSH_KEY / DEPLOY_PATH are set.
-    if: vars.DEPLOY_ENABLED == 'true'
+    if: github.event_name != 'pull_request' && vars.DEPLOY_ENABLED == 'true'
     steps:
+      # The forced-command key (deploy/server/README.md): it can only run bin/deploy.sh, which
+      # runs this commit's image, verifies it and rolls back on failure. Chosen with
+      #   gh variable set EDGE_DEPLOY_FORCED --body true
+      # once the server side is installed; until then the step below deploys as before.
+      - name: Deploy this commit on the server
+        if: vars.EDGE_DEPLOY_FORCED == 'true'
+        env:
+          SSH_KEY: ${{ secrets.EDGE_DEPLOY_SSH_KEY }}
+          KNOWN_HOSTS: ${{ vars.DEPLOY_KNOWN_HOSTS }}
+          TARGET_HOST: ${{ secrets.DEPLOY_HOST }}
+          TARGET_USER: ${{ secrets.DEPLOY_USER }}
+        run: |
+          set -euo pipefail
+          install -m 700 -d ~/.ssh
+          printf '%s\n' "$SSH_KEY" > ~/.ssh/edge_deploy
+          chmod 600 ~/.ssh/edge_deploy
+          printf '%s\n' "$KNOWN_HOSTS" > ~/.ssh/known_hosts
+          # The server runs deploy.sh whatever is sent; this line only names the service and sha.
+          ssh -i ~/.ssh/edge_deploy -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes \
+            -o ServerAliveInterval=30 "$TARGET_USER@$TARGET_HOST" "deploy relay $GITHUB_SHA"
+
       - name: Pull and restart on the server
+        if: vars.EDGE_DEPLOY_FORCED != 'true'
         uses: appleboy/ssh-action@v1
         with:
           host: ${{ secrets.DEPLOY_HOST }}

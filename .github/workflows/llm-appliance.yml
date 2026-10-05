@@ -41,7 +41,15 @@ env:
   IMAGE: ghcr.io/${{ github.repository_owner }}/httpeers-hub
 
 jobs:
+  # The shared CI (statewalker/.github): an image is only built for deployment from a commit
+  # that passes it. Pull requests run CI in ci.yml already, so here it runs for main only.
+  ci:
+    if: github.event_name != 'pull_request'
+    uses: statewalker/.github/.github/workflows/ci.yml@main
+
   publish:
+    needs: ci
+    if: ${{ !cancelled() && (needs.ci.result == 'success' || needs.ci.result == 'skipped') }}
     runs-on: ubuntu-latest
     concurrency:
       group: llm-appliance-publish-${{ github.ref }}
