@@ -1,6 +1,10 @@
-# Deploying
+# Deploying httpeers.net
 
-**Four containers on one host**, on a single `httpeers_edge` network:
+## What it is
+
+The production deployment of the mesh's services on one host: **four containers** on a single
+`httpeers_edge` network, fronted by Caddy, which terminates TLS for `*.httpeers.net` and
+`*.p.httpeers.net`.
 
 | Service | Image | What it is |
 |---|---|---|
@@ -14,23 +18,29 @@ Traefik) in `/opt/httpeers-llm`, compose project `httpeers-llm`, on its own netw
 public port. Caddy does not route to it. It is deployed by `.github/workflows/llm-appliance.yml`.
 See `llm-appliance/README.md`, "On the httpeers.net server". Nothing in this file changes for it.
 
+## Layout
+
 This file lives beside the three things it describes: `docker-compose.yml`, the
 `Caddyfile`, and `ingress/Dockerfile` (Caddy plus the Gandi DNS plugin — a stock Caddy
 image cannot solve the DNS-01 challenge below).
 
-**Two volumes are `external: true` on purpose** — `httpeers_relay_key` (the relay's
-identity) and `httpeers_rustfs_data` (every published site). `docker compose down -v`
-removes every volume it *owns*, and neither of those is recoverable by redeploying.
-`caddy_data` is a host volume for a related reason: recreating the container must not
-re-issue certificates, because Let's Encrypt's rate limits are per registered domain and
-a redeploy loop would exhaust them.
+| File | What it is |
+|---|---|
+| `docker-compose.yml` | the four services, their volumes and the `httpeers_edge` network |
+| `Caddyfile` | routing by `Host`, the wildcard certificates, the relay's bootstrap document (bind-mounted, not in the image) |
+| `ingress/Dockerfile` | Caddy with the Gandi DNS module (`ghcr.io/statewalker/httpeers-ingress`) |
+| `.env.example` | `ACME_EMAIL`, `GANDI_BEARER_TOKEN`, `RELAY_ANNOUNCE_ADDRS`, `RELAY_KEY`, `S3_*`, `SITES_CACHE_TTL_MS` |
+| `llm-appliance/` | the separate LLM appliance stack |
 
-## Gandi, once
+Images are built by `.github/workflows/relay.yml`, `sites.yml` and `ingress.yml` on a push to
+`main` that touches them. The relay and sites workflows then deploy over SSH (`docker compose pull`
+and `up -d` in `DEPLOY_PATH`) when the repository variable `DEPLOY_ENABLED` is `true`; the relay
+deploy fails if the relay's peerId changed. The ingress image is never deployed automatically,
+because restarting it restarts TLS for everything.
 
-Two things at Gandi, and neither is ever touched again: the DNS records, and a token that lets
-Caddy prove control of the zone.
+## How to run it
 
-### 1. The DNS records
+### 1. DNS records at Gandi, once
 
 `admin.gandi.net` → your domain → **DNS records** (the domain must be on **LiveDNS**; if it is
 on external nameservers this will not apply). Then **Add**:
@@ -61,18 +71,18 @@ bare `p.httpeers.net` stops resolving (NOERROR, no address), which is correct �
 a site.
 
 Gandi accepts a wildcard record without validating it, so a typo here fails silently at
-resolution time rather than at entry. (`*.p` is accepted as a name: created through the
-LiveDNS API on 2026-09-18 with the same Personal Access Token Caddy uses — its
-"technical configuration" permission covers A records as well as TXT.)
+resolution time rather than at entry. `*.p` is a valid name, and the Personal Access Token below
+can create it through the LiveDNS API: its "technical configuration" permission covers A records
+as well as TXT.
 
-### 2. The Personal Access Token
+### 2. A Gandi Personal Access Token, once
 
 A wildcard certificate can only be issued through the ACME **DNS-01** challenge, which means
 Caddy must create and delete `_acme-challenge` TXT records in this zone by itself. That needs
 an API credential.
 
-**It must be a Personal Access Token.** Gandi's older **API Key is deprecated**, and the
-`caddy-dns/gandi` module does not accept one. The two are also used differently — a PAT is sent
+**It must be a Personal Access Token.** The `caddy-dns/gandi` module does not accept Gandi's
+deprecated API Key. The two are also used differently — a PAT is sent
 as `Authorization: Bearer <token>`, an API Key as `Authorization: Apikey <key>`.
 
 In `admin.gandi.net`, under **Account settings** (or the organisation's page, if the account has
@@ -93,15 +103,10 @@ needs to write and delete TXT records.
 The token is displayed **once**, at creation. It cannot be retrieved afterwards — store it in a
 password manager as well as in `.env`.
 
-> **PATs expire, and certificate renewal will fail silently when it does.** Caddy renews at
-> roughly 2/3 of the certificate lifetime, so an expired token surfaces as a certificate that
-> stops renewing, weeks before anything visibly breaks. Put the token's expiry date in a
-> calendar with a reminder well ahead of it. This is the single most likely way this deployment
-> fails months from now.
-
-## First run
+### 3. First start
 
 ```sh
+cd deploy               # on the server: the deployment directory
 cp .env.example .env    # fill in GANDI_BEARER_TOKEN, ACME_EMAIL, RELAY_ANNOUNCE_ADDRS
 
 # The relay's identity volume is declared `external`, so Compose will not
@@ -128,108 +133,7 @@ docker compose up -d relay
 **Back that key up.** It is the relay's identity, it is embedded in every
 client's configuration, and there is no other copy.
 
-## Certificates
-
-Let's Encrypt via the ACME **DNS-01** challenge, which is the only challenge
-that issues wildcards. Renewal is automatic and needs nothing on the host.
-
-`caddy_data` holds the certificates and the ACME account, so recreating the
-container does **not** re-issue. Keep that volume: Let's Encrypt's rate limits
-are per registered domain, and a redeploy loop that re-issues will exhaust
-them.
-
-### Verifying the wildcard actually works
-
-Checking `relay.httpeers.net` is **not** a test of the wildcard. It has its own
-site block, so Caddy manages a certificate for that exact name — it can be
-perfectly valid while the wildcard is broken or absent. Test a name that
-appears in no site block and no DNS record:
-
-```sh
-openssl s_client -connect <server ip>:443 -servername nonesuch.httpeers.net </dev/null 2>/dev/null \
-  | openssl x509 -noout -text | grep -A1 "Subject Alternative Name"
-```
-
-The SAN list must contain `*.httpeers.net`.
-
-Session origins have a certificate of their own (`*.httpeers.net` matches one label and
-does not cover `abc.p.httpeers.net`). Check it the same way, with a name nothing has used,
-and check the DNS answer too:
-
-```sh
-dig +short nonesuch123.p.httpeers.net          # the server's address
-openssl s_client -connect <server ip>:443 -servername nonesuch123.p.httpeers.net </dev/null 2>/dev/null \
-  | openssl x509 -noout -issuer -ext subjectAltName   # must list *.p.httpeers.net, issuer Let's Encrypt
-```
-
-Run the `dig` again **during** an issuance or renewal (`docker compose logs caddy | grep
-'p.httpeers.net'`): that is when a missing `*.p` record would show up, as NXDOMAIN.
-`apps/session-shell`'s `pnpm run live-check` does all of this with fresh random names.
-
-## The relay's bootstrap document
-
-The relay writes `/.well-known/httpeers-relay.json` onto the `bootstrap`
-volume at startup; Caddy serves it from the `relay.httpeers.net` block. It lets
-a peer that knows only the URL learn the peerId to dial and pin. See the
-repository `README.md` for the document and the client contract.
-
-Two things to know operationally:
-
-- **The volume is derived state.** Unlike `httpeers_relay_key` it is not
-  `external`, and losing it costs nothing — the relay rewrites the document on
-  its next start. `docker compose down -v` is safe for this one.
-- **Caddy mounts it read-only.** The relay is the only writer.
-
-After a deploy:
-
-```sh
-curl -s https://relay.httpeers.net/.well-known/httpeers-relay.json
-```
-
-The `relayAddrs` entry must match the address in `docker compose logs relay`,
-peerId included — it is generated from what the relay advertises, so a mismatch
-means something is wrong with the volume, not with the configuration.
-
-**A 404 here means the relay is not running.** The document is deleted before
-every start attempt and written only once the relay is up, so a crash-looping
-relay serves nothing rather than pointing peers at a relay that is down. Check
-`docker compose logs relay` before touching anything else.
-
-**If the relay refuses to start with `could not write the bootstrap
-document`,** the volume is not writable by the container's unprivileged user.
-The image chowns `/srv/bootstrap` to `node`, which Docker copies into an empty
-named volume — but a volume created earlier, or a bind mount, keeps the
-ownership it already has. Either fix the ownership or unset
-`RELAY_BOOTSTRAP_PATH` to stop publishing the document; the relay treats a
-failure to write as fatal, because a healthy relay whose document is silently
-absent is a failure nobody notices until peers cannot reach it.
-
-## Changing the Caddyfile
-
-The Caddyfile is a bind mount, not part of the image, so a change needs no rebuild — and
-no container restart either:
-
-```sh
-# validate the new file against the running image, BEFORE it replaces the live one
-docker run --rm -e GANDI_BEARER_TOKEN=x -e ACME_EMAIL=x@example.com \
-  -v "$PWD/Caddyfile.new:/etc/caddy/Caddyfile:ro" \
-  ghcr.io/statewalker/httpeers-ingress:latest caddy validate --config /etc/caddy/Caddyfile
-cp -p Caddyfile Caddyfile.bak.$(date +%Y%m%d)
-cat Caddyfile.new > Caddyfile          # in place -- see below
-docker exec -w /etc/caddy httpeers_caddy caddy reload --config /etc/caddy/Caddyfile
-```
-
-**Write it in place.** A single-file bind mount follows the file's inode: `cp`, `scp` or
-an editor that writes a new file and renames it over the old one leaves the container
-reading the OLD inode, and the reload then applies nothing. `cat new > Caddyfile` keeps
-the inode; compare `md5sum Caddyfile` with `docker exec httpeers_caddy md5sum
-/etc/caddy/Caddyfile` before reloading.
-
-A reload keeps every connection and certificate; a new site block's certificate is
-obtained in the background (for a DNS-01 wildcard, a little over the 2-minute
-propagation delay).
-
-## Publishing a site
+### 4. Publish a site
 
 Sites live in the `sites` bucket, one prefix per domain. Publishing is writing
 files; nothing else brings a site online.
@@ -262,3 +166,139 @@ Optional per-site settings go in `.site/config.json` inside the prefix:
 ```
 
 That directory is never served.
+
+### 5. After any change to the Caddyfile
+
+The Caddyfile is a bind mount, not part of the image, so a change needs no rebuild — and
+no container restart either:
+
+```sh
+# validate the new file against the running image, BEFORE it replaces the live one
+docker run --rm -e GANDI_BEARER_TOKEN=x -e ACME_EMAIL=x@example.com \
+  -v "$PWD/Caddyfile.new:/etc/caddy/Caddyfile:ro" \
+  ghcr.io/statewalker/httpeers-ingress:latest caddy validate --config /etc/caddy/Caddyfile
+cp -p Caddyfile Caddyfile.bak.$(date +%Y%m%d)
+cat Caddyfile.new > Caddyfile          # in place -- see below
+docker exec -w /etc/caddy httpeers_caddy caddy reload --config /etc/caddy/Caddyfile
+```
+
+**Write it in place.** A single-file bind mount follows the file's inode: `cp`, `scp` or
+an editor that writes a new file and renames it over the old one leaves the container
+reading the OLD inode, and the reload then applies nothing. `cat new > Caddyfile` keeps
+the inode; compare `md5sum Caddyfile` with `docker exec httpeers_caddy md5sum
+/etc/caddy/Caddyfile` before reloading.
+
+A reload keeps every connection and certificate; a new site block's certificate is
+obtained in the background (for a DNS-01 wildcard, a little over the 2-minute
+propagation delay).
+
+## Why it is the way it is
+
+### Two volumes are external, and the certificates live on the host
+
+Two volumes are `external: true` on purpose — `httpeers_relay_key` (the relay's
+identity) and `httpeers_rustfs_data` (every published site). `docker compose down -v`
+removes every volume it *owns*, and neither of those is recoverable by redeploying.
+`caddy_data` is a host volume for a related reason: recreating the container must not
+re-issue certificates, because Let's Encrypt's rate limits are per registered domain and
+a redeploy loop would exhaust them.
+
+### Wildcards are the whole design
+
+Let's Encrypt via the ACME **DNS-01** challenge, which is the only challenge
+that issues wildcards. Renewal is automatic and needs nothing on the host.
+
+`caddy_data` holds the certificates and the ACME account, so recreating the
+container does **not** re-issue. Keep that volume: Let's Encrypt's rate limits
+are per registered domain, and a redeploy loop that re-issues will exhaust
+them.
+
+With the `*` record and the `*.httpeers.net` certificate, publishing a new subdomain changes
+nothing here: no Caddyfile edit, no DNS record, no reload. Session origins (`*.p.httpeers.net`)
+need one more wildcard, set up once: the `A *.p` record, a Caddy block with its own certificate,
+and the shell published to the `p.httpeers.net` prefix.
+
+### The relay's bootstrap document is derived state
+
+The relay writes `/.well-known/httpeers-relay.json` onto the `bootstrap`
+volume at startup; Caddy serves it from the `relay.httpeers.net` block. It lets
+a peer that knows only the URL learn the peerId to dial and pin. See
+[`apps/relay/README.md`](../apps/relay/README.md) for the document and the client contract.
+
+Two things to know operationally:
+
+- **The volume is derived state.** Unlike `httpeers_relay_key` it is not
+  `external`, and losing it costs nothing — the relay rewrites the document on
+  its next start. `docker compose down -v` is safe for this one.
+- **Caddy mounts it read-only.** The relay is the only writer.
+
+After a deploy:
+
+```sh
+curl -s https://relay.httpeers.net/.well-known/httpeers-relay.json
+```
+
+The `relayAddrs` entry must match the address in `docker compose logs relay`,
+peerId included — it is generated from what the relay advertises, so a mismatch
+means something is wrong with the volume, not with the configuration.
+
+## What will surprise you
+
+> **PATs expire, and certificate renewal will fail silently when it does.** Caddy renews at
+> roughly 2/3 of the certificate lifetime, so an expired token surfaces as a certificate that
+> stops renewing, weeks before anything visibly breaks. Put the token's expiry date in a
+> calendar with a reminder well ahead of it. This is the single most likely way this deployment
+> fails months from now.
+
+**A 404 here means the relay is not running.** The document is deleted before
+every start attempt and written only once the relay is up, so a crash-looping
+relay serves nothing rather than pointing peers at a relay that is down. Check
+`docker compose logs relay` before touching anything else.
+
+**If the relay refuses to start with `could not write the bootstrap
+document`,** the volume is not writable by the container's unprivileged user.
+The image chowns `/srv/bootstrap` to `node`, which Docker copies into an empty
+named volume — but a volume created earlier, or a bind mount, keeps the
+ownership it already has. Either fix the ownership or unset
+`RELAY_BOOTSTRAP_PATH` to stop publishing the document; the relay treats a
+failure to write as fatal, because a healthy relay whose document is silently
+absent is a failure nobody notices until peers cannot reach it.
+
+### Checking `relay.httpeers.net` does not test the wildcard
+
+Checking `relay.httpeers.net` is **not** a test of the wildcard. It has its own
+site block, so Caddy manages a certificate for that exact name — it can be
+perfectly valid while the wildcard is broken or absent. Test a name that
+appears in no site block and no DNS record:
+
+```sh
+openssl s_client -connect <server ip>:443 -servername nonesuch.httpeers.net </dev/null 2>/dev/null \
+  | openssl x509 -noout -text | grep -A1 "Subject Alternative Name"
+```
+
+The SAN list must contain `*.httpeers.net`.
+
+Session origins have a certificate of their own (`*.httpeers.net` matches one label and
+does not cover `abc.p.httpeers.net`). Check it the same way, with a name nothing has used,
+and check the DNS answer too:
+
+```sh
+dig +short nonesuch123.p.httpeers.net          # the server's address
+openssl s_client -connect <server ip>:443 -servername nonesuch123.p.httpeers.net </dev/null 2>/dev/null \
+  | openssl x509 -noout -issuer -ext subjectAltName   # must list *.p.httpeers.net, issuer Let's Encrypt
+```
+
+Run the `dig` again **during** an issuance or renewal (`docker compose logs caddy | grep
+'p.httpeers.net'`): that is when a missing `*.p` record would show up, as NXDOMAIN.
+`apps/session-shell`'s `pnpm run live-check` does all of this with fresh random names.
+
+## Reference
+
+| Command | What it does |
+|---|---|
+| `docker compose up -d` | start or update everything |
+| `docker compose pull relay && docker compose up -d relay` | what the relay deploy job runs (same for `sites`) |
+| `docker compose logs relay` | the relay's peerId and addresses |
+| `curl -s https://relay.httpeers.net/.well-known/httpeers-relay.json` | the published relay address |
+| `docker exec -w /etc/caddy httpeers_caddy caddy reload --config /etc/caddy/Caddyfile` | apply a Caddyfile change |
+| `pnpm --filter @statewalker/httpeers-session-shell live-check` | DNS, TLS and HTTP checks for session origins, with fresh names |

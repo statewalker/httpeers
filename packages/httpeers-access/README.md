@@ -1,118 +1,199 @@
 # @statewalker/httpeers-access
 
-Who is calling, and may they. Biscuit tokens, Datalog policy, revocation, and
-**one** middleware.
+## What it is
 
-```ts
-import { ruleSet, withAccess, access } from "@statewalker/httpeers-access";
+Who is calling, and may they. Biscuit membership tokens, Datalog rules and
+policies, revocation, and **one** middleware — `withAccess` — that puts them in
+front of a `FetchHandler`. The Biscuit engine is `@statewalker/webrun-biscuit`,
+which is pure TypeScript, so the package runs unchanged in Node, workers,
+ServiceWorkers and pages. It has no libp2p in its dependency graph.
 
-const guarded = withAccess({
-  issuer: hubPeerId,          // the mesh — and its own verifying key
-  rules: ruleSet({ /* … */ }),
-  provenPeer: (req) => whatTheTransportProved(req),
-})(myHandler);
+## Why it exists
+
+A hub mints a token that states who a peer is and which roles it holds. Every
+node that serves something must then answer, for each request: is this token
+genuine, is it revoked, and do its roles allow this operation on this
+resource? Those answers must be the same everywhere and must not depend on a
+transport stack. This package is that decision, kept apart from both the
+transport (`@statewalker/httpeers-libp2p`) and the registries
+(`@statewalker/httpeers-hub`).
+
+## How to use
+
+```sh
+pnpm add @statewalker/httpeers-access
 ```
 
-## No libp2p, and that is the point
+No peer dependencies.
 
-Verifying a token used to require `@libp2p/peer-id` and `@libp2p/crypto` — a
-transport stack, pulled in by anything that merely wanted to check a bearer
-token. It needed them for one thing: turning a hub's peerId into a verifying
-key.
-
-**An Ed25519 peerId carries its own public key.** The string is base58btc of an
-*identity* multihash — the digest is the value, not a hash of it — wrapping a
-protobuf `PublicKey`. Recovering the key is parsing, so `selfCertifyingKeys()`
-does it in about twenty lines with `multiformats`, and
-`tests/self-certifying.test.ts` checks it against libp2p's own answer over real
-generated peers, byte for byte, in both directions.
-
-Not every peerId works this way: an RSA peerId *hashes* its key, so there is
-nothing to recover and `resolve` returns empty. Empty means **deny**.
-
-## Three entry points, and why
-
-| Import | For | Holds |
+| Import | For | Gives |
 |---|---|---|
-| `.` | a **member** | `withAccess`, `verifyToken`, the rule set, `RevocationCache` |
+| `.` | a **member** (anything that serves) | `withAccess`, `access`, `verifyToken`, `ruleSet`, `roleNames`, `capabilityNames`, `deriveCapabilities`, `RevocationCache`, `selfCertifyingKeys`, `meshIdOf`, `guardStream`, `LIMITS` |
 | `./issuer` | a **hub** | `mintToken`, `generateSigner`, `RevocationRegistry` |
-| `./engine` | almost nobody | `initBiscuit`, the WASM loader seam |
+| `./engine` | nobody | `initBiscuit` — deprecated no-op, kept so existing imports compile |
 
-The split is enforced by the import graph, not by documentation: a member that
-imports the root never pulls a code path that signs into its bundle.
+The split is enforced by the import graph: a member that imports the root never
+pulls a code path that signs into its bundle.
 
-## One middleware, not two
+## Examples
 
-The prototype ships binding and policy separately and needs the caller to nest
-them correctly, with the reason in a comment three files away:
+Guard a handler:
 
-> *"Reverse the nesting and policy reads an empty cache: every request would
-> look tokenless to the authorizer, no matter what it actually carried."*
+```ts
+import { access, ruleSet, withAccess } from "@statewalker/httpeers-access";
+import { ANONYMOUS, lookupPeer } from "@statewalker/httpeers-core";
 
-A correctness requirement enforced nowhere, violated by writing two calls in
-the natural reading order. `withAccess` removes the choice rather than
-documenting it better — it takes no ordering parameter, because there is
-nothing to order. Inside, the composition is exactly the proven one.
+const rules = ruleSet({
+  version: 1,
+  rules: ['capability("app:read") <- role("member");'],
+  policies: [
+    'allow if capability("app:read"), resource("/data")' +
+      ' or capability("app:read"), resource($r), $r.starts_with("/data/");',
+  ],
+});
 
-`withAccess` reads the token from `x-httpeers-token` (`MESH_TOKEN_HEADER`,
-`httpeers-core`) and **never** from `Authorization`, which it leaves on the
-request for the handler — that header is the application's. A token sent in
-`Authorization` is no token: the request is refused `401 "membership token
-required"`.
+const guarded = withAccess({
+  issuer: hubPeerId,                 // the mesh — and its own verifying key
+  rules,
+  provenPeer: (req) => lookupPeer(req) ?? ANONYMOUS, // what the transport bound
+})(async (req) => {
+  const ctx = access(req);           // { peer, claims, capabilities() }
+  return Response.json({ caps: [...(ctx?.capabilities() ?? [])] });
+});
+```
 
-## There is no `DEFAULT_RULES`
+Mint a token on the hub:
 
-The prototype exported one. It derived `std:` capabilities for the demo's
-`/test` mount and **no `app:` capability at all**, so every caller who reached
-for it as a starting point mounted an application under it and got a permanent
-silent denial. A default that is wrong for every real use is worse than none,
-because it is reached for first. `rules` is a parameter.
+```ts
+import { generateSigner, mintToken } from "@statewalker/httpeers-access/issuer";
 
-## The wasm lies about timeouts, and this package disbelieves it
+const signer = await generateSigner();   // { mesh, seed }; mesh is the hub's peerId
+const token = await mintToken({ signer, sub: memberPeerId, roles: ["member"], ttlMs: 60_000 });
+```
 
-`@biscuit-auth/biscuit-wasm` reports `RunLimit: Timeout` **spuriously**, on
-evaluations that take well under a millisecond. Measured here: under CPU
-contention (16 busy processes on 8 cores), 4 of 300 legitimate admin
-authorizations came back denied while the median decision took 0.19 ms — and
-raising the budget to *thirty seconds* did not reduce it, which is what proves
-the report is not a real exhaustion. It first surfaced as a 1-in-5 failure of
-this package's own suite under parallel load.
+Verify one directly:
 
-Believing that report costs a denied authorization, a **rejected valid token**,
-or a thrown `deriveCapabilities`. All three are a legitimate member turned away
-because the machine was busy.
+```ts
+import { verifyToken } from "@statewalker/httpeers-access";
 
-`retryOnSpuriousTimeout` re-runs the evaluation at all five call sites,
-rebuilding every wasm handle per attempt — they are consumed by the call that
-takes them, so a reused handle traps on a null pointer instead of retrying.
-This is sound because the evaluations are **pure functions** of the rule set
-and the facts: a retry cannot manufacture an allow that was not already there,
-and a genuine exhaustion still fails closed on every attempt.
+const claims = await verifyToken(token, {
+  issuer: hubPeerId,
+  connectionPeer: provenPeerId,  // what the transport proved; ANONYMOUS fails the token's binding check
+}); // throws TokenVerificationError
+```
 
-`TooManyFacts` is **never** retried. It counts *work* rather than elapsed time,
-so it fires on the same inputs on every machine, and it is what actually bounds
-a pathological rule set — it catches the combinatorial case in about 50 ms. The
-denial-of-service ceiling is untouched.
+Ask what a rule set grants:
 
-> Failing closed is right when the **input** is suspect. It is not right when
-> the **verdict** is.
+```ts
+import { deriveCapabilities, roleNames } from "@statewalker/httpeers-access";
 
-`warmUpTokens` absorbs the same defect's first-call form, recorded as the
-prototype's finding F2. It is idempotent and never throws; an application may
-call it at start-up to move the one-time wasm cost off its first request.
+roleNames(rules);                         // ["member"]
+deriveCapabilities(rules, ["member"]);    // Set { "app:read" }
+```
 
-## What is DESIGNED and not implemented
+## Internals
 
-`cnf` per-device binding (ADR-0009), key rotation and the issuer directory
-(ADR-0008/0018), and delegation (ADR-0010). Extracting is not implementing, so
-none of them ships here, and conformance A-13, A-13b, A-21 and A-23 stay
-reported as **missing** rather than quietly skipped.
+### One middleware, because two could be nested wrong
 
-`verifyToken` takes `operation` and `resource` so attenuation checks become
-*possible* without delegation, and `keys` so rotation has a seam to arrive
-through — every acceptable key is tried, which with the default resolver is
-exactly one and the prototype's behaviour unchanged.
+Token binding and policy have to run in one order: binding reads and verifies
+the token and caches the claims; policy reads the cache. Reversed, policy reads
+an empty cache and every request looks tokenless. Two separate middlewares
+leave that ordering to every caller; `withAccess` takes no ordering parameter
+because there is nothing to order. `withPolicy` is exported for the rare caller
+that binds the token some other way.
 
----
+### The token is read from `x-httpeers-token`, never from `Authorization`
 
-**169 tests.** No libp2p, and no `node:` builtin.
+`withAccess` reads `MESH_TOKEN_HEADER` (from `@statewalker/httpeers-core`) and
+leaves `Authorization` on the request for the handler: that header belongs to
+the application. A token sent in `Authorization` is no token. The request is
+refused with `401 {"error":"membership token required"}`.
+
+### A peerId is its own verifying key
+
+An Ed25519 peerId is base58btc of an *identity* multihash wrapping a protobuf
+`PublicKey`, so the key is recovered by parsing, not looked up.
+`selfCertifyingKeys()` does it with `multiformats` alone, and
+`tests/self-certifying.test.ts` checks it against libp2p's own answer over real
+generated peers. That is why verifying a token needs no libp2p. An RSA peerId
+hashes its key, so there is nothing to recover: the resolver returns no keys,
+and no keys means **deny**.
+
+### The token carries roles; the node holds the rules
+
+The hub mints identity and role facts. Each node derives capabilities from
+roles with its **own** `RuleSet`, built locally and never fetched, so nothing
+remote can widen a decision. The node asserts `operation`, `resource`,
+`time_ms`, `self_peer` and `connection_peer`; time is in milliseconds
+(`time_ms`) because Biscuit's own date terms have one-second resolution.
+
+There is no default rule set. A default that grants no application capability
+silently denies every application mounted under it, and it is the first thing
+people reach for. `rules` is a required parameter.
+
+### `ruleSet()` refuses to build a policy that would silently deny
+
+A rule naming a predicate that nothing asserts and no rule derives never fires,
+and the permanent denial looks exactly like a working policy. So `ruleSet()`
+throws `RuleSetError` listing **every** problem:
+
+```
+invalid rule set:
+  - rules[0]: names predicate 'nope', which nothing asserts and no rule derives -- it can never hold, so this rule is dead
+  - policies[0]: names capability 'z', which no rule derives
+```
+
+It rejects: text that does not parse; a body predicate nothing supplies; a
+policy naming a capability no rule derives; a rule deriving a fact the node or
+the token asserts (a forged input); and a policy in `rules` or a rule in
+`policies`.
+
+Policies are emitted **deny first**. Biscuit evaluates policies in order and the
+first match wins, so a `deny` must beat any `allow` that also matches.
+
+`$r.starts_with("/data")` also matches `/database`. To mean "this resource and
+everything under it", write the `or` form used in the example above.
+
+### Timeouts are real, and bounded
+
+`LIMITS` is `{ max_facts: 5000, max_iterations: 200, max_time_micro: 1_000_000 }`.
+A `Timeout` from the engine is a measured wall clock, so nothing retries it.
+`max_facts` counts work rather than time, so it fires on the same inputs on
+every machine and is what bounds a pathological rule set.
+`warmUpTokens()` and `./engine`'s `initBiscuit()` are no-ops; the engine needs
+no warm-up or loading. Callers can delete those calls.
+
+### Changing a member's roles needs a revocation
+
+A token states its roles until it expires. `RevocationRegistry.changeRoles`
+(hub side) records the change so tokens minted before it stop verifying;
+`RevocationCache` (member side) holds the hub's list. Without the revocation, a
+demoted admin keeps admin for the life of its token.
+
+### Not implemented
+
+Per-device binding (`cnf`), key rotation with an issuer directory, and
+delegation. `verifyToken` already takes `keys` (every acceptable key is tried;
+the default resolver yields exactly one), so rotation has a seam to arrive
+through.
+
+### A token is bound to the connection that presents it
+
+`verifyToken` requires `connectionPeer` — the peer the transport proved — and
+asserts it as `connection_peer`, which the token's own check consumes. A token
+replayed by another peer fails that check. `ANONYMOUS` asserts nothing and so
+fails the binding; there is no permissive default. `selfPeer` is optional: a
+verifier that does not state its own id refuses every audience-scoped token and
+accepts unscoped ones.
+
+### Dependencies
+
+`@statewalker/httpeers-core` (headers, types), `@statewalker/webrun-biscuit`
+(tokens and Datalog), `multiformats` (peerId parsing). No libp2p and no `node:`
+builtin; `tests/boundary.test.ts` enforces it.
+
+Tests: `pnpm --filter @statewalker/httpeers-access test`.
+
+## License
+
+MIT

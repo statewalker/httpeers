@@ -22,8 +22,8 @@ running on this machine. The results of the last recorded run are in `RESULTS.md
   the contents of `dist/` — `index.html`, `mesh.html`, `sw.js`, `assets/` — at the domain root).
   The ServiceWorker must be served as `/sw.js` with a JavaScript content type.
 - **Dependencies are installed** for `apps/llm-chat`: Playwright is resolved from there, because
-  `deploy/` is not a workspace package. The host needs its Chromium (`npx playwright install
-  chromium` if missing).
+  `deploy/` is not a workspace package. The host needs its Chromium
+  (`pnpm --filter @statewalker/httpeers-llm-chat exec playwright install chromium` if missing).
 - **Docker can run** `mcr.microsoft.com/playwright:v1.63.0-noble` (pulled on first use), and the
   image's Playwright version matches the host's (`1.63.0`); `chromium.connect` refuses a mismatch.
 - **The host port for run-server is free** (`127.0.0.1:3100` by default; `E2E_PW_PORT` changes

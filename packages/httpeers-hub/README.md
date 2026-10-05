@@ -1,108 +1,157 @@
 # @statewalker/httpeers-hub
 
-Minting membership, holding the registries, and saying who is in the mesh.
+## What it is
+
+The hub of an httpeers mesh: it issues and redeems invitations, mints
+membership tokens, keeps the member, presence and advertisement registries, and
+answers "who is in the mesh". It is a mount table of HTTP endpoints
+(`/.well-known/invite`, `/.well-known/presence`, `/.well-known/mesh`,
+`/.well-known/members`, `/.well-known/rules`, `/.well-known/revocations`,
+`/admin/…`) and has no transport of its own.
+
+## Why it exists
+
+A mesh needs one authority that says who belongs to it. That authority is
+state plus HTTP endpoints, and nothing about it requires a socket, a file
+system or a particular runtime. Keeping the hub free of transport is what lets
+the same code run as a Node daemon and inside a browser tab; whoever hosts it
+puts `hub.mounts` on a wire with `servePeer` from
+`@statewalker/httpeers-libp2p`.
+
+## How to use
+
+```sh
+pnpm add @statewalker/httpeers-hub
+```
+
+Optional peer dependency: `@statewalker/webrun-files`, only if you use
+`filesStorage` (it takes a `FilesApi`).
+
+| Import | Gives | Runs in |
+|---|---|---|
+| `.` | `createHub`, `memoryStorage`, `filesStorage(files, dir?)`, `asyncSnapshotStore`, the stores (`createMemberStore`, `createPresenceStore`, `createAdvertisementStore`, `createHubState`), `createHubEndpoints`, `buildMeshView` | anywhere |
+| `./node` | `fileStorage(path)` | Node |
+| `./browser` | `idbStorage(name?, store?)` | browsers (IndexedDB) |
+
+## Examples
+
+Create a hub and an invitation:
 
 ```ts
 import { createHub, memoryStorage } from "@statewalker/httpeers-hub";
+import { mintToken } from "@statewalker/httpeers-access/issuer";
 
 const hub = await createHub({
-  selfPeerId,                       // this hub's peerId IS the mesh's name
-  policies: rules,
+  selfPeerId,                    // this hub's peerId is the mesh's name
+  policies: rules,               // a RuleSet from httpeers-access
   storage: memoryStorage(),
   mintToken: async (sub, roles) => mintToken({ signer, sub, roles, ttlMs: 60_000 }),
 });
 
-const invite = await hub.invitations.create(["member"], 60_000);
+const { id, expiresAt } = await hub.invitations.create(["member"], 60 * 60_000);
+hub.invitations.pending();       // unredeemed invitations, persisted
 ```
 
-`hub.mounts` is a mount table. Serving it on a wire is somebody else's job.
+Serve it on a libp2p node:
 
-## A hub has no transport, and that is what lets it run in a tab
+```ts
+import { servePeer } from "@statewalker/httpeers-libp2p";
 
-This package dials nothing and listens on nothing. `servePeer`
-(`@statewalker/httpeers-libp2p`) is what puts the mount table on a wire, and
-the dependency list here is `core`, `access` and `hono` — no libp2p, asserted
-by `tests/boundary.test.ts`.
+const peer = await servePeer({ node, mounts: hub.mounts, access: guard });
+```
 
-That is not tidiness. It is the property that makes a **hub in a browser tab**
-possible at all, and it is why the hub's *lifecycle* is deliberately not in
-this package: composing a node, a relay reservation, `createHub` and an edge is
-application wiring, and both the Node hub and the hub page do it themselves.
-`httpeers-conformance` compiles that composition as a consumer, so if the
-packages ever stop being sufficient for it, a test says so.
+Persist to disk in Node, or to IndexedDB in a page:
 
-## Invitations are bearer credentials, and are treated as such
+```ts
+import { fileStorage } from "@statewalker/httpeers-hub/node";
+import { idbStorage } from "@statewalker/httpeers-hub/browser";
 
-An invitation id is **128 bits from the platform CSPRNG**, never `Math.random`:
-whoever holds one can become a member. The hub generates it **by default**, so
-nobody has to invent unguessable strings — `create(roles, ttlMs)` is the whole
-call. A caller may name the id (`{ id }`) for a deployment migrating existing
-codes or a test wanting a constant, and that is the only way to get a weak one.
+const storage = fileStorage("./.httpeers/hub");   // Node: one file per key, ./.httpeers/hub.<key>
+const storage2 = idbStorage();                    // page: database "httpeers-hub", store "state"
+```
 
-Every mutator resolves when the write is **durable**. A caller is never told
-"created" before it is, because an invitation handed out over the phone and
-then lost to a crash a millisecond later is an invitation somebody is standing
-there holding.
+Demote a member so it takes effect before its token expires:
 
-Unredeemed invitations **survive a restart** — they are in the snapshot, not in
-memory — and `pending()` lists them so an operator can see what is outstanding.
+```ts
+hub.members.setRoles(peerId, ["member"]);
+hub.revocations.changeRoles(peerId, ["member"]);
+```
 
-## The snapshot is synchronous and the storage is not
+## Internals
 
-`SnapshotStore.write` must stay synchronous: `createHubState` calls it and
-returns, so an async write would open a window where a caller has been told a
-member was added while the snapshot still says otherwise. There is no way to
-block on a promise in a browser, so the shape is forced:
+### An invitation is a bearer credential
 
-**the in-memory copy is authoritative, and the backend trails it.** `write`
-replaces `current` and returns; the flush runs behind it on one promise chain.
-Reads answer from `current`, so the hub always sees what it last wrote.
+Whoever holds an invitation id can become a member. So the id is 128 bits from
+the platform CSPRNG (`crypto.getRandomValues`), generated by default:
+`create(roles, ttlMs)` is the whole call. A caller may pass `{ id }` — for a
+test that wants a constant — and that is the only way to get a weak one.
 
-The chain matters: writes reach storage **in order**. An unordered
-`void put(...)` per write would let a slow earlier write land on top of a later
-one and **resurrect a spent invitation id**, which is a membership bypass.
-`asyncSnapshotStore` is that wrapper over any `KeyValueStorage`, and
-`flushed()` is how a test waits for durability.
+Every mutator resolves only once the write is durable. A caller is never told
+"created" before it is, because an invitation handed out and then lost to a
+crash is one somebody is still holding. Unredeemed invitations survive a
+restart: they are in the snapshot.
 
-Honestly stated: a tab closed between a write and its flush loses that write.
-This is a page, not a database.
+### The snapshot is synchronous; the storage behind it is not
 
-| Import | Storage |
-|---|---|
-| `.` | `memoryStorage()`, `filesStorage(files, dir?)` over a `FilesApi` |
-| `./node` | `fileStorage(path)` |
-| `./browser` | `idbStorage(name?, store?)` — IndexedDB, which is transactional |
+`createHubState` writes its snapshot synchronously and returns, so the hub never
+reports a member added while the snapshot says otherwise. Storage in a browser
+is asynchronous and cannot be blocked on. `asyncSnapshotStore` reconciles the
+two:
 
-`filesStorage` **writes-then-moves**. The prototype's Node persistence wrote in
-place, so a crash mid-write left a half-written snapshot where the whole state
-lives; this adapter does not inherit that.
+```
+mutation ──> snapshot.write (sync, replaces the in-memory copy)
+                   │
+                   └──> one promise chain ──> KeyValueStorage.put (in order)
+reads ────> the in-memory copy
+```
 
-## Roles come off the rules, not a second list
+The in-memory copy is authoritative and the backend trails it. Writes reach
+storage **in order**: an unordered `put` per write would let a slow earlier
+write land on top of a later one and resurrect a spent invitation id — a
+membership bypass. `flushed()` waits for durability. A tab closed between a
+write and its flush loses that write.
 
-There is no separate vocabulary document. A role exists for this mesh exactly
-when some rule fires on it, so `roleNames(rules)` is the registry, and both
-`members.setRoles` and `invitations.create` validate against it. A role added
-to the policy appears everywhere without anyone updating a second place.
+`filesStorage` and `fileStorage` write to a temporary name and then move, so a
+crash mid-write never leaves a half-written snapshot.
 
-## Changing roles takes two writes, or it is a lie
+### Roles come from the rules
 
-`MemberStore.setRoles` rewrites the record — but the peer is carrying a token
-that already states its **old** roles and stays valid until it expires, so a
-demoted admin keeps admin for the life of that token. `revocations.changeRoles`
-records the change so tokens minted before it stop verifying, which is what
-makes the new roles take effect on the peer's next heartbeat.
+A role exists in this mesh exactly when some rule fires on it, so
+`roleNames(rules)` is the registry. `members.setRoles` and `invitations.create`
+validate against it, and an unknown role throws:
 
-The store does not do this for you. Both halves, or the change is cosmetic.
+```
+RuleSetError: invalid rule set:
+  - invitation '334fe529…': unknown role 'boss'
+```
+ A role added
+to the policy is accepted everywhere with no second list to update.
 
-## Presence is a heartbeat
+### Changing roles takes two writes
 
-A member that stops beating is swept from the mesh view within one TTL, and its
-advertisements go with it. `sweep()` is callable directly — which is what a
-test with a controlled clock wants — or driven on a timer with
-`sweepIntervalMs`.
+`members.setRoles` rewrites the record, but the peer still carries a token that
+states its **old** roles until it expires. `revocations.changeRoles` makes
+tokens minted before the change stop verifying, so the new roles apply on the
+peer's next heartbeat. The store does not do this for you; without both writes
+the change is cosmetic.
 
-## Tests
+### Presence is a heartbeat
 
-**43, plus 4 skipped** (the platform-entry exemptions in the boundary test).
-The hub is also exercised for real in `@statewalker/httpeers-conformance`,
-where it mints an invitation that a live member redeems over a relay.
+A member that stops posting to `/.well-known/presence` is swept from the mesh
+view within one TTL (`presenceTtlMs`), and its advertisements go with it.
+`hub.sweep()` runs a sweep directly — useful with a controlled clock — and
+`sweepIntervalMs` runs it on a timer.
+
+### Dependencies
+
+`@statewalker/httpeers-core`, `@statewalker/httpeers-access` (tokens, rules,
+revocation) and `hono` (routing inside the endpoints). No libp2p;
+`tests/boundary.test.ts` asserts it.
+
+Tests: `pnpm --filter @statewalker/httpeers-hub test`. The hub also runs for real
+in `httpeers-conformance`, where a live member redeems one of its invitations
+over a relay.
+
+## License
+
+MIT
