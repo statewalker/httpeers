@@ -68,7 +68,8 @@ services:
       - sites
 
   relay:
-    image: ghcr.io/statewalker/httpeers-relay:latest
+    # Pinned per commit by bin/deploy.sh (images.env); :latest until the first such deploy.
+    image: ${RELAY_IMAGE:-ghcr.io/statewalker/httpeers-relay:latest}
     container_name: httpeers_relay
     restart: unless-stopped
     environment:
@@ -111,7 +112,8 @@ services:
       - edge
 
   sites:
-    image: ghcr.io/statewalker/httpeers-sites:latest
+    # Pinned per commit by bin/deploy.sh (images.env); :latest until the first such deploy.
+    image: ${SITES_IMAGE:-ghcr.io/statewalker/httpeers-sites:latest}
     container_name: httpeers_sites
     restart: unless-stopped
     environment:
