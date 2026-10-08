@@ -8,6 +8,7 @@ export {
   publicKeyOf,
   verifyingKeyOf,
 } from "./keys.js";
+export { checkReveal, commitment, linkCode, newNonce } from "./link-code.js";
 export {
   type DeviceConfirmation,
   type DeviceInviteRequest,
