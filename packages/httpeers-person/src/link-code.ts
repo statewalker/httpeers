@@ -11,12 +11,20 @@ async function sha256(bytes: Uint8Array): Promise<Uint8Array> {
   return new Uint8Array(await crypto.subtle.digest("SHA-256", new Uint8Array(bytes)));
 }
 
+function validateNonce(nonce: string): Uint8Array {
+  const bytes = fromBase64Url(nonce);
+  if (!bytes || bytes.length !== NONCE_BYTES) {
+    throw new RangeError("a link nonce must be 32 bytes of base64url");
+  }
+  return bytes;
+}
+
 export function newNonce(): string {
   return toBase64Url(crypto.getRandomValues(new Uint8Array(NONCE_BYTES)));
 }
 
 export async function commitment(nonce: string): Promise<string> {
-  const bytes = fromBase64Url(nonce) ?? new Uint8Array();
+  const bytes = validateNonce(nonce);
   return toBase64Url(await sha256(lengthPrefixed(["sandclaw/link-commit/v1", bytes])));
 }
 
@@ -33,14 +41,16 @@ export async function linkCode(input: {
   keeperNonce: string;
   moverNonce: string;
 }): Promise<string> {
+  const keeperBytes = validateNonce(input.keeperNonce);
+  const moverBytes = validateNonce(input.moverNonce);
   const digest = await sha256(
     lengthPrefixed([
       "sandclaw/link-code/v1",
       input.mesh,
       input.keeper,
       input.mover,
-      fromBase64Url(input.keeperNonce) ?? new Uint8Array(),
-      fromBase64Url(input.moverNonce) ?? new Uint8Array(),
+      keeperBytes,
+      moverBytes,
     ]),
   );
   // The first 4 bytes as an unsigned integer, reduced to 6 digits. The modulo
