@@ -3,7 +3,9 @@
   "version": "0.0.0",
   "type": "module",
   "description": "Person keys, signed statements and the link code of the httpeers person-identity protocol. Isomorphic: WebCrypto only, no dependencies.",
-  "bugs": { "url": "https://github.com/statewalker/httpeers/issues" },
+  "bugs": {
+    "url": "https://github.com/statewalker/httpeers/issues"
+  },
   "homepage": "https://github.com/statewalker/httpeers/tree/main/packages/httpeers-person#readme",
   "license": "MIT",
   "repository": {
@@ -14,9 +16,16 @@
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
   "exports": {
-    ".": { "source": "./src/index.ts", "types": "./dist/index.d.ts", "import": "./dist/index.js" }
+    ".": {
+      "source": "./src/index.ts",
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
   },
-  "files": ["dist", "src"],
+  "files": [
+    "dist",
+    "src"
+  ],
   "sideEffects": false,
   "scripts": {
     "build": "tsc -p tsconfig.build.json",
@@ -32,5 +41,7 @@
     "typescript": "catalog:",
     "vitest": "catalog:"
   },
-  "publishConfig": { "access": "public" }
+  "publishConfig": {
+    "access": "public"
+  }
 }

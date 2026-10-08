@@ -49,6 +49,7 @@ is.
 |---|---|---|
 | [`httpeers-core`](packages/httpeers-core) | [`@statewalker/httpeers-core`](https://www.npmjs.com/package/@statewalker/httpeers-core) | the handler contract, the mount router, the identity and token headers; no dependencies |
 | [`httpeers-access`](packages/httpeers-access) | [`@statewalker/httpeers-access`](https://www.npmjs.com/package/@statewalker/httpeers-access) | who is calling, and may they: Biscuit tokens, Datalog policy, revocation, one middleware; no libp2p |
+| [`httpeers-person`](packages/httpeers-person) | [`@statewalker/httpeers-person`](https://www.npmjs.com/package/@statewalker/httpeers-person) | person keys, the statements they sign, and the link code; no dependencies |
 | [`httpeers-bridge`](packages/httpeers-bridge) | [`@statewalker/httpeers-bridge`](https://www.npmjs.com/package/@statewalker/httpeers-bridge) | fetch over a duplex, both directions, with no transport in it; `./ports` runs a mesh over `MessageChannel` |
 | [`httpeers-libp2p`](packages/httpeers-libp2p) | [`@statewalker/httpeers-libp2p`](https://www.npmjs.com/package/@statewalker/httpeers-libp2p) | the transport: nodes, identity, relay reservations, `servePeer` |
 | [`httpeers-hub`](packages/httpeers-hub) | [`@statewalker/httpeers-hub`](https://www.npmjs.com/package/@statewalker/httpeers-hub) | invitations, membership tokens and the registries; no transport, so a hub can run in a tab |
