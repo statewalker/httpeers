@@ -8,3 +8,15 @@ export {
   publicKeyOf,
   verifyingKeyOf,
 } from "./keys.js";
+export {
+  type DeviceConfirmation,
+  type DeviceInviteRequest,
+  type MergeStatement,
+  type Profile,
+  type Signed,
+  type Statement,
+  signStatement,
+  type VerifyFailure,
+  type VerifyResult,
+  verifyStatement,
+} from "./statements.js";
