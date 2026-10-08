@@ -15,7 +15,8 @@ export function toBase64Url(bytes: Uint8Array): string {
 /** The bytes of a base64url string, or `undefined` when it is not one. Never throws. */
 export function fromBase64Url(text: string): Uint8Array | undefined {
   if (!BASE64URL.test(text) || text.length % 4 === 1) return undefined;
-  const padded = text.replace(/-/g, "+").replace(/_/g, "/") + "=".repeat((4 - (text.length % 4)) % 4);
+  const padded =
+    text.replace(/-/g, "+").replace(/_/g, "/") + "=".repeat((4 - (text.length % 4)) % 4);
   const binary = atob(padded);
   return Uint8Array.from(binary, (c) => c.charCodeAt(0));
 }

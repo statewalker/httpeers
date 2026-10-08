@@ -1,6 +1,8 @@
 {
   "extends": "../../tsconfig.base.json",
   "compilerOptions": {
+    // ES2022 and deliberately not "DOM", as in httpeers-core: the package must run in
+    // workers and Node. WebCrypto, TextEncoder, atob/btoa come from @types/node.
     "lib": ["ES2022"],
     "types": ["node"],
     "rootDir": ".",
