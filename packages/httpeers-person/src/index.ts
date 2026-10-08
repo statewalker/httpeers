@@ -1,4 +1,4 @@
-export { canonicalJson, fromBase64Url, lengthPrefixed, toBase64Url, utf8 } from "./encoding.js";
+export { canonicalJson, fromBase64Url, toBase64Url } from "./encoding.js";
 export {
   exportPersonKey,
   generatePersonKey,

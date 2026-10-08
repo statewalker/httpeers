@@ -51,6 +51,7 @@ export type VerifyFailure =
   | "malformed"
   | "wrong-tag"
   | "bad-signature"
+  | "wrong-signer"
   | "wrong-mesh"
   | "clock-skew";
 
@@ -74,11 +75,38 @@ const SHAPES: Record<Statement["tag"], { fields: readonly string[]; time: string
 
 const MAX_SKEW_MS = 5 * 60 * 1000;
 const ED25519 = { name: "Ed25519" } as const;
+const STRICT_TIME = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d{3})?Z$/;
+const SIGNATURE_BYTES = 64;
+
+type StatementOf<K extends Statement["tag"]> = Extract<Statement, { tag: K }>;
+
+/** `mesh` is required exactly for the kinds that carry one; `now: null` skips the clock check. */
+type Expect<K extends Statement["tag"]> = { tag: K; now: Date | null } & (StatementOf<K> extends {
+  mesh: string;
+}
+  ? { mesh: string }
+  : { mesh?: undefined });
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+/** True when `statement` is a known kind with exactly that kind's fields, all strings. */
+function hasShape(statement: Record<string, unknown>): boolean {
+  if (typeof statement.tag !== "string" || !Object.hasOwn(SHAPES, statement.tag)) return false;
+  const { fields } = SHAPES[statement.tag as Statement["tag"]];
+  return (
+    Object.keys(statement).length === fields.length &&
+    fields.every((f) => typeof statement[f] === "string")
+  );
+}
 
 export async function signStatement<T extends Statement>(
   statement: T,
   key: PersonKey,
 ): Promise<Signed<T>> {
+  if (!hasShape(statement as unknown as Record<string, unknown>))
+    throw new TypeError("statement does not have the shape of its kind");
   const bytes = utf8(canonicalJson(statement as unknown as Record<string, string>));
   const signature = new Uint8Array(
     await crypto.subtle.sign(ED25519, key.privateKey, new Uint8Array(bytes)),
@@ -86,39 +114,36 @@ export async function signStatement<T extends Statement>(
   return { statement, signer: key.id, signature: toBase64Url(signature) };
 }
 
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
-}
-
 /**
- * Checks shape, tag, signature, group and time, in that order. Never throws:
- * anything that is not a well-formed statement of the expected kind is
- * `malformed` or `wrong-tag`.
+ * Checks shape, tag, time format, signature, signer, group and freshness, in
+ * that order. Never throws on wire input: anything that is not a well-formed
+ * statement of the expected kind is `malformed` or `wrong-tag`. Only an invalid
+ * `expect.now` (the caller's argument) throws a TypeError.
  */
-export async function verifyStatement<T extends Statement>(
+export async function verifyStatement<K extends Statement["tag"]>(
   signed: unknown,
-  expect: { tag: T["tag"]; mesh?: string; now: Date },
-): Promise<VerifyResult<T>> {
+  expect: Expect<K>,
+): Promise<VerifyResult<StatementOf<K>>> {
+  if (expect.now !== null && !Number.isFinite(expect.now.getTime()))
+    throw new TypeError("expect.now is not a valid date");
   if (!isRecord(signed) || !isRecord(signed.statement)) return { ok: false, reason: "malformed" };
   const { statement, signer, signature } = signed;
   if (typeof signer !== "string" || typeof signature !== "string")
     return { ok: false, reason: "malformed" };
-
-  if (typeof statement.tag !== "string" || !Object.hasOwn(SHAPES, statement.tag)) {
-    return { ok: false, reason: "malformed" };
-  }
-  const shape = SHAPES[statement.tag as Statement["tag"]];
-  const keys = Object.keys(statement);
-  const wellFormed =
-    keys.length === shape.fields.length &&
-    shape.fields.every((f) => typeof statement[f] === "string");
-  if (!wellFormed) return { ok: false, reason: "malformed" };
+  if (!hasShape(statement)) return { ok: false, reason: "malformed" };
   if (statement.tag !== expect.tag) return { ok: false, reason: "wrong-tag" };
 
-  const time = Date.parse(statement[shape.time] as string);
+  const timeText = statement[SHAPES[statement.tag as Statement["tag"]].time] as string;
   const sig = fromBase64Url(signature);
   const verifier = await verifyingKeyOf(signer);
-  if (Number.isNaN(time) || !sig || !verifier) return { ok: false, reason: "malformed" };
+  if (
+    !STRICT_TIME.test(timeText) ||
+    Number.isNaN(Date.parse(timeText)) ||
+    sig?.length !== SIGNATURE_BYTES ||
+    toBase64Url(sig) !== signature ||
+    !verifier
+  )
+    return { ok: false, reason: "malformed" };
 
   const bytes = utf8(canonicalJson(statement as Record<string, string>));
   const valid = await crypto.subtle
@@ -126,11 +151,18 @@ export async function verifyStatement<T extends Statement>(
     .catch(() => false);
   if (!valid) return { ok: false, reason: "bad-signature" };
 
-  if ("mesh" in statement && expect.mesh !== undefined && statement.mesh !== expect.mesh) {
+  if (statement.tag === "sandclaw/person-merge/v1" && statement.from !== signer)
+    return { ok: false, reason: "wrong-signer" };
+  if (statement.tag === "sandclaw/device-invite-request/v1" && statement.personId !== signer)
+    return { ok: false, reason: "wrong-signer" };
+
+  if ("mesh" in statement && statement.mesh !== expect.mesh)
     return { ok: false, reason: "wrong-mesh" };
-  }
-  if (Math.abs(time - expect.now.getTime()) > MAX_SKEW_MS)
+  if (expect.now !== null && Math.abs(Date.parse(timeText) - expect.now.getTime()) > MAX_SKEW_MS)
     return { ok: false, reason: "clock-skew" };
 
-  return { ok: true, signed: { statement: statement as unknown as T, signer, signature } };
+  return {
+    ok: true,
+    signed: { statement: statement as unknown as StatementOf<K>, signer, signature },
+  };
 }

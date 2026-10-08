@@ -1151,6 +1151,9 @@ software:
    - Person-key storage.
    - The keeper's link window and `/link/hello`, `/link/reveal` and `/link/identity` handlers.
    - The mover's link client.
+   - The device-signed link hello (`sandclaw/link-hello/v1`, signed by the device key over
+     `canonicalJson` from this package).
+   - Verifying stored profiles with `now: null`.
    - `confirm-device` after joining.
    - The `pending` and `unlinked` session phases.
 4. **The LLM passthrough tags the caller.** `apps/hub` `services/llm` sets LiteLLM's `user`

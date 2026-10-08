@@ -41,8 +41,8 @@ describe("canonicalJson", () => {
   });
 
   it("NFC-normalizes values", () => {
-    const composed = "Inès"; // precomposed è (U+00E8)
-    const decomposed = "Inès"; // e (U+0065) + combining grave (U+0300)
+    const composed = "In\u00e8s"; // precomposed è (U+00E8)
+    const decomposed = "Ine\u0300s"; // e (U+0065) + combining grave (U+0300)
     expect(canonicalJson({ name: decomposed })).toBe(canonicalJson({ name: composed }));
     expect(utf8(canonicalJson({ name: decomposed }))).toEqual(utf8(`{"name":"${composed}"}`));
   });
