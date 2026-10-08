@@ -141,6 +141,10 @@ describe("signed statements", () => {
       { ...good, signer: "short" },
       { ...good, statement: { ...good.statement, issuedAt: "yesterday" } },
       { ...good, statement: { ...good.statement, mesh: 42 } },
+      { ...good, statement: { ...good.statement, tag: "constructor" } },
+      { ...good, statement: { ...good.statement, tag: "__proto__" } },
+      { ...good, statement: { ...good.statement, tag: "toString" } },
+      { ...good, statement: { ...good.statement, tag: 42 } },
     ];
     for (const input of garbage) {
       const result = await verifyStatement(input, expectConfirmation);

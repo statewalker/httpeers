@@ -104,8 +104,10 @@ export async function verifyStatement<T extends Statement>(
   if (typeof signer !== "string" || typeof signature !== "string")
     return { ok: false, reason: "malformed" };
 
+  if (typeof statement.tag !== "string" || !Object.hasOwn(SHAPES, statement.tag)) {
+    return { ok: false, reason: "malformed" };
+  }
   const shape = SHAPES[statement.tag as Statement["tag"]];
-  if (!shape) return { ok: false, reason: "malformed" };
   const keys = Object.keys(statement);
   const wellFormed =
     keys.length === shape.fields.length &&
