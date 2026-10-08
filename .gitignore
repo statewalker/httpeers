@@ -19,3 +19,4 @@ tools/publish/mnt/
 tools/publish/.run/
 apps/demos/public/biscuit_bg.wasm
 apps/demos/public/sw.js
+.superpowers/
