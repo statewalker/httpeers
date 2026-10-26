@@ -67,7 +67,7 @@ catalog:
   rimraf: ^6.1.3
   rolldown: ^1.2.12
   "@biomejs/biome": ^2.5.15
-  "@statewalker/webrun-files": "^0.10.0"
+  "@statewalker/webrun-files": "^0.9.0 || ^0.10.0"
   "@statewalker/webrun-files-mem": "^0.10.0"
   "@statewalker/webrun-files-node": "^0.10.0"
   "@statewalker/webrun-files-s3": "^0.10.0"
