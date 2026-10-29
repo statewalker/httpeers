@@ -55,6 +55,14 @@ describe("edgeStartError", () => {
     expect(err.message).toMatch(/clear this site's data/);
   });
 
+  it("says to reload, not to wait, when the worker runs an older version than the page", () => {
+    const cause = foreignControlError("incompatible");
+    const err = edgeStartError(cause, SW, 30_000) as Error;
+    expect(err.message).toMatch(/runs an older version than this page/);
+    expect(err.message).not.toMatch(/within/);
+    expect(err.cause).toBe(cause);
+  });
+
   it("passes anything that is not a control failure through unchanged", () => {
     const other = new TypeError("boom");
     expect(edgeStartError(other, SW, 30_000)).toBe(other);

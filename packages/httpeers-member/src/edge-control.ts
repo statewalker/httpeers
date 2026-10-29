@@ -64,6 +64,9 @@ function isControlError(error: unknown): error is ControlErrorLike {
  *   - `"activation-timeout"` / `"unresponsive"` -- the worker never activated,
  *     or controls the page but did not answer -> an `Error` naming the worker
  *     and the bound, and saying what to do;
+ *   - `"incompatible"` -- the worker answered but runs an older
+ *     webrun-http-browser, i.e. the page was updated before its worker -> an
+ *     `Error` naming the worker and saying to reload. Not a timeout, so no bound;
  *   - anything else is not a control failure and is returned unchanged.
  *
  * The library's own error is kept as `cause`, for DevTools.
@@ -78,6 +81,14 @@ export function edgeStartError(
     return new UncontrolledPageError(
       "its ServiceWorker is active but did not take control when asked, and the page " +
         "has already been reloaded once to recover, or could not be",
+      { cause: error },
+    );
+  }
+  if (error.reason === "incompatible") {
+    return new Error(
+      `mountEdge: the ServiceWorker ${serviceWorkerUrl} runs an older version than this page. ` +
+        "Reload the page once the updated ServiceWorker is active; if that does not help, " +
+        "close the tab and reopen it.",
       { cause: error },
     );
   }

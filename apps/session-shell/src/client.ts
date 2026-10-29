@@ -161,7 +161,7 @@ export interface Session {
   /** An absolute URL inside the session, for an iframe's `src`. */
   url(path?: string): string;
   /** Stop serving and remove the relay iframe. An iframe showing the session goes blank on its next request. */
-  close(): void;
+  close(): Promise<void>;
 }
 
 export async function openSession(options: OpenSessionOptions): Promise<Session> {
@@ -182,7 +182,7 @@ export async function openSession(options: OpenSessionOptions): Promise<Session>
   // simply never gets an answer.
   const timeoutMs = options.timeoutMs ?? 20_000;
   let timer: ReturnType<typeof setTimeout> | undefined;
-  const stops: Array<() => void> = [];
+  const stops: Array<() => Promise<void>> = [];
   try {
     const [first, ...rest] = services;
     stops.push(
@@ -219,7 +219,9 @@ export async function openSession(options: OpenSessionOptions): Promise<Session>
       );
     }
   } catch (error) {
-    for (const stop of stops) stop();
+    // Each stop settles once the relay has dropped its service; closing the
+    // connection first would tear the ports down before UNREGISTER lands.
+    await Promise.all(stops.map((stop) => stop()));
     connection.close();
     throw error;
   } finally {
@@ -230,8 +232,8 @@ export async function openSession(options: OpenSessionOptions): Promise<Session>
     name,
     origin,
     url: (path = "/") => new URL(path, `${origin}/`).href,
-    close() {
-      for (const stop of stops) stop();
+    async close() {
+      await Promise.all(stops.map((stop) => stop()));
       connection.close();
     },
   };
