@@ -1,0 +1,14 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    // ES2022, no DOM, as every httpeers package: the root entry runs in pages,
+    // workers and Node alike, and a DOM-only global must not slip in. The
+    // WinterCG globals it uses (fetch, Request, Response, WebSocket, URL…)
+    // come from @types/node.
+    "lib": ["ES2022"],
+    "types": ["node"],
+    "rootDir": ".",
+    "noEmit": true
+  },
+  "include": ["src/**/*.ts", "tests/**/*.ts"]
+}

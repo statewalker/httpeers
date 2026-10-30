@@ -1,0 +1,36 @@
+{
+  "name": "@statewalker/peershare-bridge",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "The PeerShare Bridge: a locked-down loopback relay from the PeerShare page to the Sharer's local services, shipped as one compiled file per platform.",
+  "bugs": {
+    "url": "https://github.com/statewalker/httpeers/issues"
+  },
+  "homepage": "https://github.com/statewalker/httpeers/tree/main/apps/peershare-bridge#readme",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/statewalker/httpeers.git",
+    "directory": "apps/peershare-bridge"
+  },
+  "scripts": {
+    "start": "bun run src/main.ts --open",
+    "compile": "bun build --compile src/main.ts --outfile dist/peershare-bridge",
+    "compile:all": "node scripts/compile-all.mjs dist",
+    "test": "pnpm run typecheck && vitest run --no-file-parallelism",
+    "typecheck": "tsc --noEmit",
+    "lint": "biome check src tests scripts"
+  },
+  "dependencies": {
+    "@statewalker/httpeers-share": "workspace:^"
+  },
+  "devDependencies": {
+    "@biomejs/biome": "catalog:",
+    "@types/node": "catalog:",
+    "@types/ws": "catalog:",
+    "typescript": "catalog:",
+    "vitest": "catalog:",
+    "ws": "catalog:"
+  }
+}
