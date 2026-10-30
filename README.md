@@ -57,6 +57,7 @@ is.
 | [`httpeers-ghost`](packages/httpeers-ghost) | [`@statewalker/httpeers-ghost`](https://www.npmjs.com/package/@statewalker/httpeers-ghost) | a remote peer's app rendered as a page that can reach only that peer |
 | [`httpeers-qr`](packages/httpeers-qr) | [`@statewalker/httpeers-qr`](https://www.npmjs.com/package/@statewalker/httpeers-qr) | invitations as QR: pure encode/decode, plus a browser camera scanner |
 | [`httpeers-join`](packages/httpeers-join) | [`@statewalker/httpeers-join`](https://www.npmjs.com/package/@statewalker/httpeers-join) | the join-the-mesh widget every page shares, in plain DOM |
+| [`httpeers-share`](packages/httpeers-share) | [`@statewalker/httpeers-share`](https://www.npmjs.com/package/@statewalker/httpeers-share) | sharing an HTTP service with a mesh's members: upstream kinds, policy, probe, service table, invite links, WebSockets over the mesh; `./bridge` is PeerShare's loopback Bridge |
 | [`webrun-biscuit`](packages/webrun-biscuit) | [`@statewalker/webrun-biscuit`](https://www.npmjs.com/package/@statewalker/webrun-biscuit) | Biscuit tokens in pure TypeScript: codec, signatures, Datalog, authorizer |
 | [`httpeers-conformance`](packages/httpeers-conformance) | private | every entry point resolved and imported as a dependent sees it, and one real mesh |
 | [`httpeers-browser-conformance`](packages/httpeers-browser-conformance) | private | what only a real browser can answer: the ServiceWorker edge, reset, reloads |
@@ -94,7 +95,7 @@ RELAY_REQUIRE_ANNOUNCE=false pnpm --filter @statewalker/httpeers-relay dev
 Each app's README says how to run it: [relay](apps/relay/README.md),
 [sites](apps/sites/README.md), [session shell](apps/session-shell/README.md),
 [hub](apps/hub/README.md), [llm-chat](apps/llm-chat/README.md),
-[demos](apps/demos/README.md).
+[demos](apps/demos/README.md), [PeerShare Bridge](apps/peershare-bridge/README.md).
 
 ### Deployment: merging to `main` publishes images
 

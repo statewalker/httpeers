@@ -1,0 +1,62 @@
+{
+  "name": "@statewalker/httpeers-share",
+  "version": "0.0.0",
+  "type": "module",
+  "description": "Share HTTP services with the members of a mesh: upstream kinds, sharing policy, probe, service table, invite links, WebSockets over the mesh, and the Bridge.",
+  "bugs": {
+    "url": "https://github.com/statewalker/httpeers/issues"
+  },
+  "homepage": "https://github.com/statewalker/httpeers/tree/main/packages/httpeers-share#readme",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/statewalker/httpeers.git",
+    "directory": "packages/httpeers-share"
+  },
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "source": "./src/index.ts",
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    },
+    "./bridge": {
+      "source": "./src/bridge/index.ts",
+      "types": "./dist/bridge/index.d.ts",
+      "import": "./dist/bridge/index.js"
+    }
+  },
+  "files": [
+    "dist",
+    "src"
+  ],
+  "sideEffects": false,
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json",
+    "test": "pnpm run build && pnpm run typecheck && vitest run",
+    "typecheck": "tsc --noEmit",
+    "lint": "biome check src tests",
+    "lint:check": "biome check src tests"
+  },
+  "dependencies": {
+    "@hono/node-server": "catalog:",
+    "@statewalker/httpeers-core": "workspace:^",
+    "@statewalker/httpeers-hub": "workspace:^",
+    "@statewalker/httpeers-member": "workspace:^",
+    "@statewalker/webrun-http-proxy": "catalog:",
+    "hono": "catalog:",
+    "ws": "catalog:"
+  },
+  "devDependencies": {
+    "@biomejs/biome": "catalog:",
+    "@statewalker/httpeers-qr": "workspace:^",
+    "@types/node": "catalog:",
+    "@types/ws": "catalog:",
+    "typescript": "catalog:",
+    "vitest": "catalog:"
+  },
+  "publishConfig": {
+    "access": "public"
+  }
+}

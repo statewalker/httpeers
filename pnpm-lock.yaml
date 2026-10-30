@@ -144,6 +144,9 @@ catalogs:
     '@types/react-dom':
       specifier: ^19.3.0
       version: 19.3.0
+    '@types/ws':
+      specifier: ^8.18.2
+      version: 8.18.2
     '@vitejs/plugin-react':
       specifier: ^6.1.1
       version: 6.1.1
@@ -228,6 +231,9 @@ catalogs:
     vitest:
       specifier: ^5.0.3
       version: 5.0.3
+    ws:
+      specifier: ^8.22.0
+      version: 8.22.0
 
 importers:
 
@@ -530,6 +536,31 @@ importers:
       vitest:
         specifier: 'catalog:'
         version: 5.0.3(@types/node@26.6.4)(@vitest/browser-playwright@5.0.3)(@vitest/ui@5.0.3)(happy-dom@20.14.5)(jsdom@30.1.2(@noble/hashes@2.4.0))(vite@8.3.2(@types/node@26.6.4)(esbuild@0.28.2)(jiti@2.7.0)(terser@5.51.2)(tsx@4.23.15)(yaml@2.9.1))
+
+  apps/peershare-bridge:
+    dependencies:
+      '@statewalker/httpeers-share':
+        specifier: workspace:^
+        version: link:../../packages/httpeers-share
+    devDependencies:
+      '@biomejs/biome':
+        specifier: 'catalog:'
+        version: 2.5.15
+      '@types/node':
+        specifier: 'catalog:'
+        version: 26.6.4
+      '@types/ws':
+        specifier: 'catalog:'
+        version: 8.18.2
+      typescript:
+        specifier: 'catalog:'
+        version: 7.0.2
+      vitest:
+        specifier: 'catalog:'
+        version: 5.0.3(@types/node@26.6.4)(@vitest/browser-playwright@5.0.3)(@vitest/ui@5.0.3)(happy-dom@20.14.5)(jsdom@30.1.2(@noble/hashes@2.4.0))(vite@8.3.2(@types/node@26.6.4)(esbuild@0.28.2)(jiti@2.7.0)(terser@5.51.2)(tsx@4.23.15)(yaml@2.9.1))
+      ws:
+        specifier: 'catalog:'
+        version: 8.22.0
 
   apps/relay:
     dependencies:
@@ -1087,6 +1118,49 @@ importers:
       sharp:
         specifier: 'catalog:'
         version: 0.35.5(@types/node@26.6.4)
+      typescript:
+        specifier: 'catalog:'
+        version: 7.0.2
+      vitest:
+        specifier: 'catalog:'
+        version: 5.0.3(@types/node@26.6.4)(@vitest/browser-playwright@5.0.3)(@vitest/ui@5.0.3)(happy-dom@20.14.5)(jsdom@30.1.2(@noble/hashes@2.4.0))(vite@8.3.2(@types/node@26.6.4)(esbuild@0.28.2)(jiti@2.7.0)(terser@5.51.2)(tsx@4.23.15)(yaml@2.9.1))
+
+  packages/httpeers-share:
+    dependencies:
+      '@hono/node-server':
+        specifier: 'catalog:'
+        version: 2.1.3(hono@4.13.13)
+      '@statewalker/httpeers-core':
+        specifier: workspace:^
+        version: link:../httpeers-core
+      '@statewalker/httpeers-hub':
+        specifier: workspace:^
+        version: link:../httpeers-hub
+      '@statewalker/httpeers-member':
+        specifier: workspace:^
+        version: link:../httpeers-member
+      '@statewalker/webrun-http-proxy':
+        specifier: 'catalog:'
+        version: 0.2.3
+      hono:
+        specifier: 'catalog:'
+        version: 4.13.13
+      ws:
+        specifier: 'catalog:'
+        version: 8.22.0
+    devDependencies:
+      '@biomejs/biome':
+        specifier: 'catalog:'
+        version: 2.5.15
+      '@statewalker/httpeers-qr':
+        specifier: workspace:^
+        version: link:../httpeers-qr
+      '@types/node':
+        specifier: 'catalog:'
+        version: 26.6.4
+      '@types/ws':
+        specifier: 'catalog:'
+        version: 8.18.2
       typescript:
         specifier: 'catalog:'
         version: 7.0.2
