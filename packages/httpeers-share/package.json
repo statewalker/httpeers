@@ -1,6 +1,6 @@
 {
   "name": "@statewalker/httpeers-share",
-  "version": "0.0.0",
+  "version": "0.1.0",
   "type": "module",
   "description": "Share HTTP services with the members of a mesh: upstream kinds, sharing policy, probe, service table, invite links, WebSockets over the mesh, and the Bridge.",
   "bugs": {
