@@ -1,6 +1,6 @@
 {
   "name": "@statewalker/httpeers-person",
-  "version": "0.1.0",
+  "version": "0.0.0",
   "type": "module",
   "description": "Person keys, signed statements and the link code of the httpeers person-identity protocol. Isomorphic: WebCrypto only, no dependencies.",
   "bugs": {
