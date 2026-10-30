@@ -59,7 +59,7 @@ export function sharerSocket(request: Request, open: () => WebSocket): Response 
         else held.push(data);
       }
     }
-  // A client may close only with 1000 or 3000–4999 (1011 throws `InvalidAccessError`).
+    // A client may close only with 1000 or 3000–4999 (1011 throws `InvalidAccessError`).
   })().catch(() => ws.close(1000, "the Guest's stream ended abnormally"));
 
   return new Response(body, { headers: { "content-type": "application/octet-stream" } });
