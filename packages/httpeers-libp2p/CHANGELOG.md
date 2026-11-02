@@ -1,5 +1,18 @@
 # @statewalker/httpeers-libp2p
 
+## 0.2.0
+
+### Minor Changes
+
+- Release of the changes since the last published version:
+  
+  - @statewalker/webrun-http-streams ^0.2.2 -> ^0.3.0
+
+### Patch Changes
+
+- Updated dependencies
+  - @statewalker/httpeers-bridge@0.2.0
+
 ## 0.1.5
 
 ### Patch Changes
