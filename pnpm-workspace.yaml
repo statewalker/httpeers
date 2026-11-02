@@ -93,6 +93,24 @@ onlyBuiltDependencies:
   # (`httpeers-conformance/tests/runtime-import.test.ts`).
   - node-datachannel
 
+# A version is installable 3 days (in minutes) after it is published: a compromised release is
+# usually caught and removed within that time. Our own packages are exempt, so a release in one
+# statewalker repository can be taken in the next one at once. pnpm 10.16 matches exact names
+# only (an `@statewalker/*` pattern is ignored): a new `@statewalker/` dependency is added here.
+minimumReleaseAge: 4320
+minimumReleaseAgeExclude:
+  - "@statewalker/shared-slots"
+  - "@statewalker/webrun-files"
+  - "@statewalker/webrun-files-mem"
+  - "@statewalker/webrun-files-node"
+  - "@statewalker/webrun-files-s3"
+  - "@statewalker/webrun-http-browser"
+  - "@statewalker/webrun-http-proxy"
+  - "@statewalker/webrun-http-streams"
+  - "@statewalker/webrun-rpc"
+  - "@statewalker/webrun-streams"
+  - "@statewalker/webrun-streams-libp2p"
+
 
 catalogs:
   peers:
