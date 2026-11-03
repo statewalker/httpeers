@@ -155,7 +155,7 @@ jobs:
           for t in packages/*.tgz; do
             id=$(tar -xzOf "$t" package/package.json | node -p "const p=JSON.parse(require('fs').readFileSync(0));p.name+'@'+p.version")
             if npm view "$id" version >/dev/null 2>&1; then echo "$id: already on npm"; continue; fi
-            npm publish "$t" --provenance --access public
+            npm publish "./$t" --provenance --access public
           done
 
       - name: Releases
