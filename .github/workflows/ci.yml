@@ -19,7 +19,8 @@ jobs:
   # builds: no build tool or dependency runs where a publish token can be obtained.
   #
   # A trusted publisher can only be added to a package that exists, so a package's first
-  # version is published by hand, with the maintainer's 2FA; `pack` then skips it.
+  # version is published by hand, with the maintainer's 2FA, before `publish` is approved; `pack`
+  # or `publish` then skips it.
 
   # Writes the changesets nobody wrote by hand (statewalker/.github's
   # scripts/release-changesets.mjs: a patch for every package whose packed files or published
@@ -37,7 +38,7 @@ jobs:
       contents: write
       pull-requests: write
     outputs:
-      pending: ${{ steps.changesets.outputs.hasChangesets }}
+      pending: ${{ steps.changesets.outputs.has-changesets }}
     steps:
       - uses: actions/checkout@v7
         with:
@@ -147,8 +148,15 @@ jobs:
           name: packages
           path: packages
 
+      # Skips a version already on npm: a first version published by hand while this job waited
+      # for approval, or what an earlier attempt of a re-run job published.
       - name: Publish
-        run: for t in packages/*.tgz; do npm publish "$t" --provenance --access public; done
+        run: |
+          for t in packages/*.tgz; do
+            id=$(tar -xzOf "$t" package/package.json | node -p "const p=JSON.parse(require('fs').readFileSync(0));p.name+'@'+p.version")
+            if npm view "$id" version >/dev/null 2>&1; then echo "$id: already on npm"; continue; fi
+            npm publish "./$t" --provenance --access public
+          done
 
       - name: Releases
         env:
@@ -156,5 +164,6 @@ jobs:
         run: |
           for t in packages/*.tgz; do
             tag=$(tar -xzOf "$t" package/package.json | node -p "const p=JSON.parse(require('fs').readFileSync(0));p.name+'@'+p.version")
-            gh release create "$tag" --repo "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" --notes "Published to npm with provenance."
+            gh release view "$tag" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1 && continue
+            gh release create "$tag" --repo "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" --notes "Published to npm."
           done
