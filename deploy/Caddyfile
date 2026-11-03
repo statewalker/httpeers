@@ -117,6 +117,22 @@ s3.httpeers.net {
 	}
 }
 
+# cellb.dev: a second domain served by the same sites app. The apex and www
+# are exact names, so Caddy issues their certificates over HTTP-01 on its own
+# -- NO `import acme`: that snippet writes TXT records with a Gandi token
+# scoped to httpeers.net, and the API answers 403 for cellb.dev.
+#
+# `*.cellb.dev` resolves here (the zone has a wildcard A record) but has no
+# block yet: a wildcard certificate needs DNS-01 and therefore a token that
+# can write cellb.dev's zone. Until then those names fail the TLS handshake.
+cellb.dev {
+	reverse_proxy sites:3000
+}
+
+www.cellb.dev {
+	redir https://cellb.dev{uri} permanent
+}
+
 *.httpeers.net {
 	import acme
 
