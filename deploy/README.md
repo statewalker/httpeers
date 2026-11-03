@@ -4,7 +4,8 @@
 
 The production deployment of the mesh's services on one host: **four containers** on a single
 `httpeers_edge` network, fronted by Caddy, which terminates TLS for `*.httpeers.net` and
-`*.p.httpeers.net`.
+`*.p.httpeers.net`, plus `cellb.dev` and `www.cellb.dev` (a second domain, served by the same
+`sites` app from the `cellb.dev` prefix).
 
 | Service | Image | What it is |
 |---|---|---|
@@ -263,6 +264,16 @@ ownership it already has. Either fix the ownership or unset
 `RELAY_BOOTSTRAP_PATH` to stop publishing the document; the relay treats a
 failure to write as fatal, because a healthy relay whose document is silently
 absent is a failure nobody notices until peers cannot reach it.
+
+### `cellb.dev` has no wildcard certificate
+
+`cellb.dev` and `www.cellb.dev` get per-name certificates over HTTP-01, because the Gandi
+token in `.env` is scoped to `httpeers.net` (the LiveDNS API answers `403` for `cellb.dev`).
+The cellb.dev zone does have a `*` A record, so `abc.cellb.dev` resolves to this server — and
+then fails the TLS handshake (`SSL_ERROR_INTERNAL_ERROR_ALERT` in Firefox,
+`tlsv1 alert internal error` from curl), since no block matches it. Serving those names
+needs a `*.cellb.dev` block with `import acme`-style DNS-01 and a token that can write the
+cellb.dev zone.
 
 ### Checking `relay.httpeers.net` does not test the wildcard
 
