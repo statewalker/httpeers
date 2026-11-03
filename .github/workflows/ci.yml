@@ -38,7 +38,7 @@ jobs:
       contents: write
       pull-requests: write
     outputs:
-      pending: ${{ steps.changesets.outputs.hasChangesets }}
+      pending: ${{ steps.changesets.outputs.has-changesets }}
     steps:
       - uses: actions/checkout@v7
         with:
