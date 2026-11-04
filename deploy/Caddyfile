@@ -133,6 +133,15 @@ www.cellb.dev {
 	redir https://cellb.dev{uri} permanent
 }
 
+# The CellB site's former address. An exact name beats the wildcard below, so
+# old links land on cellb.dev rather than on the sites app, which no longer
+# holds a cellb.httpeers.net prefix (it would answer 404).
+cellb.httpeers.net {
+	import acme
+
+	redir https://cellb.dev{uri} permanent
+}
+
 *.httpeers.net {
 	import acme
 
