@@ -52,6 +52,8 @@ services:
     environment:
       # Gandi Personal Access Token, scoped to this zone's DNS records only.
       GANDI_BEARER_TOKEN: ${GANDI_BEARER_TOKEN:?set GANDI_BEARER_TOKEN in deploy/.env}
+      # The same, scoped to cellb.dev: the *.cellb.dev wildcard certificate.
+      GANDI_CELLB_BEARER_TOKEN: ${GANDI_CELLB_BEARER_TOKEN:?set GANDI_CELLB_BEARER_TOKEN in deploy/.env}
       ACME_EMAIL: ${ACME_EMAIL:?set ACME_EMAIL in deploy/.env}
     volumes:
       - ./Caddyfile:/etc/caddy/Caddyfile:ro
