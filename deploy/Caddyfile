@@ -117,6 +117,21 @@ s3.httpeers.net {
 	}
 }
 
+# Test session origins: <name>.s.httpeers.net, the same shape as *.p above
+# (its own DNS record `A *.s`, its own DNS-01 wildcard certificate, every name
+# rewritten to ONE storage prefix). It serves a different shell: PeerShare's,
+# which carries the WebSocket shim its Viewer needs (`_shell/ws-shim.js`), so
+# PeerShare can be tried here without touching the shared shell on *.p.
+*.s.httpeers.net {
+	import acme
+
+	header Content-Security-Policy "frame-ancestors 'self' https://httpeers.net https://*.httpeers.net"
+
+	reverse_proxy sites:3000 {
+		header_up Host s.httpeers.net
+	}
+}
+
 # cellb.dev: a second domain served by the same sites app. The apex and www
 # are exact names, so Caddy issues their certificates over HTTP-01 on its own
 # -- NO `import acme`: that snippet writes TXT records with a Gandi token

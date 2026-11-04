@@ -9,7 +9,7 @@ The production deployment of the mesh's services on one host: **four containers*
 
 | Service | Image | What it is |
 |---|---|---|
-| `caddy` | `httpeers-ingress` | The only service with published ports (`80`, `443`). Holds the certificates (`*.httpeers.net`, `*.p.httpeers.net`) and routes by `Host`. |
+| `caddy` | `httpeers-ingress` | The only service with published ports (`80`, `443`). Holds the certificates (`*.httpeers.net`, `*.p.httpeers.net`, `*.s.httpeers.net`) and routes by `Host`. |
 | `relay` | `httpeers-relay` | The circuit relay. Reached through Caddy, never directly. |
 | `sites` | `httpeers-sites` | The static-site host, reading from `rustfs`. |
 | `rustfs` | `rustfs/rustfs` | S3-compatible storage. One first-level prefix per site. |
@@ -51,6 +51,7 @@ on external nameservers this will not apply). Then **Add**:
 | `A` | `*` | `<server ip>` | 3600 |
 | `A` | `@` | `<server ip>` | 3600 |
 | `A` | `*.p` | `<server ip>` | 3600 |
+| `A` | `*.s` | `<server ip>` | 3600 |
 
 The `*` record is the point of the whole design: it points **every** unassigned subdomain at
 the server, so publishing a new site needs no DNS change — and with the wildcard certificate,
@@ -69,7 +70,7 @@ closest encloser for every session name, the `*` record no longer applies (RFC 4
 without `*.p` every session name is NXDOMAIN for as long as the challenge record exists —
 at every issuance and renewal, plus negative caching. A side effect of the record: the
 bare `p.httpeers.net` stops resolving (NOERROR, no address), which is correct — it is not
-a site.
+a site. The `*.s` record does the same for the test session zone, `<name>.s.httpeers.net`.
 
 Gandi accepts a wildcard record without validating it, so a typo here fails silently at
 resolution time rather than at entry. `*.p` is a valid name, and the Personal Access Token below
@@ -159,6 +160,12 @@ certificate, no Caddy edit, no restart. A re-published file can take up to
 all of them read this one prefix. Publish it with `apps/session-shell/scripts/deploy.mjs`,
 not by hand — the file order matters while visitors are mid-session. The bare name
 `p.httpeers.net` itself does not resolve (see the DNS section).
+
+**`s.httpeers.net` is the same kind of prefix, for tests.** Its block rewrites every
+`<name>.s.httpeers.net` to it, and it holds PeerShare's session shell instead of
+`apps/session-shell`: PeerShare's Viewer injects `/_shell/ws-shim.js` into every page a
+Service returns, and only PeerShare's shell has that file. Without it, a shared app's
+WebSockets never connect (the page loads, the shim's `<script>` is a 404).
 
 Optional per-site settings go in `.site/config.json` inside the prefix:
 
