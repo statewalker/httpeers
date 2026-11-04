@@ -4,8 +4,8 @@
 
 The production deployment of the mesh's services on one host: **four containers** on a single
 `httpeers_edge` network, fronted by Caddy, which terminates TLS for `*.httpeers.net` and
-`*.p.httpeers.net`, plus `cellb.dev` and `www.cellb.dev` (a second domain, served by the same
-`sites` app from the `cellb.dev` prefix).
+`*.p.httpeers.net`, plus `cellb.dev` and `*.cellb.dev` (a second domain, served by the same
+`sites` app; `www.cellb.dev` redirects to the apex).
 
 | Service | Image | What it is |
 |---|---|---|
@@ -265,15 +265,14 @@ ownership it already has. Either fix the ownership or unset
 failure to write as fatal, because a healthy relay whose document is silently
 absent is a failure nobody notices until peers cannot reach it.
 
-### `cellb.dev` has no wildcard certificate
+### `cellb.dev` needs a second Gandi token
 
-`cellb.dev` and `www.cellb.dev` get per-name certificates over HTTP-01, because the Gandi
-token in `.env` is scoped to `httpeers.net` (the LiveDNS API answers `403` for `cellb.dev`).
-The cellb.dev zone does have a `*` A record, so `abc.cellb.dev` resolves to this server — and
-then fails the TLS handshake (`SSL_ERROR_INTERNAL_ERROR_ALERT` in Firefox,
-`tlsv1 alert internal error` from curl), since no block matches it. Serving those names
-needs a `*.cellb.dev` block with `import acme`-style DNS-01 and a token that can write the
-cellb.dev zone.
+`*.cellb.dev` is issued over DNS-01 with `GANDI_CELLB_BEARER_TOKEN`, a PAT scoped to
+`cellb.dev` only (same permission as the httpeers.net one). The httpeers.net token cannot do
+it: the LiveDNS API answers `403` for `cellb.dev`. The apex and `www` use HTTP-01 and need no
+token. The variable is passed to Caddy in `docker-compose.yml`, so adding or rotating it means
+recreating the container (`docker compose up -d caddy`), not a reload — a reload keeps the
+old environment. Both tokens expire; renewals fail silently when one does (see above).
 
 ### Checking `relay.httpeers.net` does not test the wildcard
 
