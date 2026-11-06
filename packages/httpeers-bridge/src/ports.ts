@@ -98,21 +98,39 @@ export function pairedLinks(
     },
 
     async serve(handlerFor: (peer: ProvenPeer) => Duplex): Promise<() => Promise<void>> {
-      const open: Array<{ port: PortLike; stop: () => void }> = [];
+      // The calls still being served. Each leaves the set when its handler is
+      // done: a set that only grew would keep one port and one entry per call
+      // for as long as the link serves. The port is not closed here — the
+      // stream's last chunk may still be on its way — but by the caller, which
+      // closes its end once the call is over; nothing then holds this one.
+      const open = new Set<{ port: PortLike; stop: () => void }>();
       inbound.set(self, (from, port) => {
         port.start?.();
+        const handler = handlerFor(from);
+        const entry = { port, stop: () => {} };
+        // The handler's stream ends however the call does: answered, failed,
+        // or abandoned by the caller (the peer's abort reaches it as `return()`).
+        const tracked: Duplex = (input) =>
+          (async function* () {
+            try {
+              yield* handler(input);
+            } finally {
+              open.delete(entry);
+            }
+          })();
         // `serveDuplexOverPort` is the serving half of `duplexOverPort` and
         // owns the wiring that makes a duplex server work at all: a handler's
         // OUTPUT depends on its INPUT, so feeding one to the other by hand is
         // circular and simply hangs. (It did, on the first attempt here --
         // three tests timed out rather than failed, which is what that mistake
         // looks like.)
-        const stop = serveDuplexOverPort(port as never, handlerFor(from));
-        open.push({ port, stop });
+        open.add(entry);
+        entry.stop = serveDuplexOverPort(port as never, tracked);
       });
       return async () => {
         inbound.delete(self);
-        for (const entry of open) {
+        for (const entry of [...open]) {
+          open.delete(entry);
           entry.stop();
           entry.port.close?.();
         }
