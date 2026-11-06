@@ -22,25 +22,43 @@ const BOB = `12D3KooW${"B".repeat(44)}`;
 
 declare const MessageChannel: { new (): { port1: PortLike; port2: PortLike } };
 
-/** A channel factory that counts the calling ends opened and closed. */
-function countingChannels(): { channel: ChannelFactory; opened(): number; closed(): number } {
+/**
+ * A channel factory that counts the calling ends opened and closed, and the serving ends that
+ * teardown had to close (`pairedLinks.serve` closes the ports of the calls it still holds).
+ */
+function countingChannels(): {
+  channel: ChannelFactory;
+  opened(): number;
+  closed(): number;
+  servedClosed(): number;
+} {
   let opened = 0;
   let closed = 0;
-  const channel: ChannelFactory = () => {
-    const { port1, port2 } = new MessageChannel();
-    opened++;
+  let servedClosed = 0;
+  const counted = (port: PortLike, count: () => void) => {
     let done = false;
-    const close = port1.close?.bind(port1);
-    port1.close = () => {
+    const close = port.close?.bind(port);
+    port.close = () => {
       if (!done) {
         done = true;
-        closed++;
+        count();
       }
       close?.();
     };
+  };
+  const channel: ChannelFactory = () => {
+    const { port1, port2 } = new MessageChannel();
+    opened++;
+    counted(port1, () => closed++);
+    counted(port2, () => servedClosed++);
     return { port1, port2 };
   };
-  return { channel, opened: () => opened, closed: () => closed };
+  return {
+    channel,
+    opened: () => opened,
+    closed: () => closed,
+    servedClosed: () => servedClosed,
+  };
 }
 
 const tick = (ms = 0) => new Promise((resolve) => setTimeout(resolve, ms));
@@ -65,6 +83,10 @@ function bob() {
         },
       }),
     );
+  });
+  mounts.provide("/late", async () => {
+    await tick(100);
+    return new Response("late");
   });
   mounts.provide("/boom", async () => {
     throw new Error("bob blew up");
@@ -170,5 +192,30 @@ describe("every call over a link gives its channel back", () => {
     } finally {
       await stop();
     }
+  }, 30_000);
+  it("served calls leave the link once done: teardown has none left to close", async () => {
+    const counts = countingChannels();
+    const [a, b] = pairedLinks(ALICE, BOB, { channel: counts.channel });
+    const stop = await serveFetchOverLink({ link: b, dispatch: bob() });
+    const fromA = createRemoteOverLink({ link: a });
+    for (let i = 0; i < 25; i++)
+      await (await fromA(BOB, new Request("http://peer.local/hello"))).text();
+    await settle();
+    await stop();
+    expect([counts.opened(), counts.servedClosed()]).toEqual([25, 0]);
+  }, 30_000);
+
+  it("a timed-out call ends on the peer too, not just on this side", async () => {
+    const counts = countingChannels();
+    const [a, b] = pairedLinks(ALICE, BOB, { channel: counts.channel });
+    const stop = await serveFetchOverLink({ link: b, dispatch: bob() });
+    const fromA = createRemoteOverLink({ link: a, requestTimeoutMs: 30 });
+    for (let i = 0; i < 5; i++)
+      await expect(fromA(BOB, new Request("http://peer.local/late"))).rejects.toThrow();
+    await tick(300); // past every handler's late answer
+    await settle();
+    await stop();
+    // Every call was abandoned for the peer: none was left for teardown.
+    expect([counts.opened(), counts.closed(), counts.servedClosed()]).toEqual([5, 5, 0]);
   }, 30_000);
 });

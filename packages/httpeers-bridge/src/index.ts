@@ -121,19 +121,30 @@ export function createRemoteOverLink(init: CreateRemoteOverLinkInit): Remote {
     // that never got a permit fails on time instead of waiting forever behind
     // one that is itself stuck.
     const abortQueue = new AbortController();
+    // A timeout aborts the call itself (its request's signal, below), which tells the peer;
+    // closing the duplex in the same turn would cut that notice off. So the close (the fallback
+    // for a call the abort does not reach) waits a task.
+    const closeSoon = () => setTimeout(() => void opened?.close().catch(() => {}), 0);
     const timer = new Timeout(requestTimeoutMs, () => {
       abortQueue.abort(new PeerRequestTimeoutError(target, requestTimeoutMs));
       // Best effort: a timeout that fires before `open()` resolves cannot
       // close a connection that does not exist yet. The permit is still
       // released by the `finally` below, which is what actually matters.
-      void opened?.close();
+      closeSoon();
     });
 
     try {
       const release = await permits.acquire(abortQueue.signal);
       try {
         opened = await link.open(target);
-        return await Promise.race([timer.rejection(), fetchOverDuplex(opened.call, req)]);
+        // The call carries the timeout as its signal too: a timeout while the
+        // head is awaited abandons the call itself (the peer is told and the
+        // duplex ends), not just this side's wait for it.
+        const call = new Request(req, {
+          signal: AbortSignal.any([req.signal, abortQueue.signal]),
+          duplex: "half",
+        } as RequestInit);
+        return await Promise.race([timer.rejection(), fetchOverDuplex(opened.call, call)]);
       } finally {
         release();
       }
@@ -144,8 +155,9 @@ export function createRemoteOverLink(init: CreateRemoteOverLinkInit): Remote {
       // -- closing it in a `finally` produced a `Response` whose `.text()`
       // never resolved. (It did, on the first attempt: every test in this
       // package timed out rather than failed, which is what that looks like.)
-      // The stream ends itself when the body does.
-      void opened?.close().catch(() => {});
+      // The stream ends itself when the exchange does (webrun-http-streams
+      // >= 0.3.1 ends the call however the exchange ends).
+      closeSoon();
       const mapped = mapError?.(error, target);
       throw mapped ?? error;
     } finally {
