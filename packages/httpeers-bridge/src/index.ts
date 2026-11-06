@@ -56,7 +56,7 @@ export interface PeerLink {
   serve(handlerFor: (peer: ProvenPeer) => Duplex): Promise<() => Promise<void>>;
 }
 
-/** Concurrent outbound calls in flight, across all targets. */
+/** Outbound calls waiting for their response head at once, across all targets. */
 export const DEFAULT_MAX_CONCURRENT_OUTBOUND = 64;
 /** How long one call may take, dial included. */
 export const DEFAULT_REQUEST_TIMEOUT_MS = 30_000;
@@ -141,10 +141,14 @@ export function createRemoteOverLink(init: CreateRemoteOverLinkInit): Remote {
         // head is awaited abandons the call itself (the peer is told and the
         // duplex ends), not just this side's wait for it.
         const call = new Request(req, {
-          signal: AbortSignal.any([req.signal, abortQueue.signal]),
+          signal: eitherSignal(req.signal, abortQueue.signal),
           duplex: "half",
         } as RequestInit);
-        return await Promise.race([timer.rejection(), fetchOverDuplex(opened.call, call)]);
+        const response = await Promise.race([
+          timer.rejection(),
+          fetchOverDuplex(opened.call, call),
+        ]);
+        return closingOnAbort(response, req.signal, closeSoon);
       } finally {
         release();
       }
@@ -167,9 +171,93 @@ export function createRemoteOverLink(init: CreateRemoteOverLinkInit): Remote {
 }
 
 /**
+ * Aborts when either signal does, with its reason. `AbortSignal.any` would do, but it needs
+ * Safari 17.4 and Firefox 124.
+ */
+function eitherSignal(a: AbortSignal, b: AbortSignal): AbortSignal {
+  if (a.aborted) return a;
+  if (b.aborted) return b;
+  const both = new AbortController();
+  const onA = () => both.abort(a.reason);
+  const onB = () => both.abort(b.reason);
+  a.addEventListener("abort", onA, { once: true });
+  b.addEventListener("abort", onB, { once: true });
+  both.signal.addEventListener(
+    "abort",
+    () => {
+      a.removeEventListener("abort", onA);
+      b.removeEventListener("abort", onB);
+    },
+    { once: true },
+  );
+  return both.signal;
+}
+
+/**
+ * `response`, whose call is closed when `signal` aborts while its body is still open.
+ *
+ * webrun-http-streams sees an abort only when the body's next chunk arrives: a peer that has
+ * sent the head and then nothing would keep the call, and its channel, until it sends again.
+ * Closing the connection ends the call at once. The listener goes when the body ends, however.
+ */
+function closingOnAbort(response: Response, signal: AbortSignal, close: () => void): Response {
+  if (signal.aborted) {
+    close();
+    return response;
+  }
+  if (!response.body) return response;
+  const reader = response.body.getReader();
+  let controller!: ReadableStreamDefaultController<Uint8Array>;
+  let ended = false;
+  const end = () => {
+    ended = true;
+    signal.removeEventListener("abort", onAbort);
+  };
+  // A read already waiting for the peer settles too: the body fails with the abort's reason.
+  const onAbort = () => {
+    if (ended) return;
+    end();
+    close();
+    controller.error(signal.reason);
+    void reader.cancel(signal.reason).catch(() => {});
+  };
+  signal.addEventListener("abort", onAbort, { once: true });
+  const body = new ReadableStream<Uint8Array>({
+    start(c) {
+      controller = c;
+    },
+    async pull(c) {
+      try {
+        const { done, value } = await reader.read();
+        if (ended) return;
+        if (done) {
+          end();
+          c.close();
+        } else c.enqueue(value);
+      } catch (error) {
+        if (ended) return;
+        end();
+        c.error(error);
+      }
+    },
+    async cancel(reason) {
+      end();
+      await reader.cancel(reason).catch(() => {});
+    },
+  });
+  return new Response(body, {
+    status: response.status,
+    statusText: response.statusText,
+    headers: response.headers,
+  });
+}
+
+/**
  * A fixed number of permits, handed out in arrival order.
  *
- * Bounds how many duplexes this peer holds open at once. Without it, a page
+ * Bounds how many calls this peer has waiting for their response head at once: a permit is held
+ * from the dial to the head, not while a body streams (a body that is never read keeps its
+ * duplex, as a `fetch` body does). Without it, a page
  * that fires a hundred calls opens a hundred streams and the far side's
  * inbound limit starts refusing them — which surfaces as unrelated calls
  * failing, not as "too many in flight".

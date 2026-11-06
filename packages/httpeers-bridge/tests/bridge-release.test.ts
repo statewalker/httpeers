@@ -84,6 +84,18 @@ function bob() {
       }),
     );
   });
+  mounts.provide("/drip", async () => {
+    let sent = false;
+    return new Response(
+      new ReadableStream<Uint8Array>({
+        async pull(c) {
+          if (sent) return await new Promise<void>(() => {}); // then nothing, for good
+          sent = true;
+          c.enqueue(new Uint8Array(8));
+        },
+      }),
+    );
+  });
   mounts.provide("/late", async () => {
     await tick(100);
     return new Response("late");
@@ -217,5 +229,32 @@ describe("every call over a link gives its channel back", () => {
     await stop();
     // Every call was abandoned for the peer: none was left for teardown.
     expect([counts.opened(), counts.closed(), counts.servedClosed()]).toEqual([5, 5, 0]);
+  }, 30_000);
+  it("an abort while the body waits for a quiet peer ends the read and closes the call", async () => {
+    const counts = countingChannels();
+    const [a, b] = pairedLinks(ALICE, BOB, { channel: counts.channel });
+    const stop = await serveFetchOverLink({ link: b, dispatch: bob() });
+    try {
+      const fromA = createRemoteOverLink({ link: a });
+      for (let i = 0; i < 5; i++) {
+        const controller = new AbortController();
+        const res = await fromA(
+          BOB,
+          new Request("http://peer.local/drip", { signal: controller.signal }),
+        );
+        const reader = (res.body as ReadableStream<Uint8Array>).getReader();
+        expect((await reader.read()).value?.byteLength).toBe(8);
+        const pending = reader.read();
+        await tick(20);
+        const t0 = Date.now();
+        controller.abort(new Error("gave up"));
+        await expect(pending).rejects.toThrow("gave up");
+        expect(Date.now() - t0).toBeLessThan(200);
+        await settle();
+        expect(counts.closed(), `call ${i + 1}`).toBe(i + 1);
+      }
+    } finally {
+      await stop();
+    }
   }, 30_000);
 });
