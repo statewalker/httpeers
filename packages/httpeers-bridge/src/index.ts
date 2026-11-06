@@ -140,15 +140,18 @@ export function createRemoteOverLink(init: CreateRemoteOverLinkInit): Remote {
         // The call carries the timeout as its signal too: a timeout while the
         // head is awaited abandons the call itself (the peer is told and the
         // duplex ends), not just this side's wait for it.
-        const call = new Request(req, {
-          signal: eitherSignal(req.signal, abortQueue.signal),
-          duplex: "half",
-        } as RequestInit);
-        const response = await Promise.race([
-          timer.rejection(),
-          fetchOverDuplex(opened.call, call),
-        ]);
-        return closingOnAbort(response, req.signal, closeSoon);
+        // Until the head is in; then `closingOnAbort` watches the caller's signal for the body.
+        const merged = eitherSignal(req.signal, abortQueue.signal);
+        try {
+          const call = new Request(req, { signal: merged.signal, duplex: "half" } as RequestInit);
+          const response = await Promise.race([
+            timer.rejection(),
+            fetchOverDuplex(opened.call, call),
+          ]);
+          return closingOnAbort(response, req.signal, closeSoon);
+        } finally {
+          merged.dispose();
+        }
       } finally {
         release();
       }
@@ -171,26 +174,25 @@ export function createRemoteOverLink(init: CreateRemoteOverLinkInit): Remote {
 }
 
 /**
- * Aborts when either signal does, with its reason. `AbortSignal.any` would do, but it needs
- * Safari 17.4 and Firefox 124.
+ * A signal that aborts when either does, with its reason, and `dispose`, which stops following
+ * them. `AbortSignal.any` would do, but it needs Safari 17.4 and Firefox 124. `dispose` matters:
+ * a caller may pass the same long-lived signal to every call, and each call that never aborts
+ * would otherwise leave a listener on it.
  */
-function eitherSignal(a: AbortSignal, b: AbortSignal): AbortSignal {
-  if (a.aborted) return a;
-  if (b.aborted) return b;
+function eitherSignal(a: AbortSignal, b: AbortSignal): { signal: AbortSignal; dispose(): void } {
+  if (a.aborted) return { signal: a, dispose() {} };
+  if (b.aborted) return { signal: b, dispose() {} };
   const both = new AbortController();
   const onA = () => both.abort(a.reason);
   const onB = () => both.abort(b.reason);
+  const dispose = () => {
+    a.removeEventListener("abort", onA);
+    b.removeEventListener("abort", onB);
+  };
   a.addEventListener("abort", onA, { once: true });
   b.addEventListener("abort", onB, { once: true });
-  both.signal.addEventListener(
-    "abort",
-    () => {
-      a.removeEventListener("abort", onA);
-      b.removeEventListener("abort", onB);
-    },
-    { once: true },
-  );
-  return both.signal;
+  both.signal.addEventListener("abort", dispose, { once: true });
+  return { signal: both.signal, dispose };
 }
 
 /**
@@ -222,29 +224,33 @@ function closingOnAbort(response: Response, signal: AbortSignal, close: () => vo
     void reader.cancel(signal.reason).catch(() => {});
   };
   signal.addEventListener("abort", onAbort, { once: true });
-  const body = new ReadableStream<Uint8Array>({
-    start(c) {
-      controller = c;
-    },
-    async pull(c) {
-      try {
-        const { done, value } = await reader.read();
-        if (ended) return;
-        if (done) {
+  const body = new ReadableStream<Uint8Array>(
+    {
+      start(c) {
+        controller = c;
+      },
+      async pull(c) {
+        try {
+          const { done, value } = await reader.read();
+          if (ended) return;
+          if (done) {
+            end();
+            c.close();
+          } else c.enqueue(value);
+        } catch (error) {
+          if (ended) return;
           end();
-          c.close();
-        } else c.enqueue(value);
-      } catch (error) {
-        if (ended) return;
+          c.error(error);
+        }
+      },
+      async cancel(reason) {
         end();
-        c.error(error);
-      }
+        await reader.cancel(reason).catch(() => {});
+      },
     },
-    async cancel(reason) {
-      end();
-      await reader.cancel(reason).catch(() => {});
-    },
-  });
+    // Pull only when the consumer reads: no chunk read ahead of it.
+    { highWaterMark: 0 },
+  );
   return new Response(body, {
     status: response.status,
     statusText: response.statusText,

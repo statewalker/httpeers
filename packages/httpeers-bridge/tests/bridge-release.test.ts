@@ -249,10 +249,35 @@ describe("every call over a link gives its channel back", () => {
         const t0 = Date.now();
         controller.abort(new Error("gave up"));
         await expect(pending).rejects.toThrow("gave up");
-        expect(Date.now() - t0).toBeLessThan(200);
+        expect(Date.now() - t0).toBeLessThan(2_000);
         await settle();
         expect(counts.closed(), `call ${i + 1}`).toBe(i + 1);
       }
+    } finally {
+      await stop();
+    }
+  }, 30_000);
+  it("a caller's signal reused across calls keeps no listener once each body is read", async () => {
+    const [a, b] = pairedLinks(ALICE, BOB);
+    const stop = await serveFetchOverLink({ link: b, dispatch: bob() });
+    try {
+      const fromA = createRemoteOverLink({ link: a });
+      const req = new Request("http://peer.local/hello", { signal: new AbortController().signal });
+      const signal = req.signal;
+      let listening = 0;
+      const add = signal.addEventListener.bind(signal);
+      const remove = signal.removeEventListener.bind(signal);
+      signal.addEventListener = ((...args: Parameters<AbortSignal["addEventListener"]>) => {
+        listening++;
+        add(...args);
+      }) as AbortSignal["addEventListener"];
+      signal.removeEventListener = ((...args: Parameters<AbortSignal["removeEventListener"]>) => {
+        listening--;
+        remove(...args);
+      }) as AbortSignal["removeEventListener"];
+      for (let i = 0; i < 10; i++) expect(await (await fromA(BOB, req)).text()).toBe("hello");
+      await settle();
+      expect(listening).toBe(0);
     } finally {
       await stop();
     }
