@@ -23,10 +23,14 @@ import {
 import { type SocketGate, socketGate } from "./sockets.js";
 
 export interface BridgeInit {
-  /** The Pairing token generated at launch; nothing is answered without it. */
+  /** The Pairing token; nothing is answered without it. `""`: no token is checked. */
   token: string;
-  /** The PeerShare page's origin; the only one granted cross-origin access. */
-  allowedOrigin: string;
+  /**
+   * The pages granted cross-origin access: exact origins, `scheme://host:*`
+   * (that host on any port, or none) and `*` (every site — any page the
+   * Sharer visits can then use the Bridge).
+   */
+  allowedOrigins: string[];
   /** Injected by tests; defaults to the platform's. */
   fetchImpl?: typeof fetch;
   /** Every address a `.local` name resolves to. Injected by tests; defaults to the OS resolver. */
@@ -38,6 +42,29 @@ export interface BridgeInit {
    * page, which could not use them anyway.
    */
   cookieJars?: boolean;
+}
+
+/** Whether `origin` matches one of `patterns` (see `BridgeInit.allowedOrigins`). */
+export function originAllowed(origin: string, patterns: string[]): boolean {
+  return patterns.some((pattern) => {
+    if (pattern === "*" || pattern === origin) return true;
+    if (!pattern.endsWith(":*")) return false;
+    // Compared as parsed URLs, so `http://localhost.evil.com` is not `http://localhost`.
+    try {
+      const want = new URL(pattern.slice(0, -2));
+      const got = new URL(origin);
+      return (
+        got.protocol === want.protocol && got.hostname === want.hostname && got.origin === origin
+      );
+    } catch {
+      return false;
+    }
+  });
+}
+
+/** Whether `given` is the Bridge's token; an empty token admits everyone. */
+export function tokenAccepted(given: string | null, token: string): boolean {
+  return token === "" || sameSecret(given, token);
 }
 
 /** Whether the Bridge may relay to `target` (rung 02 rules): `ok`, `forbidden` or `unreachable`. */
@@ -72,7 +99,9 @@ export function createBridge(init: BridgeInit): BridgeHandler {
     // A page on another site carries its own `Origin`. No `Origin` at all is
     // a local process (curl, the Probe's CLI): the token alone admits it.
     const origin = request.headers.get("origin");
-    if (origin != null && origin !== init.allowedOrigin) return refuse(403, "origin-forbidden");
+    if (origin != null && !originAllowed(origin, init.allowedOrigins)) {
+      return refuse(403, "origin-forbidden");
+    }
 
     // A preflight never carries custom headers, so it cannot carry the token:
     // the origin check above is all that guards it, and it grants nothing
@@ -84,7 +113,7 @@ export function createBridge(init: BridgeInit): BridgeHandler {
     ) {
       return preflight(request, origin);
     }
-    if (!sameSecret(request.headers.get(BRIDGE_TOKEN_HEADER), init.token)) {
+    if (!tokenAccepted(request.headers.get(BRIDGE_TOKEN_HEADER), init.token)) {
       return refuse(401, "bad-token", origin);
     }
     // No target: the page is asking whether its Bridge is there and its

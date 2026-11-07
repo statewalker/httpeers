@@ -29,7 +29,7 @@ let bridge: Listening;
 
 beforeAll(async () => {
   service = await startService();
-  bridge = await listenLoopback(createBridge({ token: TOKEN, allowedOrigin: PEERSHARE }));
+  bridge = await listenLoopback(createBridge({ token: TOKEN, allowedOrigins: [PEERSHARE] }));
 });
 afterAll(async () => {
   await bridge?.close();
@@ -189,7 +189,7 @@ describe("02 — where the Bridge relays", () => {
     // to whatever this table says, as mDNS on the Sharer's LAN would.
     const resolveHost = async (name: string) => MDNS[name] ?? [];
     const b = await listenLoopback(
-      createBridge({ token: TOKEN, allowedOrigin: PEERSHARE, fetchImpl, resolveHost }),
+      createBridge({ token: TOKEN, allowedOrigins: [PEERSHARE], fetchImpl, resolveHost }),
     );
     return { b, reached };
   }

@@ -3,5 +3,5 @@
 import { createBridge, listenLoopback } from "../../dist/bridge/index.js";
 
 const [token, allowedOrigin] = process.argv.slice(2);
-const listening = await listenLoopback(createBridge({ token, allowedOrigin }));
+const listening = await listenLoopback(createBridge({ token, allowedOrigins: [allowedOrigin] }));
 console.log(listening.origin);

@@ -10,7 +10,7 @@ Sharing an HTTP service with the members of an httpeers mesh. It covers:
 - how they are invited (invite links);
 - what a failed join means (join outcome).
 
-`./bridge` is the PeerShare Bridge, for Node and Bun only.
+`./bridge` is the PeerShare Bridge, for Node, Bun and Deno.
 
 ## Why it exists
 
@@ -34,7 +34,7 @@ pnpm add @statewalker/httpeers-share
 | `.` | `encodeInvite`, `decodeInvite` | anywhere | 06 |
 | `.` | `joinOutcome`, `revokeGuest`, `isSharerOffline`, `stampGuest` | anywhere | 09, 10, 16 |
 | `.` | `openTunnel`, `sharerSocket`, `encodeFrame`/`decodeFrames`: a WebSocket inside one full-duplex mesh request | anywhere | 15 |
-| `./bridge` | `createBridge` (HTTP and its WebSocket gate), `listenLoopback` (Node), `connectApp`/`relaySocket` (for a Bun host) | Node, Bun | 02, 03, 16 |
+| `./bridge` | `createBridge` (HTTP and its WebSocket gate), `originAllowed`, `listenLoopback`, `connectApp`/`relaySocket` (for another server) | Node, Bun, Deno | 02, 03, 16 |
 
 ## Examples
 
@@ -54,6 +54,19 @@ const mount = serviceTable(
 ); // the Sharer's `/s` mount
 ```
 
+```ts
+import { createBridge, listenLoopback } from "@statewalker/httpeers-share/bridge";
+
+const bridge = await listenLoopback(
+  createBridge({
+    token: "", // no key: any allowed page may use it
+    allowedOrigins: ["https://peershare.httpeers.net", "http://localhost:*", "http://127.0.0.1:*"],
+  }),
+  9090,
+);
+bridge.origin; // "http://127.0.0.1:9090"
+```
+
 ## Internals
 
 - The root entry point is isomorphic. `tests/boundary.test.ts` fails if any file under `src/`
@@ -63,6 +76,20 @@ const mount = serviceTable(
 - `service-table`, `join-outcome` and `stamp-guest` were tested over the mesh in the rungs.
   Their unit tests here characterise code that moved, and passed on their first run.
 
+- **Who may call the Bridge.** It listens on 127.0.0.1 only, but a loopback port that answers
+  cross-origin requests is reachable from every website the Sharer visits. So a request whose
+  `Origin` is not in `allowedOrigins` gets `403` with `x-peershare-bridge: origin-forbidden` and
+  no CORS grant, on HTTP and WebSocket alike. A pattern is an exact origin, `scheme://host:*`
+  (that host on any port; compared as a parsed URL, so `http://localhost.evil.com` does not
+  match `http://localhost:*`), or `*`, every site. A request with no `Origin` is a local
+  process, admitted by the token alone.
+- **The token is optional.** `token: ""` checks no token, so the origin list is the only guard:
+  any allowed page can relay to this machine and the private network. With a token, a missing
+  or wrong one gets `401` `bad-token` (on a WebSocket, the subprotocol `peershare.<token>`),
+  which a page should report as "wrong key", not as "no Bridge running".
+- **Node, Bun and Deno** run `listenLoopback` unchanged: Bun and Deno serve `@hono/node-server`
+  and `ws` upgrades through their `node:http` compatibility. `pnpm test:e2e` starts the Bridge
+  under each (all three must be installed).
 - `./bridge` serves with `@hono/node-server`'s `overrideGlobalObjects: false`. By default that
   server replaces the process's global `Request`/`Response`, which stalls streaming fetches
   (the mesh member's full-duplex requests) everywhere else in the process.
