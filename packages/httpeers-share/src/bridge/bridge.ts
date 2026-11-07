@@ -62,6 +62,20 @@ export function originAllowed(origin: string, patterns: string[]): boolean {
   });
 }
 
+/**
+ * Whether a request was addressed to the Bridge by a loopback name. A page
+ * whose own name was rebound to 127.0.0.1 (DNS rebinding) sends same-origin
+ * requests, so no `Origin` to refuse; only its `Host` gives it away.
+ */
+export function loopbackHost(host: string | null): boolean {
+  if (host == null) return false;
+  try {
+    return ["127.0.0.1", "localhost", "[::1]"].includes(new URL(`http://${host}`).hostname);
+  } catch {
+    return false;
+  }
+}
+
 /** Whether `given` is the Bridge's token; an empty token admits everyone. */
 export function tokenAccepted(given: string | null, token: string): boolean {
   return token === "" || sameSecret(given, token);
@@ -98,6 +112,7 @@ export function createBridge(init: BridgeInit): BridgeHandler {
     const request = jar == null ? incoming : withCookies(incoming, jar);
     // A page on another site carries its own `Origin`. No `Origin` at all is
     // a local process (curl, the Probe's CLI): the token alone admits it.
+    if (!loopbackHost(request.headers.get("host"))) return refuse(403, "host-forbidden");
     const origin = request.headers.get("origin");
     if (origin != null && !originAllowed(origin, init.allowedOrigins)) {
       return refuse(403, "origin-forbidden");

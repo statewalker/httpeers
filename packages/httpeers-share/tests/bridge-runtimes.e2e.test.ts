@@ -57,6 +57,9 @@ function start(runtime: string): Promise<{ origin: string; child: ChildProcess }
       err += d;
     });
     child.on("exit", (code) => reject(new Error(`${runtime} exited ${code}: ${err}`)));
+    child.on("error", () =>
+      reject(new Error(`${runtime} is not installed (test:e2e needs node, bun and deno)`)),
+    );
   });
 }
 

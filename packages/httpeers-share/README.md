@@ -81,15 +81,21 @@ bridge.origin; // "http://127.0.0.1:9090"
   `Origin` is not in `allowedOrigins` gets `403` with `x-peershare-bridge: origin-forbidden` and
   no CORS grant, on HTTP and WebSocket alike. A pattern is an exact origin, `scheme://host:*`
   (that host on any port; compared as a parsed URL, so `http://localhost.evil.com` does not
-  match `http://localhost:*`), or `*`, every site. A request with no `Origin` is a local
+  match `http://localhost:*`) — on any port, or none — or `*`, every site (`Origin: null`,
+  sandboxed frames and `file://` pages, included). A request with no `Origin` is a local
   process, admitted by the token alone.
+- **Only loopback names.** A request whose `Host` is not `127.0.0.1`, `localhost` or `[::1]`
+  gets `403` `host-forbidden`. That is DNS rebinding: a website rebinds its own name to
+  127.0.0.1, its requests become same-origin and carry no `Origin`, and without this check an
+  empty token would let it relay anywhere and read the answers.
 - **The token is optional.** `token: ""` checks no token, so the origin list is the only guard:
   any allowed page can relay to this machine and the private network. With a token, a missing
   or wrong one gets `401` `bad-token` (on a WebSocket, the subprotocol `peershare.<token>`),
-  which a page should report as "wrong key", not as "no Bridge running".
+  which a page should report as "wrong key", not as "no Bridge running". A WebSocket must offer
+  a `peershare.` subprotocol even with no token (`peershare.` will do), or it gets `401`.
 - **Node, Bun and Deno** run `listenLoopback` unchanged: Bun and Deno serve `@hono/node-server`
   and `ws` upgrades through their `node:http` compatibility. `pnpm test:e2e` starts the Bridge
-  under each (all three must be installed).
+  under each (all three must be installed; a missing one fails with "deno is not installed").
 - `./bridge` serves with `@hono/node-server`'s `overrideGlobalObjects: false`. By default that
   server replaces the process's global `Request`/`Response`, which stalls streaming fetches
   (the mesh member's full-duplex requests) everywhere else in the process.

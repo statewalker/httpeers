@@ -1,6 +1,6 @@
 /**
- * The Bridge on a port, under Node. Under Bun, `main.ts` hands the same
- * handler to `Bun.serve`.
+ * The Bridge on a port, under Node, Bun or Deno (the last two through their
+ * `node:http` compatibility; `tests/bridge-runtimes.e2e.test.ts`).
  */
 
 import type { IncomingMessage } from "node:http";

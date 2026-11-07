@@ -1,14 +1,14 @@
 /**
  * The Bridge's WebSockets (M9): `/.peershare/socket?target=<url>&protocols=a,b`.
  *
- * Guarded exactly like HTTP (rung 02): the PeerShare origin only, the
+ * Guarded exactly like HTTP (rung 02): a loopback `Host`, the allowed origins, the
  * Pairing token (as the subprotocol `peershare.<token>`, because a browser
  * cannot set headers on a WebSocket), and the same target rules. Then one
  * socket to the app is relayed message for message, both ways.
  */
 
 import type { BridgeInit } from "./bridge.js";
-import { originAllowed, reachable, tokenAccepted } from "./bridge.js";
+import { loopbackHost, originAllowed, reachable, tokenAccepted } from "./bridge.js";
 
 export const SOCKET_PATH = "/.peershare/socket";
 export const TOKEN_PROTOCOL_PREFIX = "peershare.";
@@ -33,6 +33,7 @@ export function socketGate(
 ): SocketGate {
   return async (url, headers) => {
     if (url.pathname !== SOCKET_PATH) return { ok: false, status: 400 };
+    if (!loopbackHost(headers.get("host"))) return { ok: false, status: 403 };
     const origin = headers.get("origin");
     if (origin != null && !originAllowed(origin, init.allowedOrigins))
       return { ok: false, status: 403 };
