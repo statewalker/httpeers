@@ -33,7 +33,7 @@ beforeAll(async () => {
         server.close(() => r());
       }),
   };
-  bridge = await listenLoopback(createBridge({ token: TOKEN, allowedOrigin: PEERSHARE }));
+  bridge = await listenLoopback(createBridge({ token: TOKEN, allowedOrigins: [PEERSHARE] }));
 });
 afterAll(async () => {
   await bridge?.close();

@@ -95,7 +95,7 @@ RELAY_REQUIRE_ANNOUNCE=false pnpm --filter @statewalker/httpeers-relay dev
 Each app's README says how to run it: [relay](apps/relay/README.md),
 [sites](apps/sites/README.md), [session shell](apps/session-shell/README.md),
 [hub](apps/hub/README.md), [llm-chat](apps/llm-chat/README.md),
-[demos](apps/demos/README.md), [PeerShare Bridge](apps/peershare-bridge/README.md).
+[demos](apps/demos/README.md).
 
 ### Deployment: merging to `main` publishes images
 

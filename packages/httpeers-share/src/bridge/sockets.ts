@@ -1,14 +1,14 @@
 /**
  * The Bridge's WebSockets (M9): `/.peershare/socket?target=<url>&protocols=a,b`.
  *
- * Guarded exactly like HTTP (rung 02): the PeerShare origin only, the
+ * Guarded exactly like HTTP (rung 02): a loopback `Host`, the allowed origins, the
  * Pairing token (as the subprotocol `peershare.<token>`, because a browser
  * cannot set headers on a WebSocket), and the same target rules. Then one
  * socket to the app is relayed message for message, both ways.
  */
 
 import type { BridgeInit } from "./bridge.js";
-import { reachable, sameSecret } from "./bridge.js";
+import { loopbackHost, originAllowed, reachable, tokenAccepted } from "./bridge.js";
 
 export const SOCKET_PATH = "/.peershare/socket";
 export const TOKEN_PROTOCOL_PREFIX = "peershare.";
@@ -28,19 +28,21 @@ export type SocketGate = (
 ) => Promise<{ ok: true; plan: SocketPlan } | { ok: false; status: 400 | 401 | 403 | 502 }>;
 
 export function socketGate(
-  init: Pick<BridgeInit, "token" | "allowedOrigin">,
+  init: Pick<BridgeInit, "token" | "allowedOrigins">,
   resolveHost: (name: string) => Promise<string[]>,
 ): SocketGate {
   return async (url, headers) => {
     if (url.pathname !== SOCKET_PATH) return { ok: false, status: 400 };
+    if (!loopbackHost(headers.get("host"))) return { ok: false, status: 403 };
     const origin = headers.get("origin");
-    if (origin != null && origin !== init.allowedOrigin) return { ok: false, status: 403 };
+    if (origin != null && !originAllowed(origin, init.allowedOrigins))
+      return { ok: false, status: 403 };
 
     const offered = (headers.get("sec-websocket-protocol") ?? "").split(",").map((p) => p.trim());
     const accept = offered.find(
       (p) =>
         p.startsWith(TOKEN_PROTOCOL_PREFIX) &&
-        sameSecret(p.slice(TOKEN_PROTOCOL_PREFIX.length), init.token),
+        tokenAccepted(p.slice(TOKEN_PROTOCOL_PREFIX.length), init.token),
     );
     if (accept == null) return { ok: false, status: 401 };
 

@@ -23,7 +23,7 @@ let bridge: Listening;
 beforeAll(async () => {
   app = await startLoginApp();
   bridge = await listenLoopback(
-    createBridge({ token: TOKEN, allowedOrigin: "https://tools.sandclaw.ai", cookieJars: true }),
+    createBridge({ token: TOKEN, allowedOrigins: ["https://tools.sandclaw.ai"], cookieJars: true }),
   );
 });
 afterAll(async () => {

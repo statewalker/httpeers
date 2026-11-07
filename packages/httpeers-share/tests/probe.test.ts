@@ -15,7 +15,7 @@ const running: Running[] = [];
 
 beforeAll(async () => {
   bridge = await listenLoopback(
-    createBridge({ token: TOKEN, allowedOrigin: "https://tools.sandclaw.ai" }),
+    createBridge({ token: TOKEN, allowedOrigins: ["https://tools.sandclaw.ai"] }),
   );
 });
 afterAll(async () => {
@@ -105,7 +105,11 @@ describe("04 — cookies, with the Bridge's jars on (M9)", () => {
   let jarBridge: Listening;
   beforeAll(async () => {
     jarBridge = await listenLoopback(
-      createBridge({ token: TOKEN, allowedOrigin: "https://tools.sandclaw.ai", cookieJars: true }),
+      createBridge({
+        token: TOKEN,
+        allowedOrigins: ["https://tools.sandclaw.ai"],
+        cookieJars: true,
+      }),
     );
   });
   afterAll(async () => {
