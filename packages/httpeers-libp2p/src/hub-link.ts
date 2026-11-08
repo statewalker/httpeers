@@ -28,8 +28,26 @@ export function hubRoute(hubPeerId: string, peerId: string): string {
   return `/p2p/${hubPeerId}/p2p-circuit/webrtc/p2p/${peerId}`;
 }
 
-/** How many times `dialWebRTC` tries a WebRTC upgrade before giving up. */
+/** How many times `dialWebRTC` tries a WebRTC upgrade under node-datachannel before giving up. */
 export const WEBRTC_UPGRADE_ATTEMPTS = 3;
+
+/**
+ * How many attempts `dialWebRTC` makes by default: one where WebRTC is the
+ * runtime's own (a browser), `WEBRTC_UPGRADE_ATTEMPTS` elsewhere (Node, with
+ * node-datachannel). Read at each call, not at import.
+ *
+ * WHY ONE IN A BROWSER. The retry exists for a node-datachannel race (below),
+ * which a browser's WebRTC does not have. There, a path that cannot come up
+ * (symmetric NAT, UDP blocked) fails every attempt alike, each after libp2p's
+ * per-address dial timeout (6 s in libp2p 3), and the caller's relay fallback
+ * waits for all of them: measured in Chromium with UDP blocked, a Guest's join
+ * took 18 s, all of it in three timed-out upgrades, and 6 s with one.
+ */
+export function defaultWebRTCAttempts(): number {
+  return typeof (globalThis as { RTCPeerConnection?: unknown }).RTCPeerConnection === "function"
+    ? 1
+    : WEBRTC_UPGRADE_ATTEMPTS;
+}
 
 /**
  * Dial a `/webrtc` address, trying the upgrade again when it fails.
@@ -45,7 +63,8 @@ export const WEBRTC_UPGRADE_ATTEMPTS = 3;
  * load. Each attempt is an independent race, so one retry nearly always
  * succeeds. Fixed upstream by libdatachannel 0235225 ("start DTLS after
  * remote description"); drop the retry once node-datachannel ships it.
- * Browsers implement WebRTC themselves and are not affected.
+ * Browsers implement WebRTC themselves and are not affected, so they get one
+ * attempt (`defaultWebRTCAttempts`).
  *
  * A WebRTC path that cannot come up fails every attempt, and the caller's
  * fallback (the relay circuit) runs as before.
@@ -53,7 +72,7 @@ export const WEBRTC_UPGRADE_ATTEMPTS = 3;
 export async function dialWebRTC(
   node: Libp2p,
   target: Multiaddr | Multiaddr[],
-  attempts: number = WEBRTC_UPGRADE_ATTEMPTS,
+  attempts: number = defaultWebRTCAttempts(),
 ): Promise<Connection> {
   let lastError: unknown;
   for (let attempt = 1; attempt <= attempts; attempt++) {
