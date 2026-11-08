@@ -44,6 +44,20 @@ describe("readSiteConfig", () => {
     expect(await readSiteConfig(api, "abc.net")).toEqual(DEFAULT_SITE_CONFIG);
   });
 
+  it("keeps the good cors entries, normalised, and drops the rest one by one, loudly", async () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const api = new MemFilesApi({
+      initialFiles: {
+        [CONFIG]: JSON.stringify({
+          cors: ["https://A.example/", 7, "not a url", "null", "*", "https://a.example"],
+        }),
+      },
+    });
+    expect((await readSiteConfig(api, "abc.net")).cors).toEqual(["https://a.example", "*"]);
+    expect(warn).toHaveBeenCalledTimes(3);
+    warn.mockRestore();
+  });
+
   // A typo in a config file must not take a site offline, and every default
   // is the safe one -- but it must be loud, or it is undebuggable.
   it("falls back to defaults on malformed JSON, and says so", async () => {

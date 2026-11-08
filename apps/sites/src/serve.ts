@@ -56,16 +56,16 @@ function allowedOrigin(config: SiteConfig, origin: string | undefined): string |
 }
 
 /**
- * Adds the CORS headers to a response the site allows. A specific origin also
- * varies the response on `Origin`: a cache must not hand one origin's answer
- * to another.
+ * Adds the CORS headers. A site that lists specific origins varies EVERY
+ * response on `Origin`, allowed or not: a shared cache that stored the answer to
+ * a navigation (no grant) must not hand it to a listed origin's fetch, which
+ * would then fail until the copy expires. Headers are set in place: every
+ * response here is built by this module or Hono, never taken from a fetch.
  */
-function withCors(res: Response, allowed: string | null): Response {
-  if (allowed == null) return res;
-  const headers = new Headers(res.headers);
-  headers.set("Access-Control-Allow-Origin", allowed);
-  if (allowed !== "*") headers.append("Vary", "Origin");
-  return new Response(res.body, { status: res.status, statusText: res.statusText, headers });
+function withCors(res: Response, config: SiteConfig, allowed: string | null): Response {
+  if (config.cors.length > 0 && !config.cors.includes("*")) res.headers.append("Vary", "Origin");
+  if (allowed != null) res.headers.set("Access-Control-Allow-Origin", allowed);
+  return res;
 }
 
 export function createApp(options: ServeOptions): Hono {
@@ -99,29 +99,30 @@ export function createApp(options: ServeOptions): Hono {
   }
 
   app.all("*", async (c) => {
+    const method = c.req.method;
+    const preflight = method === "OPTIONS" && c.req.header("access-control-request-method") != null;
+    // Before the host and the config, as without CORS: other methods cost nothing.
+    if (method !== "GET" && method !== "HEAD" && !preflight) {
+      return c.text("method not allowed", 405, { Allow: "GET, HEAD" });
+    }
+
     const site = siteFromHost(c.req.header("host"));
     if (site == null) return c.text("bad request", 400);
     const config = await configFor(site);
     const allowed = allowedOrigin(config, c.req.header("origin"));
 
-    // A CORS preflight, answered only for an origin the site lists.
-    if (c.req.method === "OPTIONS" && allowed != null) {
-      return withCors(
-        new Response(null, {
-          status: 204,
-          headers: {
-            "Access-Control-Allow-Methods": "GET, HEAD",
-            "Access-Control-Allow-Headers": c.req.header("access-control-request-headers") ?? "",
-            "Access-Control-Max-Age": "600",
-          },
-        }),
-        allowed,
-      );
+    if (preflight) {
+      // Answered only for an origin the site lists; refused as before otherwise.
+      if (allowed == null) return c.text("method not allowed", 405, { Allow: "GET, HEAD" });
+      const headers: Record<string, string> = {
+        "Access-Control-Allow-Methods": "GET, HEAD",
+        "Access-Control-Max-Age": "600",
+      };
+      const asked = c.req.header("access-control-request-headers");
+      if (asked != null) headers["Access-Control-Allow-Headers"] = asked;
+      return withCors(new Response(null, { status: 204, headers }), config, allowed);
     }
-    if (c.req.method !== "GET" && c.req.method !== "HEAD") {
-      return c.text("method not allowed", 405, { Allow: "GET, HEAD" });
-    }
-    return withCors(await serve(c, site, config), allowed);
+    return withCors(await serve(c, site, config), config, allowed);
   });
 
   // biome-ignore lint/suspicious/noExplicitAny: Hono's context type is not exported in a usable form here

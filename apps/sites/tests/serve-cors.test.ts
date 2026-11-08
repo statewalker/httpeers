@@ -4,8 +4,12 @@ import { createApp } from "../src/serve.js";
 
 const PAGE = "https://peershare.httpeers.net";
 
-function app(cors?: string[]) {
-  const files: Record<string, string> = { "/abc.net/index.html": "home" };
+function app(cors?: unknown[]) {
+  const files: Record<string, string> = {
+    "/abc.net/index.html": "home",
+    "/abc.net/docs/index.html": "docs",
+    "/abc.net/404.html": "missing",
+  };
   if (cors != null) files["/abc.net/.site/config.json"] = JSON.stringify({ cors });
   return createApp({ files: new MemFilesApi({ initialFiles: files }), cacheTtlMs: 0 });
 }
@@ -46,6 +50,48 @@ describe("cors", () => {
   it("`*` allows any origin, without Vary", async () => {
     const res = await app(["*"]).request("/", req({ Origin: "https://any.example" }));
     expect(res.headers.get("access-control-allow-origin")).toBe("*");
+    expect(res.headers.get("vary")).toBeNull();
+  });
+
+  // A shared cache must not hand a navigation's answer (no grant) to a listed origin's fetch.
+  it("varies on Origin for every request to a site that lists origins, allowed or not", async () => {
+    const site = app([PAGE]);
+    for (const headers of [{}, { Origin: "https://evil.example" }, { Origin: PAGE }]) {
+      const res = await site.request("/", req(headers));
+      expect(res.headers.get("vary")).toContain("Origin");
+    }
+    const plain = await app().request("/", req({ Origin: PAGE }));
+    expect(plain.headers.get("vary")).toBeNull();
+  });
+
+  it("grants on redirects, 304s, ranges, HEAD and the custom 404 too", async () => {
+    const site = app([PAGE]);
+    const redirect = await site.request("/docs", req({ Origin: PAGE }));
+    expect(redirect.status).toBe(301);
+    const full = await site.request("/", req({ Origin: PAGE }));
+    const etag = full.headers.get("etag") ?? "";
+    const notModified = await site.request("/", req({ Origin: PAGE, "If-None-Match": etag }));
+    expect(notModified.status).toBe(304);
+    const range = await site.request("/", req({ Origin: PAGE, Range: "bytes=0-1" }));
+    expect(range.status).toBe(206);
+    expect(await range.text()).toBe("ho");
+    const head = await site.request("/", req({ Origin: PAGE }, "HEAD"));
+    const missing = await site.request("/nope", req({ Origin: PAGE }));
+    expect(missing.status).toBe(404);
+    expect(await missing.text()).toBe("missing");
+    for (const res of [redirect, notModified, range, head, missing]) {
+      expect(res.headers.get("access-control-allow-origin")).toBe(PAGE);
+    }
+  });
+
+  it("matches a listed origin written with capitals or a trailing slash", async () => {
+    const res = await app(["https://PeerShare.httpeers.net/"]).request("/", req({ Origin: PAGE }));
+    expect(res.headers.get("access-control-allow-origin")).toBe(PAGE);
+  });
+
+  it("never grants the `null` origin (sandboxed frames, data: and file: pages)", async () => {
+    const res = await app(["null", PAGE]).request("/", req({ Origin: "null" }));
+    expect(res.headers.get("access-control-allow-origin")).toBeNull();
   });
 
   // A request with a non-safelisted header (PeerShare's x-peershare-guest) is preflighted.
@@ -68,6 +114,25 @@ describe("cors", () => {
       "x-peershare-guest, accept-language",
     );
     expect(res.headers.get("access-control-max-age")).toBe("600");
+  });
+
+  it("answers a preflight that asks for no headers without an Allow-Headers", async () => {
+    const res = await app([PAGE]).request(
+      "/",
+      req({ Origin: PAGE, "Access-Control-Request-Method": "GET" }, "OPTIONS"),
+    );
+    expect(res.status).toBe(204);
+    expect(res.headers.has("access-control-allow-headers")).toBe(false);
+  });
+
+  it("refuses an OPTIONS that is no preflight, even from an allowed origin", async () => {
+    const res = await app([PAGE]).request("/", req({ Origin: PAGE }, "OPTIONS"));
+    expect(res.status).toBe(405);
+  });
+
+  it("keeps the old order: other methods are 405 before the host is looked at", async () => {
+    const res = await app().request("/", { method: "POST", headers: { Host: "" } });
+    expect(res.status).toBe(405);
   });
 
   it("refuses a preflight from another origin", async () => {

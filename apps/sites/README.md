@@ -77,12 +77,24 @@ directory itself is never served.
 { "cors": ["https://peershare.httpeers.net"] }
 ```
 
-A request from a listed origin gets `Access-Control-Allow-Origin` (with
-`Vary: Origin`) on every response, 404s included, and its preflight
-(`OPTIONS`) is answered: `GET, HEAD`, the headers it asked for, cached for 10
-minutes. Other origins, and sites without `cors`, get no CORS headers, and
-`OPTIONS` stays 405. The site is still read-only: other methods are 405 for
-everyone. A malformed file is ignored with a warning
+An origin is `scheme://host[:port]`. Entries are normalised the way browsers send
+them (`https://A.example/` matches `https://a.example`). Entries that are not an
+origin are dropped one by one with a warning, and so is `null`: it is the origin of
+every sandboxed frame and `data:` or `file:` page.
+
+- **A request from a listed origin** gets `Access-Control-Allow-Origin` on every
+  response, including redirects, 304s, ranges and 404s.
+- **A site that lists specific origins** sends `Vary: Origin` on every response,
+  allowed or not, so a shared cache never hands one origin's answer to another.
+- **A preflight from a listed origin** (`OPTIONS` with
+  `Access-Control-Request-Method`) gets a 204: `GET, HEAD`, the headers it asked
+  for, cached for 10 minutes.
+- **Everything else is as before:** any other `OPTIONS`, and other origins, get
+  no grant and a 405 for `OPTIONS`. Other methods are 405 for everyone, before the
+  host is even looked at; the site stays read-only.
+
+A change to `cors` reaches normal responses within the config cache's TTL (60 s
+by default). Browsers may keep a preflight answer for up to 10 minutes. A malformed file is ignored with a warning
 (`sites: <site> has a malformed .site/config.json, ignoring it: …`), so a typo
 does not take a site offline.
 
