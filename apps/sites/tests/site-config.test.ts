@@ -24,6 +24,7 @@ describe("readSiteConfig", () => {
       spa: true,
       notFound: "/oops.html",
       cacheControl: "public, max-age=31536000, immutable",
+      cors: [],
     });
   });
 
@@ -38,9 +39,23 @@ describe("readSiteConfig", () => {
 
   it("ignores fields of the wrong type rather than trusting them", async () => {
     const api = new MemFilesApi({
-      initialFiles: { [CONFIG]: JSON.stringify({ spa: "yes", notFound: 7 }) },
+      initialFiles: { [CONFIG]: JSON.stringify({ spa: "yes", notFound: 7, cors: "*" }) },
     });
     expect(await readSiteConfig(api, "abc.net")).toEqual(DEFAULT_SITE_CONFIG);
+  });
+
+  it("keeps the good cors entries, normalised, and drops the rest one by one, loudly", async () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const api = new MemFilesApi({
+      initialFiles: {
+        [CONFIG]: JSON.stringify({
+          cors: ["https://A.example/", 7, "not a url", "null", "*", "https://a.example"],
+        }),
+      },
+    });
+    expect((await readSiteConfig(api, "abc.net")).cors).toEqual(["https://a.example", "*"]);
+    expect(warn).toHaveBeenCalledTimes(3);
+    warn.mockRestore();
   });
 
   // A typo in a config file must not take a site offline, and every default

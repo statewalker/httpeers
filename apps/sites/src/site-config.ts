@@ -2,8 +2,8 @@
  * A site's own options, from `.site/config.json`.
  *
  * This directory exists because routing no longer needs it: a site's storage
- * prefix IS its domain, so there is no mapping to record. What is left is two
- * behaviours the server cannot infer.
+ * prefix IS its domain, so there is no mapping to record. What is left is the
+ * behaviour the server cannot infer.
  */
 import type { FilesApi } from "@statewalker/webrun-files";
 import { statFile } from "./lookup.js";
@@ -16,6 +16,11 @@ export interface SiteConfig {
   notFound: string;
   /** `Cache-Control` for every response from this site. */
   cacheControl: string;
+  /**
+   * Origins whose pages may read this site from their scripts (CORS), or
+   * `["*"]` for any. Empty, the default: none, and `OPTIONS` is refused.
+   */
+  cors: string[];
 }
 
 /**
@@ -31,6 +36,7 @@ export const DEFAULT_SITE_CONFIG: SiteConfig = {
   spa: false,
   notFound: "/404.html",
   cacheControl: "public, no-cache",
+  cors: [],
 };
 
 /** Read a whole file as UTF-8. Only ever used for the config file. */
@@ -65,5 +71,37 @@ export async function readSiteConfig(files: FilesApi, site: string): Promise<Sit
     notFound: typeof o.notFound === "string" ? o.notFound : DEFAULT_SITE_CONFIG.notFound,
     cacheControl:
       typeof o.cacheControl === "string" ? o.cacheControl : DEFAULT_SITE_CONFIG.cacheControl,
+    cors: Array.isArray(o.cors) ? corsOrigins(site, o.cors) : DEFAULT_SITE_CONFIG.cors,
   };
+}
+
+/**
+ * The listed origins as browsers send them (`https://a.example`: lowercase, no
+ * trailing slash, no path), so a listed `https://A.example/` still matches.
+ * Entries that are no origin are dropped one by one, loudly, and so is `null`:
+ * it is the origin of every sandboxed frame and `data:` or `file:` page.
+ */
+function corsOrigins(site: string, entries: unknown[]): string[] {
+  const origins: string[] = [];
+  for (const entry of entries) {
+    const origin = entry === "*" ? "*" : originOf(entry);
+    if (origin == null) {
+      console.warn(
+        `sites: ${site} lists ${JSON.stringify(entry)} under cors, which is no origin; ignoring it`,
+      );
+    } else if (!origins.includes(origin)) {
+      origins.push(origin);
+    }
+  }
+  return origins;
+}
+
+function originOf(entry: unknown): string | null {
+  if (typeof entry !== "string") return null;
+  try {
+    const { origin } = new URL(entry);
+    return origin === "null" ? null : origin;
+  } catch {
+    return null;
+  }
 }
