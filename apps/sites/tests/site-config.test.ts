@@ -24,6 +24,7 @@ describe("readSiteConfig", () => {
       spa: true,
       notFound: "/oops.html",
       cacheControl: "public, max-age=31536000, immutable",
+      cors: [],
     });
   });
 
@@ -38,7 +39,7 @@ describe("readSiteConfig", () => {
 
   it("ignores fields of the wrong type rather than trusting them", async () => {
     const api = new MemFilesApi({
-      initialFiles: { [CONFIG]: JSON.stringify({ spa: "yes", notFound: 7 }) },
+      initialFiles: { [CONFIG]: JSON.stringify({ spa: "yes", notFound: 7, cors: "*" }) },
     });
     expect(await readSiteConfig(api, "abc.net")).toEqual(DEFAULT_SITE_CONFIG);
   });

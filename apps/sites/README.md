@@ -68,7 +68,21 @@ hashes file names opts into real caching in `.site/config.json`:
 ```
 
 `spa: true` serves `/index.html` with 200 for unmatched paths. The `.site/`
-directory itself is never served. A malformed file is ignored with a warning
+directory itself is never served.
+
+`cors` lists the origins whose pages may read the site from their scripts, or
+`["*"]` for any:
+
+```json
+{ "cors": ["https://peershare.httpeers.net"] }
+```
+
+A request from a listed origin gets `Access-Control-Allow-Origin` (with
+`Vary: Origin`) on every response, 404s included, and its preflight
+(`OPTIONS`) is answered: `GET, HEAD`, the headers it asked for, cached for 10
+minutes. Other origins, and sites without `cors`, get no CORS headers, and
+`OPTIONS` stays 405. The site is still read-only: other methods are 405 for
+everyone. A malformed file is ignored with a warning
 (`sites: <site> has a malformed .site/config.json, ignoring it: …`), so a typo
 does not take a site offline.
 

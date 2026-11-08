@@ -49,6 +49,25 @@ function etagFor(stats: FileEntryStats): string | undefined {
   return `W/"${stats.size.toString(36)}-${mtime.toString(36)}"`;
 }
 
+/** The value for `Access-Control-Allow-Origin`, or null when the site does not allow `origin`. */
+function allowedOrigin(config: SiteConfig, origin: string | undefined): string | null {
+  if (config.cors.includes("*")) return "*";
+  return origin != null && config.cors.includes(origin) ? origin : null;
+}
+
+/**
+ * Adds the CORS headers to a response the site allows. A specific origin also
+ * varies the response on `Origin`: a cache must not hand one origin's answer
+ * to another.
+ */
+function withCors(res: Response, allowed: string | null): Response {
+  if (allowed == null) return res;
+  const headers = new Headers(res.headers);
+  headers.set("Access-Control-Allow-Origin", allowed);
+  if (allowed !== "*") headers.append("Vary", "Origin");
+  return new Response(res.body, { status: res.status, statusText: res.statusText, headers });
+}
+
 export function createApp(options: ServeOptions): Hono {
   const { files } = options;
   const resolutions = new TtlCache<LookupResult>({
@@ -80,16 +99,35 @@ export function createApp(options: ServeOptions): Hono {
   }
 
   app.all("*", async (c) => {
+    const site = siteFromHost(c.req.header("host"));
+    if (site == null) return c.text("bad request", 400);
+    const config = await configFor(site);
+    const allowed = allowedOrigin(config, c.req.header("origin"));
+
+    // A CORS preflight, answered only for an origin the site lists.
+    if (c.req.method === "OPTIONS" && allowed != null) {
+      return withCors(
+        new Response(null, {
+          status: 204,
+          headers: {
+            "Access-Control-Allow-Methods": "GET, HEAD",
+            "Access-Control-Allow-Headers": c.req.header("access-control-request-headers") ?? "",
+            "Access-Control-Max-Age": "600",
+          },
+        }),
+        allowed,
+      );
+    }
     if (c.req.method !== "GET" && c.req.method !== "HEAD") {
       return c.text("method not allowed", 405, { Allow: "GET, HEAD" });
     }
+    return withCors(await serve(c, site, config), allowed);
+  });
 
-    const site = siteFromHost(c.req.header("host"));
-    if (site == null) return c.text("bad request", 400);
-
+  // biome-ignore lint/suspicious/noExplicitAny: Hono's context type is not exported in a usable form here
+  async function serve(c: any, site: string, config: SiteConfig): Promise<Response> {
     const url = new URL(c.req.url);
     const found = await resolve(site, url.pathname);
-    const config = await configFor(site);
 
     if (found.found) {
       // The redirect that must not be skipped: serving a directory index at
@@ -115,7 +153,7 @@ export function createApp(options: ServeOptions): Hono {
       return respond(c, custom, customStats, config, c.req.method === "HEAD", 404);
     }
     return c.text("not found", 404, { "Cache-Control": config.cacheControl });
-  });
+  }
 
   async function respond(
     // biome-ignore lint/suspicious/noExplicitAny: Hono's context type is not exported in a usable form here
