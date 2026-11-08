@@ -86,7 +86,9 @@ function corsOrigins(site: string, entries: unknown[]): string[] {
   for (const entry of entries) {
     const origin = entry === "*" ? "*" : originOf(entry);
     if (origin == null) {
-      console.warn(`sites: ${site} lists ${JSON.stringify(entry)} under cors, which is no origin; ignoring it`);
+      console.warn(
+        `sites: ${site} lists ${JSON.stringify(entry)} under cors, which is no origin; ignoring it`,
+      );
     } else if (!origins.includes(origin)) {
       origins.push(origin);
     }
