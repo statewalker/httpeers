@@ -42,6 +42,12 @@ export const WEBRTC_UPGRADE_ATTEMPTS = 3;
  * per-address dial timeout (6 s in libp2p 3), and the caller's relay fallback
  * waits for all of them: measured in Chromium with UDP blocked, a Guest's join
  * took 18 s, all of it in three timed-out upgrades, and 6 s with one.
+ *
+ * THE TEST IS THE GLOBAL, NOT THE IMPLEMENTATION libp2p PICKS (it picks by the
+ * package's `browser` field). Under Node they agree unless a process installs a
+ * global RTCPeerConnection (e.g. node-datachannel's polyfill assigned to
+ * `globalThis`): libp2p still runs node-datachannel there, and this would
+ * drop its retry. Pass `attempts` explicitly in such a process.
  */
 export function defaultWebRTCAttempts(): number {
   return typeof (globalThis as { RTCPeerConnection?: unknown }).RTCPeerConnection === "function"

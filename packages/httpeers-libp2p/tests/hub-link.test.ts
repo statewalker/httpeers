@@ -17,7 +17,7 @@
  */
 import type { Connection, Libp2p } from "@libp2p/interface";
 import { multiaddr } from "@multiformats/multiaddr";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import {
   defaultWebRTCAttempts,
   dialWebRTC,
@@ -140,9 +140,7 @@ describe("dialWebRTC", () => {
   });
 
   it("in a browser (a native RTCPeerConnection), tries once: there is no race to retry", async () => {
-    const g = globalThis as { RTCPeerConnection?: unknown };
-    const before = g.RTCPeerConnection;
-    g.RTCPeerConnection = function RTCPeerConnection() {};
+    vi.stubGlobal("RTCPeerConnection", function RTCPeerConnection() {});
     try {
       expect(defaultWebRTCAttempts()).toBe(1);
       const { node, dials } = nodeDialling([new Error("ICE failed"), "ok"]);
@@ -151,7 +149,7 @@ describe("dialWebRTC", () => {
       ).rejects.toThrow("ICE failed");
       expect(dials()).toBe(1);
     } finally {
-      g.RTCPeerConnection = before;
+      vi.unstubAllGlobals();
     }
   });
 
