@@ -17,8 +17,14 @@
  */
 import type { Connection, Libp2p } from "@libp2p/interface";
 import { multiaddr } from "@multiformats/multiaddr";
-import { describe, expect, it } from "vitest";
-import { dialWebRTC, HubReservationError, reserveOnHub } from "../src/hub-link.js";
+import { describe, expect, it, vi } from "vitest";
+import {
+  defaultWebRTCAttempts,
+  dialWebRTC,
+  HubReservationError,
+  reserveOnHub,
+  WEBRTC_UPGRADE_ATTEMPTS,
+} from "../src/hub-link.js";
 
 const HUB = "12D3KooWDpJ7As7BWAwRMfu1VU2WCqNjvq387JEYKDBj4kx6nXTN";
 
@@ -131,6 +137,24 @@ describe("dialWebRTC", () => {
     const conn = await dialWebRTC(node, multiaddr("/ip4/127.0.0.1/tcp/1/ws/p2p-circuit/webrtc"));
     expect(conn).toEqual({ id: "conn" });
     expect(dials()).toBe(2);
+  });
+
+  it("in a browser (a native RTCPeerConnection), tries once: there is no race to retry", async () => {
+    vi.stubGlobal("RTCPeerConnection", function RTCPeerConnection() {});
+    try {
+      expect(defaultWebRTCAttempts()).toBe(1);
+      const { node, dials } = nodeDialling([new Error("ICE failed"), "ok"]);
+      await expect(
+        dialWebRTC(node, multiaddr("/ip4/127.0.0.1/tcp/1/ws/p2p-circuit/webrtc")),
+      ).rejects.toThrow("ICE failed");
+      expect(dials()).toBe(1);
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it("under Node (no native RTCPeerConnection), keeps the node-datachannel retry", () => {
+    expect(defaultWebRTCAttempts()).toBe(WEBRTC_UPGRADE_ATTEMPTS);
   });
 
   it("gives up after its attempts and rethrows the last failure", async () => {

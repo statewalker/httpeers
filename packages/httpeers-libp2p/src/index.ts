@@ -40,6 +40,7 @@ export {
   requestRelayReservation,
 } from "./hop-reserve.js";
 export {
+  defaultWebRTCAttempts,
   dialWebRTC,
   HubReservationError,
   type HubReservationRefusal,
