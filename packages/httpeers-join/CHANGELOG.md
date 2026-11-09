@@ -1,5 +1,13 @@
 # @statewalker/httpeers-join
 
+## 0.3.2
+
+### Patch Changes
+
+- Release of the changes since the last published version:
+  
+  - @statewalker/httpeers-member ^0.3.1 -> ^0.3.2
+
 ## 0.3.1
 
 ### Patch Changes
