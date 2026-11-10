@@ -9,7 +9,7 @@ import { contentTypeFor } from "./content-type.js";
 import { siteFromHost } from "./host.js";
 import { type LookupResult, lookupFile, statFile } from "./lookup.js";
 import { parseRange } from "./range.js";
-import { readSiteConfig, type SiteConfig } from "./site-config.js";
+import { cacheControlFor, readSiteConfig, type SiteConfig } from "./site-config.js";
 
 export interface ServeOptions {
   files: FilesApi;
@@ -43,10 +43,45 @@ function toStream(chunks: AsyncIterable<Uint8Array>): ReadableStream<Uint8Array>
  * avoid. Omitted entirely when `size` is missing: a fabricated validator is
  * worse than none, because clients trust it.
  */
-function etagFor(stats: FileEntryStats): string | undefined {
+function etagFor(stats: FileEntryStats, encoding?: string): string | undefined {
   if (stats.size == null) return undefined;
   const mtime = stats.lastModified ?? 0;
-  return `W/"${stats.size.toString(36)}-${mtime.toString(36)}"`;
+  return `W/"${stats.size.toString(36)}-${mtime.toString(36)}${encoding ? `-${encoding}` : ""}"`;
+}
+
+/** The encodings a site may publish beside a file, in order of preference. */
+const ENCODINGS = [
+  { name: "br", suffix: ".br" },
+  { name: "gzip", suffix: ".gz" },
+] as const;
+
+/**
+ * The encodings a site may publish that `Accept-Encoding` allows, most preferred first: by
+ * q-value, br before gzip at equal q. `*` stands for any encoding the header does not name, and
+ * `x-gzip` for gzip; q=0 refuses. Whitespace around `;` and `=` is allowed (RFC 9110).
+ */
+function acceptedEncodings(header: string | undefined): (typeof ENCODINGS)[number][] {
+  if (header == null) return [];
+  const named = new Map<string, number>();
+  let any: number | undefined;
+  for (const part of header.split(",")) {
+    const [rawToken, ...params] = part.split(";");
+    let token = rawToken.trim().toLowerCase();
+    if (token === "x-gzip") token = "gzip";
+    if (!token) continue;
+    let q = 1;
+    for (const param of params) {
+      const [k, v] = param.split("=").map((x) => x.trim().toLowerCase());
+      if (k === "q") q = Number(v);
+    }
+    if (Number.isNaN(q)) q = 0;
+    if (token === "*") any = q;
+    else named.set(token, Math.max(named.get(token) ?? 0, q));
+  }
+  return ENCODINGS.map((e, order) => ({ e, order, q: named.get(e.name) ?? any ?? 0 }))
+    .filter((x) => x.q > 0)
+    .sort((a, b) => b.q - a.q || a.order - b.order)
+    .map((x) => x.e);
 }
 
 /** The value for `Access-Control-Allow-Origin`, or null when the site does not allow `origin`. */
@@ -78,6 +113,19 @@ export function createApp(options: ServeOptions): Hono {
     ttlMs: options.cacheTtlMs ?? 60_000,
     max: options.cacheMax ?? 10_000,
   });
+  // A pre-compressed file beside a served one ("" when there is none), cached as resolutions are.
+  const encoded = new TtlCache<FileEntryStats | "">({
+    ttlMs: options.cacheTtlMs ?? 60_000,
+    max: options.cacheMax ?? 10_000,
+  });
+
+  async function encodedStats(storagePath: string): Promise<FileEntryStats | undefined> {
+    const hit = encoded.get(storagePath);
+    if (hit != null) return hit === "" ? undefined : hit;
+    const stats = await statFile(files, storagePath);
+    encoded.set(storagePath, stats ?? "");
+    return stats ?? undefined;
+  }
 
   const app = new Hono();
 
@@ -136,7 +184,7 @@ export function createApp(options: ServeOptions): Hono {
       if (found.kind === "directory-index" && !url.pathname.endsWith("/")) {
         return c.redirect(`${url.pathname}/${url.search}`, 301);
       }
-      return respond(c, found.storagePath, found.stats, config, c.req.method === "HEAD");
+      return respond(c, site, found.storagePath, found.stats, config, c.req.method === "HEAD");
     }
 
     // Not found. SPA first -- a client-side router needs the document, with 200.
@@ -144,14 +192,14 @@ export function createApp(options: ServeOptions): Hono {
       const shell = `/${site}/index.html`;
       const stats = await statFile(files, shell);
       if (stats != null) {
-        return respond(c, shell, stats, config, c.req.method === "HEAD");
+        return respond(c, site, shell, stats, config, c.req.method === "HEAD");
       }
     }
 
     const custom = `/${site}${config.notFound}`;
     const customStats = await statFile(files, custom);
     if (customStats != null) {
-      return respond(c, custom, customStats, config, c.req.method === "HEAD", 404);
+      return respond(c, site, custom, customStats, config, c.req.method === "HEAD", 404);
     }
     return c.text("not found", 404, { "Cache-Control": config.cacheControl });
   }
@@ -159,21 +207,42 @@ export function createApp(options: ServeOptions): Hono {
   async function respond(
     // biome-ignore lint/suspicious/noExplicitAny: Hono's context type is not exported in a usable form here
     c: any,
+    site: string,
     storagePath: string,
-    stats: FileEntryStats,
+    fileStats: FileEntryStats,
     config: SiteConfig,
     headOnly: boolean,
     status = 200,
   ): Promise<Response> {
     const headers: Record<string, string> = {
       "Content-Type": contentTypeFor(storagePath),
-      "Cache-Control": config.cacheControl,
+      "Cache-Control": cacheControlFor(config, storagePath.slice(site.length + 1)),
     };
+    // A pre-compressed copy, when the site publishes one and the client takes it. Not for a
+    // range request: a range addresses the bytes of the file, not of an encoding of it.
+    let stats = fileStats;
+    let bodyPath = storagePath;
+    let encoding: string | undefined;
+    if (config.precompressed) {
+      headers.Vary = "Accept-Encoding";
+      if (c.req.header("range") == null) {
+        for (const e of acceptedEncodings(c.req.header("accept-encoding"))) {
+          const found = await encodedStats(storagePath + e.suffix);
+          if (found == null) continue;
+          stats = found;
+          bodyPath = storagePath + e.suffix;
+          encoding = e.name;
+          headers["Content-Encoding"] = e.name;
+          break;
+        }
+      }
+    }
     if (stats.size != null) headers["Content-Length"] = String(stats.size);
     if (stats.lastModified != null) {
       headers["Last-Modified"] = new Date(stats.lastModified).toUTCString();
     }
-    const etag = etagFor(stats);
+    // Each encoding is its own representation, with its own validator.
+    const etag = etagFor(stats, encoding);
     if (etag != null) headers.ETag = etag;
     headers["Accept-Ranges"] = "bytes";
 
@@ -225,7 +294,7 @@ export function createApp(options: ServeOptions): Hono {
     }
 
     if (headOnly) return new Response(null, { status, headers });
-    return new Response(toStream(files.read(storagePath)), { status, headers });
+    return new Response(toStream(files.read(bodyPath)), { status, headers });
   }
 
   return app;
