@@ -24,8 +24,31 @@ describe("readSiteConfig", () => {
       spa: true,
       notFound: "/oops.html",
       cacheControl: "public, max-age=31536000, immutable",
+      cacheRules: [],
+      precompressed: false,
       cors: [],
     });
+  });
+
+  it("reads cache rules and pre-compressed files, dropping malformed rules", async () => {
+    const api = new MemFilesApi({
+      initialFiles: {
+        [CONFIG]: JSON.stringify({
+          precompressed: true,
+          cacheRules: [
+            { prefix: "/_astro/", cacheControl: "public, max-age=31536000, immutable" },
+            { prefix: "_astro/", cacheControl: "x" },
+            { prefix: "/a/" },
+            "nonsense",
+          ],
+        }),
+      },
+    });
+    const config = await readSiteConfig(api, "abc.net");
+    expect(config.precompressed).toBe(true);
+    expect(config.cacheRules).toEqual([
+      { prefix: "/_astro/", cacheControl: "public, max-age=31536000, immutable" },
+    ]);
   });
 
   it("ignores unknown keys", async () => {
