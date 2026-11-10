@@ -149,14 +149,31 @@ jobs:
           path: packages
 
       # Skips a version already on npm: a first version published by hand while this job waited
-      # for approval, or what an earlier attempt of a re-run job published.
+      # for approval, or what an earlier attempt of a re-run job published. Publishes in dependency
+      # order, so a package never reaches npm before a new version it depends on.
       # A version older than npm's `latest` (an old run approved after a newer release) is
       # published under the `backport` dist-tag, and a prerelease under `next`, so `latest` never
       # moves backwards. Only npm's "not found" (E404) counts as no `latest`; any other failure to
       # read it stops the step rather than publish blind.
       - name: Publish
         run: |
-          for t in packages/*.tgz; do
+          order=$(node -e '
+            const { execFileSync } = require("node:child_process");
+            const files = process.argv.slice(1);
+            const pkg = new Map(files.map((f) => [f, JSON.parse(execFileSync("tar", ["-xzOf", f, "package/package.json"]))]));
+            const byName = new Map([...pkg].map(([f, p]) => [p.name, f]));
+            const out = [], seen = new Set();
+            const visit = (f) => {
+              if (seen.has(f)) return;
+              seen.add(f);
+              const p = pkg.get(f);
+              for (const d of Object.keys({ ...p.dependencies, ...p.peerDependencies })) if (byName.has(d)) visit(byName.get(d));
+              out.push(f);
+            };
+            files.forEach(visit);
+            console.log(out.join("\n"));
+          ' packages/*.tgz)
+          for t in $order; do
             read -r name version < <(tar -xzOf "$t" package/package.json | node -p "const p=JSON.parse(require('fs').readFileSync(0));p.name+' '+p.version")
             if npm view "$name@$version" version >/dev/null 2>&1; then echo "$name@$version: already on npm"; continue; fi
             if ! latest=$(npm view "$name" dist-tags.latest 2>"$RUNNER_TEMP/view.err"); then
