@@ -76,9 +76,12 @@ When only some files are content-hashed, `cacheRules` gives them their own
 ```
 
 `precompressed: true` serves `<file>.br` or `<file>.gz`, when the site publishes
-one beside a file, to clients that accept that encoding (br first), with
-`Content-Encoding` and `Vary: Accept-Encoding`. Each encoding has its own `ETag`,
-and a range request is answered from the file itself. Off by default: it costs a
+one beside a file, to clients that accept that encoding, with
+`Content-Encoding` and `Vary: Accept-Encoding`. The client's q-values pick the
+encoding (br first at equal q). Each encoding has its own `ETag`, and a range
+request is answered from the file itself. The copies are served as they are, so a
+publish must regenerate them with their files: an `app.js.br` left from an earlier
+build keeps being served for `app.js`. Off by default: it costs a
 lookup per encoding for each file served (cached like resolutions). Caddy in front
 does not compress, so a site that wants compression publishes the copies itself.
 

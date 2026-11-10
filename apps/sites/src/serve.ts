@@ -55,22 +55,33 @@ const ENCODINGS = [
   { name: "gzip", suffix: ".gz" },
 ] as const;
 
-/** The encodings `Accept-Encoding` allows (q > 0), by name. `*` allows any not named. */
-function acceptedEncodings(header: string | undefined): Set<string> {
-  const accepted = new Set<string>();
-  if (header == null) return accepted;
-  const refused = new Set<string>();
-  let any = false;
+/**
+ * The encodings a site may publish that `Accept-Encoding` allows, most preferred first: by
+ * q-value, br before gzip at equal q. `*` stands for any encoding the header does not name, and
+ * `x-gzip` for gzip; q=0 refuses. Whitespace around `;` and `=` is allowed (RFC 9110).
+ */
+function acceptedEncodings(header: string | undefined): (typeof ENCODINGS)[number][] {
+  if (header == null) return [];
+  const named = new Map<string, number>();
+  let any: number | undefined;
   for (const part of header.split(",")) {
-    const [token, ...params] = part.trim().toLowerCase().split(";");
-    const q = params.map((p) => p.trim()).find((p) => p.startsWith("q="));
-    const ok = q == null || Number(q.slice(2)) > 0;
-    if (token === "*") any = ok;
-    else if (ok) accepted.add(token);
-    else refused.add(token);
+    const [rawToken, ...params] = part.split(";");
+    let token = rawToken.trim().toLowerCase();
+    if (token === "x-gzip") token = "gzip";
+    if (!token) continue;
+    let q = 1;
+    for (const param of params) {
+      const [k, v] = param.split("=").map((x) => x.trim().toLowerCase());
+      if (k === "q") q = Number(v);
+    }
+    if (Number.isNaN(q)) q = 0;
+    if (token === "*") any = q;
+    else named.set(token, Math.max(named.get(token) ?? 0, q));
   }
-  if (any) for (const e of ENCODINGS) if (!refused.has(e.name)) accepted.add(e.name);
-  return accepted;
+  return ENCODINGS.map((e, order) => ({ e, order, q: named.get(e.name) ?? any ?? 0 }))
+    .filter((x) => x.q > 0)
+    .sort((a, b) => b.q - a.q || a.order - b.order)
+    .map((x) => x.e);
 }
 
 /** The value for `Access-Control-Allow-Origin`, or null when the site does not allow `origin`. */
@@ -215,9 +226,7 @@ export function createApp(options: ServeOptions): Hono {
     if (config.precompressed) {
       headers.Vary = "Accept-Encoding";
       if (c.req.header("range") == null) {
-        const accepted = acceptedEncodings(c.req.header("accept-encoding"));
-        for (const e of ENCODINGS) {
-          if (!accepted.has(e.name)) continue;
+        for (const e of acceptedEncodings(c.req.header("accept-encoding"))) {
           const found = await encodedStats(storagePath + e.suffix);
           if (found == null) continue;
           stats = found;

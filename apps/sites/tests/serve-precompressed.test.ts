@@ -100,6 +100,22 @@ describe("pre-compressed files", () => {
     const identity = await a.request("/app.js", req({ "If-None-Match": etag }));
     expect(identity.status).toBe(200);
   });
+
+  it("read whitespace around `;` as RFC 9110 allows", async () => {
+    const a = app(FILES, { precompressed: true });
+    const refused = await a.request("/app.js", req({ "Accept-Encoding": "br ; q=0, *" }));
+    expect(refused.headers.get("content-encoding")).toBe("gzip");
+    const spaced = await a.request("/app.js", req({ "Accept-Encoding": "gzip ;q = 0.5" }));
+    expect(spaced.headers.get("content-encoding")).toBe("gzip");
+  });
+
+  it("follow the client's preference, br first at equal q", async () => {
+    const a = app(FILES, { precompressed: true });
+    const prefers = await a.request("/app.js", req({ "Accept-Encoding": "br;q=0.1, gzip" }));
+    expect(prefers.headers.get("content-encoding")).toBe("gzip");
+    const xgzip = await a.request("/app.js", req({ "Accept-Encoding": "x-gzip" }));
+    expect(xgzip.headers.get("content-encoding")).toBe("gzip");
+  });
 });
 
 describe("cache rules", () => {
