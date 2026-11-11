@@ -498,7 +498,7 @@ Changes this suggests, independent of the decision:
 
 ## Raw data
 
-The `--out` JSON of the runs the tables come from is in [`data/`](data/)
+The `--out` JSON of the runs the tables come from is in [`bench-results/`](bench-results/)
 (not part of the published package, which ships `dist` and `src` only):
 
 | File | Tables |
