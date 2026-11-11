@@ -17,8 +17,9 @@
  *     `fallback: false`), and a peer with the flag still serves callers
  *     without it;
  *   - the serving side keeps the per-exchange bounds: exchanges capped per
- *     connection across its muxes, an idle exchange dropped after
- *     `drainTimeoutMs`, an oversized message refused;
+ *     connection across its muxes, an exchange whose write the caller
+ *     leaves blocked dropped after `drainTimeoutMs` (a merely quiet one is
+ *     not: `quiet-exchange.test.ts`), an oversized message refused;
  *   - a link that finds every mux stream taken falls back;
  *   - teardown lets go of the mux.
  *
@@ -321,7 +322,7 @@ describe("one mux per peer (experimental)", () => {
     for (const r of answered) void (r as Response).body?.cancel().catch(() => {});
   }, 30_000);
 
-  it("drops a served exchange idle for drainTimeoutMs: an unread endless body's handler is cancelled", async () => {
+  it("drops a served exchange whose write is blocked for drainTimeoutMs: an unread endless body's handler is cancelled, and its port freed", async () => {
     let cancelled = false;
     const mounts = createMounts();
     mounts.provide(
@@ -338,16 +339,25 @@ describe("one mux per peer (experimental)", () => {
           }),
         ),
     );
-    const { clientNode, target } = await pair(route(mounts), true, { drainTimeoutMs: 500 });
+    mounts.provide("/ok", async () => new Response("ok"));
+    // One exchange at a time on the connection: the next call succeeds only
+    // once the dropped exchange's port is no longer counted.
+    const { clientNode, target } = await pair(route(mounts), true, {
+      drainTimeoutMs: 500,
+      maxInboundStreams: 1,
+    });
     const remote = createRemote({ node: clientNode, muxPerPeer: true });
 
     const response = await remote(target, new Request("http://peer.local/flood"));
     expect(response.status).toBe(200);
-    // Never read: the window fills, credit stops, and the port goes idle.
+    // Never read: the window fills, credit stops, and the write stays blocked.
     await expect.poll(() => cancelled, { timeout: 5_000 }).toBe(true);
     // The caller's body fails as a reset exchange does, not as a hang.
     const failure = await failureOf(response.arrayBuffer());
     expect(failure).toBeInstanceOf(PeerStreamResetError);
+    // The port was released: under a cap of one, a new call is served.
+    const next = await remote(target, new Request("http://peer.local/ok"));
+    expect(await next.text()).toBe("ok");
   }, 30_000);
 
   it("aborts a mux stream whose peer announces a message past maxMessageBytes", async () => {

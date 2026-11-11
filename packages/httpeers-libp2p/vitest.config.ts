@@ -16,6 +16,7 @@ const BOTH_PATHS = [
   "tests/exchange-path.test.ts",
   "tests/serve-peer.test.ts",
   "tests/peer-gone.test.ts",
+  "tests/quiet-exchange.test.ts",
 ];
 
 export default defineConfig({
