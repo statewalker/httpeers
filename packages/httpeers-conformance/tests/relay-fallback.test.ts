@@ -36,6 +36,8 @@ import { webSockets } from "@libp2p/websockets";
 import { createMounts, MESH_TOKEN_HEADER, PeerCallError } from "@statewalker/httpeers-core";
 import {
   createRemote,
+  MUX_PER_PEER_ENV,
+  MUX_PROTOCOL,
   type Peer,
   PROTOCOL,
   reachHubRelayed,
@@ -47,6 +49,9 @@ import { afterEach, describe, expect, it } from "vitest";
 import { hubHoldsCircuitTo, type Mesh, startMesh } from "./mesh-harness.js";
 
 const CHUNKS = 20;
+
+/** The protocol a call rides: the mux's when the suite runs on that path (`test:mux`). */
+const CALL_PROTOCOL = process.env[MUX_PER_PEER_ENV] === "1" ? MUX_PROTOCOL : PROTOCOL;
 
 let mesh: Mesh | null = null;
 let member: Libp2p | null = null;
@@ -184,7 +189,7 @@ describe("a member reaches its hub over a kept relay circuit", () => {
     );
     expect(response.status).toBe(200);
     // Mid-stream, the protocol stream is on the kept circuit, not a new one.
-    expect(kept.streams.some((s) => s.protocol === PROTOCOL)).toBe(true);
+    expect(kept.streams.some((s) => s.protocol === CALL_PROTOCOL)).toBe(true);
 
     const text = await response.text();
     const events = [...text.matchAll(/^data: (\d+)$/gm)].map((m) => Number(m[1]));

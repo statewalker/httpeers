@@ -81,6 +81,15 @@ const signer = signerOf(hubKey); // { mesh: peerIdOf(hubKey), seed }
 const token = await mintToken({ signer, sub, roles: ["member"], ttlMs: 60_000 });
 ```
 
+Experimental: every exchange with a peer over one windowed mux (issue #56). Off
+by default; the API may change or go away:
+
+```ts
+const peer = await servePeer({ node, mounts, muxPerPeer: true });
+// or tuned, and on the other entry points too:
+const remote = createRemote({ node, muxPerPeer: { window: 4 * 1024 * 1024 } });
+```
+
 ## Internals
 
 ### `servePeer` owns the wire and takes policy as a parameter
@@ -206,16 +215,67 @@ closed. `serveDuplex` / `openDuplex` run one `Duplex` per libp2p stream on
 `/httpeers-duplex/1.0.0`, addressed by path through their own mount table
 (`createDuplexMounts`).
 
+### One mux per peer (experimental, off by default)
+
+By default each HTTP exchange is its own libp2p stream on `/httpeers/1.0.0`.
+`muxPerPeer` (on `servePeer`, `createRemote` and `serveTransport`) carries
+them instead as virtual ports of one `multiplexPort` (`@statewalker/webrun-rpc`)
+over ONE libp2p stream per peer, on its own protocol, `/httpeers/1.0.0/mux`
+(`muxProtocolOf(protocol)` for another fetch protocol). Each port has a window
+(`window`, default 256 KiB) and large messages are framed (`frameSize`, default
+16 KiB), so:
+
+- a reader that stops reading holds its own port's window and nothing else:
+  the producer stops instead of the receiving peer buffering without limit,
+  and other exchanges on the same peer are not delayed behind it;
+- when the stream or its connection dies, every exchange open on it fails at
+  once with `PeerStreamResetError` (the same error a reset stream gives), and
+  the next call opens a new mux;
+- the per-protocol and per-connection stream caps no longer count exchanges.
+
+The cost: more CPU per small message, so small-message throughput is lower.
+#56 measured 65–82% of the per-exchange path on loopback; `scripts/bench-mux.mjs`
+compares the two paths here (`pnpm build` first; loopback only, not run in CI).
+Measurement on real networks, and the decision per kind of traffic, are still
+open.
+
+**Compatibility.** A peer with the flag SERVES both protocols, so callers
+without it are unaffected. A caller with the flag whose peer does not speak
+the mux protocol falls back to a stream per exchange for that peer's current
+connection; `muxPerPeer: { fallback: false }` fails such calls with
+`PeerProtocolUnsupportedError` instead.
+
+**Lifetime.** The mux is opened lazily by the first call to a peer; calls made
+while it opens share the one dial. One mux per peer per link and direction:
+calls this peer makes ride the mux it opened, calls the peer makes ride the one
+the peer opened, and each `createRemote` holds its own. `servePeer`'s `stop()`
+closes its muxes, and stopping the node closes their streams. Identity is
+unchanged: the serving side takes the Noise-proven peer of the connection the
+mux arrived on, never anything a port carries.
+
+**Selecting it without the option.** Where `muxPerPeer` is not passed, the
+environment decides: `HTTPEERS_LIBP2P_MUX_PER_PEER=1` in Node, or
+`globalThis.__HTTPEERS_LIBP2P_MUX_PER_PEER__ = true` in a page before the peer
+is built. That lets a whole suite built through layers that do not forward the
+option (hub, member) run on the mux path: this package's tests and
+`httpeers-conformance` run every test on both paths (vitest projects
+`per-exchange` and `mux-per-peer`), and `httpeers-browser-conformance`'s
+`test:forwarded-body` runs in each browser on both. The switch is part of the
+experiment and goes with it.
+
 ### Dependencies
 
 libp2p (`libp2p`, `@libp2p/*`, `@chainsafe/libp2p-noise`, `@chainsafe/libp2p-yamux`,
 `@multiformats/multiaddr`), `@statewalker/httpeers-core`,
 `@statewalker/httpeers-bridge` (HTTP over the link), and
 `@statewalker/webrun-streams`, `@statewalker/webrun-streams-libp2p`,
-`@statewalker/webrun-http-streams` (duplex streams over libp2p).
+`@statewalker/webrun-http-streams` (duplex streams over libp2p), and
+`@statewalker/webrun-rpc`, `@statewalker/webrun-msgpack` (the experimental mux).
 
 Tests: `pnpm --filter @statewalker/httpeers-libp2p test`. Files run serially
-because they start real libp2p nodes. `tests/serve-peer.test.ts` stands up two
+because they start real libp2p nodes, and every file runs twice, once per
+exchange path (`tests/exchange-path.test.ts` checks each run uses the path it
+names; `tests/mux-link.test.ts` covers what only the mux promises). `tests/serve-peer.test.ts` stands up two
 nodes over a real Noise handshake and checks that what arrives carries the
 identity the transport proved, not what the caller said.
 

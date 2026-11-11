@@ -16,13 +16,14 @@
  * `apps/session-shell/scripts/browser-test.mjs` stops at the MessagePort with a
  * stand-in handler, which is why it never saw that.
  *
- * Configuration arrives on the query string: `relay`, `hub`, `invitation`.
+ * Configuration arrives on the query string: `relay`, `hub`, `invitation`, and
+ * `mux=1` to run the member on the experimental one-mux-per-peer path (#56).
  * The verdict is left on `window.__forwardedBody` for the script to read.
  */
 
 import { ruleSet } from "@statewalker/httpeers-access";
 import { createMounts, type FetchHandler } from "@statewalker/httpeers-core";
-import { generateKey } from "@statewalker/httpeers-libp2p";
+import { generateKey, MUX_PER_PEER_GLOBAL } from "@statewalker/httpeers-libp2p";
 import { createGateway, startMember } from "@statewalker/httpeers-member";
 import { browserPlatform, mountEdge } from "@statewalker/httpeers-member/browser";
 
@@ -138,6 +139,11 @@ async function run(): Promise<void> {
   const invitation = params.get("invitation");
   if (relay == null || hub == null || invitation == null) {
     throw new Error("the page needs ?relay=&hub=&invitation=");
+  }
+  // Before the member is built: the transport reads the switch when it builds
+  // each link, and the layers between here and it do not forward the option.
+  if (params.get("mux") === "1") {
+    (globalThis as Record<string, unknown>)[MUX_PER_PEER_GLOBAL] = true;
   }
 
   setState("joining the mesh");

@@ -27,7 +27,8 @@ import type { Libp2p } from "@libp2p/interface";
 import type { FetchHandler, Mounts, PeerIdStr } from "@statewalker/httpeers-core";
 import { createPeerRouter } from "@statewalker/httpeers-core";
 import type { CallOnLimitedConnection } from "./link.js";
-import { createRemote, PROTOCOL, serveTransport } from "./transport.js";
+import type { MuxPerPeer } from "./mux-link.js";
+import { createClosableRemote, PROTOCOL, serveTransport } from "./transport.js";
 
 export interface ServePeerInit {
   node: Libp2p;
@@ -80,6 +81,14 @@ export interface ServePeerInit {
    * `(peerId) => peerId === hubPeerId`. See `CallOnLimitedConnection`.
    */
   callOnLimitedConnection?: CallOnLimitedConnection;
+  /**
+   * EXPERIMENTAL (#56): both directions of this peer over one windowed mux per
+   * peer -- its calls (`call`, and forwarding) open one, and it SERVES the mux
+   * protocol beside the per-exchange one, so callers without the flag are
+   * unaffected. Unset, the `HTTPEERS_LIBP2P_MUX_PER_PEER` switch decides. See
+   * `MuxPerPeerOptions` and the package README.
+   */
+  muxPerPeer?: MuxPerPeer;
 }
 
 export interface Peer {
@@ -99,11 +108,12 @@ export async function servePeer(init: ServePeerInit): Promise<Peer> {
 
   const mounts = typeof init.mounts === "function" ? init.mounts(peerId) : init.mounts;
 
-  const remote = createRemote({
+  const { remote, close: closeRemote } = createClosableRemote({
     node: init.node,
     protocol,
     maxOutboundStreams: init.maxOutboundStreams,
     callOnLimitedConnection: init.callOnLimitedConnection,
+    muxPerPeer: init.muxPerPeer,
   });
 
   const dispatch = createPeerRouter({
@@ -122,6 +132,7 @@ export async function servePeer(init: ServePeerInit): Promise<Peer> {
     maxOutboundStreams: init.maxOutboundStreams,
     drainTimeoutMs: init.drainTimeoutMs,
     runOnLimitedConnection: init.serveOnLimitedConnection,
+    muxPerPeer: init.muxPerPeer,
   });
 
   let stopped = false;
@@ -135,7 +146,11 @@ export async function servePeer(init: ServePeerInit): Promise<Peer> {
       // a test also cleans up — must not see the second call throw.
       if (stopped) return;
       stopped = true;
-      await stopServing();
+      try {
+        await stopServing();
+      } finally {
+        await closeRemote();
+      }
     },
   };
 }

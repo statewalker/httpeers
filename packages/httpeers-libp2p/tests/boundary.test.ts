@@ -38,8 +38,12 @@ const FORBIDDEN: Array<[string, RegExp]> = [
  * are deliberately absent from this list: they are WinterCG, present in Node,
  * Deno, Bun, browsers and workers alike, and this package is built on them.
  * Confusing "browser API" with "DOM API" is what would make this list wrong.
+ *
+ * A property of the same name is not the global: `options.window` and a
+ * `window:` key (webrun-rpc's per-port window, `mux-link.ts`) are skipped,
+ * while a bare `window` or `window.x` still matches.
  */
-const DOM_ONLY = /\b(document|window|navigator|localStorage|sessionStorage)\b/;
+const DOM_ONLY = /(?<![.\w$])(document|window|navigator|localStorage|sessionStorage)\b(?!\s*\??:)/;
 
 /**
  * The PLATFORM entry points, listed by name.

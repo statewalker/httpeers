@@ -2,7 +2,7 @@
   "name": "@statewalker/httpeers-libp2p",
   "version": "0.3.2",
   "type": "module",
-  "description": "The transport: nodes, identity, and servePeer — the one place in the extraction that knows what libp2p is.",
+  "description": "The transport: nodes, identity, and servePeer \u2014 the one place in the extraction that knows what libp2p is.",
   "bugs": {
     "url": "https://github.com/statewalker/httpeers/issues"
   },
@@ -60,6 +60,8 @@
     "@statewalker/httpeers-bridge": "workspace:^",
     "@statewalker/httpeers-core": "workspace:^",
     "@statewalker/webrun-http-streams": "catalog:",
+    "@statewalker/webrun-msgpack": "catalog:",
+    "@statewalker/webrun-rpc": "catalog:",
     "@statewalker/webrun-streams": "catalog:",
     "@statewalker/webrun-streams-libp2p": "catalog:",
     "libp2p": "catalog:",

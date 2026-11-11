@@ -1,0 +1,8 @@
+---
+"@statewalker/httpeers-libp2p": minor
+"@statewalker/httpeers-bridge": minor
+---
+
+Experimental, off by default (#56): `muxPerPeer` on `servePeer`, `createRemote` and `serveTransport` carries every HTTP exchange with a peer as a windowed virtual port over ONE libp2p stream (`multiplexPort` from `@statewalker/webrun-rpc`, msgpack envelopes, fair framing), on its own protocol, `/httpeers/1.0.0/mux`, instead of one libp2p stream per exchange. `true` takes the defaults (`DEFAULT_MUX_WINDOW`, 256 KiB; `DEFAULT_MUX_FRAME_SIZE`, 16 KiB), or pass `{ window, frameSize, maxPorts, fallback, protocol }`. A stalled reader then holds only its own port's window, and a dead stream fails every exchange open on it at once with `PeerStreamResetError`; the next call opens a new mux. A peer with the flag serves both protocols; a caller with it falls back to a stream per exchange for a peer without the mux protocol (or, with `fallback: false`, fails with `PeerProtocolUnsupportedError`). Where the option is not passed, `HTTPEERS_LIBP2P_MUX_PER_PEER=1` (Node) or `globalThis.__HTTPEERS_LIBP2P_MUX_PER_PEER__ = true` (a page) turns it on, so a test suite can run on this path. Nothing changes without the flag. New exports: `MUX_PROTOCOL`, `muxProtocolOf`, `DEFAULT_MUX_WINDOW`, `DEFAULT_MUX_FRAME_SIZE`, `MUX_PER_PEER_ENV`, `MUX_PER_PEER_GLOBAL`, and the `MuxPerPeer` / `MuxPerPeerOptions` types. `servePeer`'s `stop()` now also closes the muxes its calls opened (a no-op without the flag).
+
+`@statewalker/httpeers-bridge` takes `@statewalker/webrun-rpc` ^0.10.2 (was ^0.5.1). The MessagePort link (`pairedLinks`) uses plain ports, without a window, which behave as before.

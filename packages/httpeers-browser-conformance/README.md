@@ -39,7 +39,9 @@ pnpm --filter @statewalker/httpeers-browser-conformance test:forwarded-body
 ```
 
 `PLAYWRIGHT_FIREFOX_PATH` / `PLAYWRIGHT_CHROMIUM_PATH` point `test:forwarded-body` at a
-browser executable outside Playwright's default install; `--browsers chromium` runs one engine.
+browser executable outside Playwright's default install; `--browsers chromium` runs one engine,
+and `--paths per-exchange` or `--paths mux` one exchange path (both by default: one libp2p stream
+per exchange, and httpeers-libp2p's experimental one mux per peer, issue #56).
 
 ## Examples
 
@@ -48,7 +50,7 @@ browser executable outside Playwright's default install; `--browsers chromium` r
 | `tests/sw-lifecycle.test.ts` | a worker registers and activates; survives a reload; is removed by `unregister()`; keeps controlling the page after `unregister()` until the page goes; IndexedDB outlives the worker |
 | `tests/reset.test.ts` | `resetBrowserState()` removes the worker, the databases and the stored values together; is safe with nothing to remove; reports what it removed |
 | `tests/biscuit.test.ts` | a page imports `@statewalker/httpeers-access` the ordinary way and mints, verifies and authorizes tokens, and fetches no `.wasm` |
-| `scripts/forwarded-body.mjs` | a real browser member joins a loopback mesh (the deployed relay, a hub with an `/echo` stub) and POSTs 76 B, 1 MiB and — where the engine can build one — a 512 KiB stream through `fetch()` → ServiceWorker → `createGateway` → the member edge → the peer router → libp2p; the stub reports the byte count and SHA-256 that arrived |
+| `scripts/forwarded-body.mjs` | a real browser member joins a loopback mesh (the deployed relay, a hub with an `/echo` stub) and POSTs 76 B, 1 MiB and — where the engine can build one — a 512 KiB stream through `fetch()` → ServiceWorker → `createGateway` → the member edge → the peer router → libp2p; the stub reports the byte count and SHA-256 that arrived. Runs on both exchange paths, and checks at the hub that the calls rode the path named |
 | `scripts/edge-reload.mjs` | first visit, normal reload, hard reload (recovered with no extra navigation), a second tab, and — against a worker that ignores `CLAIM` — the single fallback reload and its spent guard |
 
 ## Internals
