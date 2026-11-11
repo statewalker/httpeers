@@ -2,7 +2,7 @@
  * A POST, with its body, through the REAL forwarders -- in real Chromium and Firefox.
  *
  *   pnpm --filter @statewalker/httpeers-browser-conformance test:forwarded-body
- *   node scripts/forwarded-body.mjs [--browsers chromium,firefox]
+ *   node scripts/forwarded-body.mjs [--browsers chromium,firefox] [--paths per-exchange,mux]
  *
  * WHY THIS EXISTS (issue #22). Firefox has no `Request.prototype.body`, so a
  * forwarder that rebuilt a request with `body: request.body`, or with
@@ -29,6 +29,13 @@
  * The far side is a stub; the point is that every forwarder between the page
  * and it is the production one. See `docs/security-model.md`.
  *
+ * BOTH EXCHANGE PATHS (#56). Each run is made once per `--paths` entry: with
+ * one libp2p stream per exchange (the default transport), and with the
+ * experimental one windowed mux per peer (`muxPerPeer` on the hub's
+ * `servePeer`, and `?mux=1`, which the page passes to `startMember`). After each browser's run the hub's
+ * connections are checked for the protocol the path should have used, so a
+ * switch that did nothing fails rather than passing twice.
+ *
  * Browsers: Playwright's own. `PLAYWRIGHT_FIREFOX_PATH` / `PLAYWRIGHT_CHROMIUM_PATH`
  * point a launch at another executable when the default install is not there.
  */
@@ -51,7 +58,9 @@ import {
   dialRelay,
   generateKey,
   hubRelayService,
+  MUX_PROTOCOL,
   membershipGater,
+  PROTOCOL,
   servePeer,
   signerOf,
   waitForCircuitReservation,
@@ -67,6 +76,10 @@ const opt = (name, fallback) => {
   return i >= 0 ? args[i + 1] : fallback;
 };
 const wanted = opt("--browsers", "chromium,firefox").split(",");
+const paths = opt("--paths", "per-exchange,mux").split(",");
+for (const path of paths) {
+  if (path !== "per-exchange" && path !== "mux") throw new Error(`unknown path "${path}"`);
+}
 
 /** Joining includes a WebRTC upgrade attempt and, failing it, the relayed fallback. */
 const VERDICT_TIMEOUT_MS = 120_000;
@@ -142,7 +155,7 @@ async function echo(request) {
   });
 }
 
-async function startMesh() {
+async function startMesh(muxPerPeer) {
   const relay = await startRelay({ privateKey: await generateKey(), port: 0 });
   const relayAddr = relay.node
     .getMultiaddrs()
@@ -181,6 +194,7 @@ async function startMesh() {
   const hubPeer = await servePeer({
     node,
     mounts: hub.mounts,
+    muxPerPeer,
     access: withAccess({
       issuer: hubPeerId,
       rules: MESH_RULES,
@@ -205,6 +219,12 @@ async function startMesh() {
   return {
     relayAddr,
     hubPeerId,
+    /** Protocols of the streams the hub holds now, with how many of each. */
+    streamProtocols: () =>
+      node
+        .getConnections()
+        .flatMap((c) => c.streams.map((s) => s.protocol))
+        .filter((p) => p != null),
     invite: async () => (await hub.invitations.create(["member"], 10 * 60_000)).id,
     async stop() {
       await quietly(() => hubPeer.stop());
@@ -233,56 +253,76 @@ try {
   outDir = await mkdtemp(join(tmpdir(), "httpeers-forwarded-body-"));
   await buildPage(outDir);
   site = await servePage(outDir);
-  mesh = await startMesh();
 
-  for (const name of wanted) {
-    const engine = engines[name];
-    if (engine == null) throw new Error(`unknown browser "${name}"`);
-    console.log(`\n=== ${name}`);
-    const browser = await engine.type.launch(
-      engine.executablePath ? { executablePath: engine.executablePath } : {},
-    );
-    try {
-      const context = await browser.newContext();
-      const page = await context.newPage();
-      const problems = [];
-      page.on("pageerror", (e) => problems.push(`pageerror: ${e.message}`));
+  for (const path of paths) {
+    mesh = await startMesh(path === "mux");
 
-      const url = new URL(site.origin);
-      url.searchParams.set("relay", mesh.relayAddr);
-      url.searchParams.set("hub", mesh.hubPeerId);
-      url.searchParams.set("invitation", await mesh.invite());
-      await page.goto(url.href);
+    for (const name of wanted) {
+      const engine = engines[name];
+      if (engine == null) throw new Error(`unknown browser "${name}"`);
+      const label = `${name}, ${path}`;
+      console.log(`\n=== ${label}`);
+      const browser = await engine.type.launch(
+        engine.executablePath ? { executablePath: engine.executablePath } : {},
+      );
+      try {
+        const context = await browser.newContext();
+        const page = await context.newPage();
+        const problems = [];
+        page.on("pageerror", (e) => problems.push(`pageerror: ${e.message}`));
 
-      await page
-        .waitForFunction(() => ["done", "error"].includes(window.__forwardedBody?.state), null, {
-          timeout: VERDICT_TIMEOUT_MS,
-          polling: 250,
-        })
-        .catch(() => {});
-      const verdict = await page.evaluate(() => window.__forwardedBody ?? null);
+        const url = new URL(site.origin);
+        url.searchParams.set("relay", mesh.relayAddr);
+        url.searchParams.set("hub", mesh.hubPeerId);
+        url.searchParams.set("invitation", await mesh.invite());
+        if (path === "mux") url.searchParams.set("mux", "1");
+        await page.goto(url.href);
 
-      if (verdict?.state !== "done") {
-        const why =
-          verdict?.state === "error"
-            ? `failed while ${verdict.step}: ${verdict.message}`
-            : `no verdict within ${VERDICT_TIMEOUT_MS} ms (last step: ${verdict?.step ?? "none"})`;
-        console.log(`FAIL [${name}] the page did not finish -- ${why}`);
-        for (const p of problems) console.log(`     ${p}`);
-        failures.push(`${name}: ${why}`);
-        continue;
+        await page
+          .waitForFunction(() => ["done", "error"].includes(window.__forwardedBody?.state), null, {
+            timeout: VERDICT_TIMEOUT_MS,
+            polling: 250,
+          })
+          .catch(() => {});
+        const verdict = await page.evaluate(() => window.__forwardedBody ?? null);
+
+        if (verdict?.state !== "done") {
+          const why =
+            verdict?.state === "error"
+              ? `failed while ${verdict.step}: ${verdict.message}`
+              : `no verdict within ${VERDICT_TIMEOUT_MS} ms (last step: ${verdict?.step ?? "none"})`;
+          console.log(`FAIL [${label}] the page did not finish -- ${why}`);
+          for (const p of problems) console.log(`     ${p}`);
+          failures.push(`${label}: ${why}`);
+          continue;
+        }
+
+        console.log(`     hub link: ${verdict.hubLink}`);
+        for (const r of verdict.results) {
+          const tag = r.status === "pass" ? "ok  " : r.status === "skip" ? "skip" : "FAIL";
+          console.log(`${tag} [${label}] ${r.name} -- ${r.detail}`);
+          if (r.status === "fail") failures.push(`${label}: ${r.name}: ${r.detail}`);
+        }
+
+        // Which protocol the member's calls rode. The mux stream is long-lived,
+        // so it is still there while the page is; per-exchange streams end with
+        // their exchange, so on that path only the absence of a mux is checked.
+        const protocols = mesh.streamProtocols();
+        const muxStreams = protocols.filter((p) => p === MUX_PROTOCOL).length;
+        const pathOk = path === "mux" ? muxStreams >= 1 : muxStreams === 0;
+        console.log(
+          `${pathOk ? "ok  " : "FAIL"} [${label}] exchange path -- ${muxStreams} ${MUX_PROTOCOL} stream(s) at the hub, ${
+            protocols.filter((p) => p === PROTOCOL).length
+          } ${PROTOCOL}`,
+        );
+        if (!pathOk) failures.push(`${label}: the calls did not ride the ${path} path`);
+        await context.close();
+      } finally {
+        await browser.close();
       }
-
-      console.log(`     hub link: ${verdict.hubLink}`);
-      for (const r of verdict.results) {
-        const tag = r.status === "pass" ? "ok  " : r.status === "skip" ? "skip" : "FAIL";
-        console.log(`${tag} [${name}] ${r.name} -- ${r.detail}`);
-        if (r.status === "fail") failures.push(`${name}: ${r.name}: ${r.detail}`);
-      }
-      await context.close();
-    } finally {
-      await browser.close();
     }
+    await mesh.stop();
+    mesh = undefined;
   }
 } finally {
   await mesh?.stop();

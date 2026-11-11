@@ -44,6 +44,7 @@ import {
   dialRelay,
   HubReservationError,
   leaveRelay,
+  type MuxPerPeer,
   reachHub,
   reachHubRelayed,
   reserveOnHub,
@@ -106,6 +107,12 @@ export interface StartMemberInit {
   onState?: (state: MemberState) => void;
   heartbeatIntervalMs?: number;
   keepaliveIntervalMs?: number;
+  /**
+   * EXPERIMENTAL (httpeers#56): this member's exchanges over one windowed mux
+   * per peer instead of one libp2p stream each; forwarded to `servePeer`. Off
+   * when unset. See `@statewalker/httpeers-libp2p`'s README.
+   */
+  muxPerPeer?: MuxPerPeer;
 }
 
 export type MemberState =
@@ -265,6 +272,7 @@ export async function startMember(init: StartMemberInit): Promise<MemberHandle> 
       // open. Serving stays closed to limited connections -- the hub's own
       // relay limits are what protect member-to-member traffic.
       callOnLimitedConnection: (peerId) => peerId === hubPeerId,
+      ...(init.muxPerPeer == null ? {} : { muxPerPeer: init.muxPerPeer }),
       access: withAccess({
         issuer: hubPeerId,
         rules: init.rules,

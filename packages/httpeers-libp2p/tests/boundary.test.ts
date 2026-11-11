@@ -38,8 +38,16 @@ const FORBIDDEN: Array<[string, RegExp]> = [
  * are deliberately absent from this list: they are WinterCG, present in Node,
  * Deno, Bun, browsers and workers alike, and this package is built on them.
  * Confusing "browser API" with "DOM API" is what would make this list wrong.
+ *
+ * A PROPERTY NAME IS NOT THE GLOBAL, and only property names are exempt:
+ * `options.window` (a member of something other than `globalThis` / `self`)
+ * and a `window:` / `window?:` key (webrun-rpc's per-port window,
+ * `mux-link.ts`; Biome writes keys with no space before the colon). A bare
+ * `window`, `globalThis.document`, `globalThis?.navigator`, `self.window` and
+ * a ternary's `? window :` still match; the cases are pinned below.
  */
-const DOM_ONLY = /\b(document|window|navigator|localStorage|sessionStorage)\b/;
+const DOM_ONLY =
+  /(?<!(?<!\b(?:globalThis|self)\??)\.)(?<![\w$])(document|window|navigator|localStorage|sessionStorage)\b(?!\??:)/;
 
 /**
  * The PLATFORM entry points, listed by name.
@@ -69,6 +77,29 @@ function codeOf(file: string): string {
     .replace(/\/\*[\s\S]*?\*\//g, "")
     .replace(/\/\/.*$/gm, "");
 }
+
+describe("the DOM-only check itself", () => {
+  const flagged = [
+    "window.location",
+    "const w = window;",
+    "typeof document",
+    "navigator.userAgent",
+    "globalThis.document.title",
+    "globalThis?.navigator.userAgent",
+    "globalThis.localStorage",
+    "self.window",
+    "const x = cond ? window : other;",
+  ];
+  const exempt = [
+    "options.window ?? 1",
+    "init.document",
+    "{ window: 262144 }",
+    "window?: number;",
+    "  window: options.window,",
+  ];
+  for (const code of flagged) it(`flags ${code}`, () => expect(code).toMatch(DOM_ONLY));
+  for (const code of exempt) it(`exempts ${code}`, () => expect(code).not.toMatch(DOM_ONLY));
+});
 
 describe("the isomorphism boundary", () => {
   const files = sources(SRC);

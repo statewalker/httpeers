@@ -25,6 +25,12 @@ import {
   connect,
   serveConnections,
 } from "@statewalker/webrun-streams-libp2p";
+import {
+  type ClosablePeerLink,
+  libp2pMuxLink,
+  type MuxPerPeer,
+  resolveMuxPerPeer,
+} from "./mux-link.js";
 import { DEFAULT_DRAIN_TIMEOUT_MS, DEFAULT_MAX_STREAMS, PROTOCOL } from "./transport.js";
 
 export interface Libp2pLinkInit {
@@ -43,6 +49,12 @@ export interface Libp2pLinkInit {
   serveOnLimitedConnection?: boolean;
   /** OPEN streams on limited connections, to the peers this allows. See `CallOnLimitedConnection`. */
   callOnLimitedConnection?: CallOnLimitedConnection;
+  /**
+   * EXPERIMENTAL (#56): carry every exchange with a peer as a windowed port
+   * over one libp2p stream, instead of one stream per exchange. `true` for the
+   * defaults, or `MuxPerPeerOptions`. Off when unset. See `mux-link.ts`.
+   */
+  muxPerPeer?: MuxPerPeer;
 }
 
 /**
@@ -57,8 +69,36 @@ export interface Libp2pLinkInit {
  */
 export type CallOnLimitedConnection = boolean | ((peerId: PeerIdStr) => boolean);
 
-/** Wrap a running libp2p node as the one seam the bridge needs. */
-export function libp2pLink(init: Libp2pLinkInit): PeerLink {
+/**
+ * Wrap a running libp2p node as the one seam the bridge needs.
+ *
+ * One stream per exchange, unless `muxPerPeer` selects the experimental
+ * one-mux-per-peer path.
+ */
+export function libp2pLink(init: Libp2pLinkInit): ClosablePeerLink {
+  const perExchange = perExchangeLink(init);
+  const mux = resolveMuxPerPeer(init.muxPerPeer);
+  if (mux == null) return { ...perExchange, close: async () => {} };
+  const { node, callOnLimitedConnection = false } = init;
+  const limitedFor = (peerId: PeerIdStr): boolean =>
+    typeof callOnLimitedConnection === "function"
+      ? callOnLimitedConnection(peerId)
+      : callOnLimitedConnection;
+  return libp2pMuxLink({
+    node,
+    perExchange,
+    protocol: init.protocol ?? PROTOCOL,
+    options: mux,
+    maxInboundStreams: init.maxInboundStreams ?? DEFAULT_MAX_STREAMS,
+    drainTimeoutMs: init.drainTimeoutMs ?? DEFAULT_DRAIN_TIMEOUT_MS,
+    serveOnLimitedConnection: init.serveOnLimitedConnection,
+    limitedFor,
+    dialerFor: (peerId, limited) => (limited ? keptCircuitFirst(node, peerId) : node),
+  });
+}
+
+/** One libp2p stream per exchange: the default, and what a mux link falls back to. */
+function perExchangeLink(init: Libp2pLinkInit): PeerLink {
   const {
     node,
     protocol = PROTOCOL,

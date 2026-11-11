@@ -16,7 +16,8 @@
  * `apps/session-shell/scripts/browser-test.mjs` stops at the MessagePort with a
  * stand-in handler, which is why it never saw that.
  *
- * Configuration arrives on the query string: `relay`, `hub`, `invitation`.
+ * Configuration arrives on the query string: `relay`, `hub`, `invitation`, and
+ * `mux=1` to run the member on the experimental one-mux-per-peer path (#56).
  * The verdict is left on `window.__forwardedBody` for the script to read.
  */
 
@@ -139,6 +140,7 @@ async function run(): Promise<void> {
   if (relay == null || hub == null || invitation == null) {
     throw new Error("the page needs ?relay=&hub=&invitation=");
   }
+  const muxPerPeer = params.get("mux") === "1";
 
   setState("joining the mesh");
   const member = await startMember({
@@ -150,6 +152,7 @@ async function run(): Promise<void> {
     platform: browserPlatform({ serviceWorkerUrl: "/sw.js", dev: true }),
     invitationId: invitation,
     privateKey: await generateKey(),
+    muxPerPeer,
   });
   if (member.baseUrl == null) throw new Error("the member mounted no edge");
 

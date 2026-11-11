@@ -60,6 +60,8 @@
     "@statewalker/httpeers-bridge": "workspace:^",
     "@statewalker/httpeers-core": "workspace:^",
     "@statewalker/webrun-http-streams": "catalog:",
+    "@statewalker/webrun-msgpack": "catalog:",
+    "@statewalker/webrun-rpc": "catalog:",
     "@statewalker/webrun-streams": "catalog:",
     "@statewalker/webrun-streams-libp2p": "catalog:",
     "libp2p": "catalog:",

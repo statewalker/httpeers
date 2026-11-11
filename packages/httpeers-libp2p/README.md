@@ -81,6 +81,15 @@ const signer = signerOf(hubKey); // { mesh: peerIdOf(hubKey), seed }
 const token = await mintToken({ signer, sub, roles: ["member"], ttlMs: 60_000 });
 ```
 
+Experimental: every exchange with a peer over one windowed mux (issue #56). Off
+by default; the API may change or go away:
+
+```ts
+const peer = await servePeer({ node, mounts, muxPerPeer: true });
+// or tuned, and on the other entry points too:
+const remote = createRemote({ node, muxPerPeer: { window: 4 * 1024 * 1024 } });
+```
+
 ## Internals
 
 ### `servePeer` owns the wire and takes policy as a parameter
@@ -206,16 +215,91 @@ closed. `serveDuplex` / `openDuplex` run one `Duplex` per libp2p stream on
 `/httpeers-duplex/1.0.0`, addressed by path through their own mount table
 (`createDuplexMounts`).
 
+### One mux per peer (experimental, off by default)
+
+By default each HTTP exchange is its own libp2p stream on `/httpeers/1.0.0`.
+`muxPerPeer` (on `servePeer`, `createRemote` and `serveTransport`) carries
+them instead as virtual ports of one `multiplexPort` (`@statewalker/webrun-rpc`)
+over ONE libp2p stream per peer, on its own protocol, `/httpeers/1.0.0/mux`
+(`muxProtocolOf(protocol)` for another fetch protocol). Each port has a window
+(`window`, default 256 KiB) and large messages are framed (`frameSize`, default
+16 KiB), so:
+
+- a reader that stops reading holds its own port's window and nothing else:
+  the producer stops instead of the receiving peer buffering without limit,
+  and other exchanges on the same peer are not delayed behind it;
+- when the stream or its connection dies, every exchange open on it fails at
+  once with `PeerStreamResetError` (the same error a reset stream gives), and
+  the next call opens a new mux;
+- one stream per peer, so libp2p's per-protocol and per-connection stream
+  caps no longer limit how many exchanges a peer may have open.
+
+The cost: more CPU per small message, so small-message throughput is lower.
+#56 measured 65–82% of the per-exchange path on loopback; `scripts/bench-mux.mjs`
+compares the two paths here (`pnpm build` first; loopback only, not run in CI).
+Measurement on real networks, and the decision per kind of traffic, are still
+open.
+
+**Compatibility.** A peer with the flag SERVES both protocols, so callers
+without it are unaffected. A caller with the flag whose peer does not speak
+the mux protocol falls back to a stream per exchange for that peer's current
+connection; `muxPerPeer: { fallback: false }` fails such calls with
+`PeerProtocolUnsupportedError` instead.
+
+**Serving-side bounds.** The per-exchange path's contract
+(`DEFAULT_MAX_STREAMS` × `DEFAULT_DRAIN_TIMEOUT_MS`) carries over:
+
+- at most `maxInboundStreams` (512) exchanges are served at once per
+  connection, counted across all of its muxes; a port past that is refused
+  and the caller gets `PeerStreamResetError`, as for a refused stream;
+- a served exchange idle in both directions for `drainTimeoutMs` (15 s) is
+  dropped, so a peer that opens ports and withholds credit pins nothing past
+  it. **Unlike the per-exchange path**, this counts any silence, not only a
+  blocked write: a handler that sends nothing for 15 s (a slow head, a quiet
+  event stream) is dropped too;
+- stream chunks are split to `frameSize`, a message on the stream may be at
+  most `frameSize` + 16 KiB (`maxMessageBytes`; larger aborts the stream),
+  and reassembly past the windows is capped at one window
+  (`maxReassembledBytes`);
+- a keepalive (every 5 s, `keepaliveMs`) closes a mux whose peer stops
+  answering;
+- at most 8 mux streams per connection and direction
+  (`MUX_MAX_STREAMS_PER_CONNECTION`); a link that finds them all taken uses a
+  stream per exchange instead.
+
+**Lifetime.** The mux is opened lazily by the first call to a peer; calls made
+while it opens share the one dial. One mux per peer per link and direction:
+calls this peer makes ride the mux it opened, calls the peer makes ride the one
+the peer opened, and each `createRemote` holds its own. `servePeer`'s `stop()`
+closes its muxes, and stopping the node closes their streams. Identity is
+unchanged: the serving side takes the Noise-proven peer of the connection the
+mux arrived on, never anything a port carries.
+
+**Selecting it.** Only the option does: the library reads no environment.
+`startMember` (`@statewalker/httpeers-member`) forwards `muxPerPeer` to its
+`servePeer`. The suites pass it down themselves: this package's transport
+tests and `httpeers-conformance` run on both paths (vitest projects
+`per-exchange` and `mux-per-peer`, which set a variable only the tests read),
+and `httpeers-browser-conformance`'s `test:forwarded-body` runs in each browser
+on both.
+
+**Loaded on demand.** `@statewalker/webrun-rpc` and `@statewalker/webrun-msgpack`
+are imported dynamically the first time a mux link is used, so a consumer
+that never sets the flag does not load them.
+
 ### Dependencies
 
 libp2p (`libp2p`, `@libp2p/*`, `@chainsafe/libp2p-noise`, `@chainsafe/libp2p-yamux`,
 `@multiformats/multiaddr`), `@statewalker/httpeers-core`,
 `@statewalker/httpeers-bridge` (HTTP over the link), and
 `@statewalker/webrun-streams`, `@statewalker/webrun-streams-libp2p`,
-`@statewalker/webrun-http-streams` (duplex streams over libp2p).
+`@statewalker/webrun-http-streams` (duplex streams over libp2p), and
+`@statewalker/webrun-rpc`, `@statewalker/webrun-msgpack` (the experimental mux).
 
 Tests: `pnpm --filter @statewalker/httpeers-libp2p test`. Files run serially
-because they start real libp2p nodes. `tests/serve-peer.test.ts` stands up two
+because they start real libp2p nodes, and the transport tests run twice, once
+per exchange path (`tests/exchange-path.test.ts` checks each run uses the path it
+names; `tests/mux-link.test.ts` covers what only the mux promises). `tests/serve-peer.test.ts` stands up two
 nodes over a real Noise handshake and checks that what arrives carries the
 identity the transport proved, not what the caller said.
 

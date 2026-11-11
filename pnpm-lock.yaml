@@ -114,9 +114,12 @@ catalogs:
     '@statewalker/webrun-http-streams':
       specifier: ^0.3.1
       version: 0.3.1
+    '@statewalker/webrun-msgpack':
+      specifier: ^0.9.2
+      version: 0.9.2
     '@statewalker/webrun-rpc':
-      specifier: ^0.5.1
-      version: 0.5.1
+      specifier: ^0.10.2
+      version: 0.10.2
     '@statewalker/webrun-streams':
       specifier: ^0.2.3
       version: 0.2.3
@@ -701,7 +704,7 @@ importers:
         version: 0.3.1
       '@statewalker/webrun-rpc':
         specifier: 'catalog:'
-        version: 0.5.1
+        version: 0.10.2
       '@statewalker/webrun-streams':
         specifier: 'catalog:'
         version: 0.2.3
@@ -991,6 +994,12 @@ importers:
       '@statewalker/webrun-http-streams':
         specifier: 'catalog:'
         version: 0.3.1
+      '@statewalker/webrun-msgpack':
+        specifier: 'catalog:'
+        version: 0.9.2
+      '@statewalker/webrun-rpc':
+        specifier: 'catalog:'
+        version: 0.10.2
       '@statewalker/webrun-streams':
         specifier: 'catalog:'
         version: 0.2.3
@@ -3069,6 +3078,12 @@ packages:
 
   '@statewalker/webrun-http-streams@0.3.1':
     resolution: {integrity: sha512-BTnLyuLwmkJxmZGAVVpDtsCVzWhnXAQQL42GFU3uFw/bu/cSHgciqkTCX782N5Wrb5nssTCaUrW9aoOobNRUcA==}
+
+  '@statewalker/webrun-msgpack@0.9.2':
+    resolution: {integrity: sha512-CbS+x5QVY2hP1sY8pMGUVrTRU8bSy+awT9R2gnUZNabYsK+vNdx5vLp0sqaQebpCDGJ/LWoR97QWaoq3RvYJWQ==}
+
+  '@statewalker/webrun-rpc@0.10.2':
+    resolution: {integrity: sha512-li7QgZ7mA8XDuGnqI5wRKBy1Z5MUXB0PhjPZo9PE8azQzlZBMfX6N9BcTY3laV82O2EDcbpAVyynrHMh3m21BQ==}
 
   '@statewalker/webrun-rpc@0.5.1':
     resolution: {integrity: sha512-DpnT0dJ0KpdL5QKqKTmN75CnGc1w24iHdZqYfJQLVpSKEIR/GjPb3Vzbzb4NIu9tCHsroW+Dq1CO84Jp6YCXzw==}
@@ -7660,6 +7675,14 @@ snapshots:
   '@statewalker/webrun-http-proxy@0.2.3': {}
 
   '@statewalker/webrun-http-streams@0.3.1':
+    dependencies:
+      '@statewalker/webrun-streams': 0.2.3
+
+  '@statewalker/webrun-msgpack@0.9.2':
+    dependencies:
+      '@statewalker/webrun-rpc': 0.10.2
+
+  '@statewalker/webrun-rpc@0.10.2':
     dependencies:
       '@statewalker/webrun-streams': 0.2.3
 

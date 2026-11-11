@@ -49,6 +49,7 @@ import {
 import { HttpParseError } from "@statewalker/webrun-http-streams";
 import { createLibp2p } from "libp2p";
 import { type CallOnLimitedConnection, libp2pLink } from "./link.js";
+import type { MuxPerPeer } from "./mux-link.js";
 
 /**
  * A namespaced protocol id, passed explicitly rather than left at
@@ -336,6 +337,9 @@ export function mapPeerCallError(err: unknown, peerId: PeerIdStr): PeerCallError
     // bridge a `mapBodyError` that sends this error, and only this one,
     // through this function.
     case "PeerGoneError":
+    // The mux path's refused or dropped port (`mux-link.ts`): what a refused
+    // or reset stream is on the per-exchange path.
+    case "MuxPortClosedError":
     case "TooManyOutboundProtocolStreamsError":
     case "TooManyInboundProtocolStreamsError":
       return new PeerStreamResetError(peerId, cause);
@@ -454,6 +458,12 @@ export interface ServeTransportInit {
   maxOutboundStreams?: number;
   /** Accept streams on limited connections too -- serving only. See `Libp2pLinkInit.serveOnLimitedConnection`. */
   runOnLimitedConnection?: boolean;
+  /**
+   * EXPERIMENTAL (#56): one windowed mux per peer instead of one stream per
+   * exchange. Off when unset. See `MuxPerPeerOptions` and the
+   * package README.
+   */
+  muxPerPeer?: MuxPerPeer;
 }
 
 /**
@@ -480,6 +490,7 @@ export async function serveTransport(init: ServeTransportInit): Promise<() => Pr
       maxInboundStreams: init.maxInboundStreams,
       maxOutboundStreams: init.maxOutboundStreams,
       serveOnLimitedConnection: init.runOnLimitedConnection,
+      muxPerPeer: init.muxPerPeer,
     }),
     dispatch: init.dispatch,
   });
@@ -514,6 +525,12 @@ export interface CreateRemoteInit {
   maxConcurrentOutbound?: number;
   /** Open streams on limited connections to the peers this allows. See `CallOnLimitedConnection`. */
   callOnLimitedConnection?: CallOnLimitedConnection;
+  /**
+   * EXPERIMENTAL (#56): one windowed mux per peer instead of one stream per
+   * exchange. Off when unset. See `MuxPerPeerOptions` and the
+   * package README.
+   */
+  muxPerPeer?: MuxPerPeer;
 }
 
 /**
@@ -539,19 +556,33 @@ export interface CreateRemoteInit {
  * to this `Remote`, not per-target-peer) was chosen.
  */
 export function createRemote(init: CreateRemoteInit): Remote {
+  return createClosableRemote(init).remote;
+}
+
+/**
+ * `createRemote`, with the way to let go of what its link holds: on the mux
+ * path, the one stream per peer it opened (stopping the node closes them as
+ * well). `servePeer` closes it on `stop()`; on the default path it is a no-op.
+ */
+export function createClosableRemote(init: CreateRemoteInit): {
+  remote: Remote;
+  close(): Promise<void>;
+} {
   // DELEGATES, for the same reason as `serveTransport`. The permit, the
   // per-call timeout and the cleanup are the bridge's; `mapPeerCallError` stays
   // here because the strings it matches ("All multiaddr dials failed" and
   // friends) are libp2p's own, and a generic bridge that pattern-matched one
   // transport's wording would mis-classify every other one.
-  return createRemoteOverLink({
-    link: libp2pLink({
-      node: init.node,
-      protocol: init.protocol,
-      drainTimeoutMs: init.drainTimeoutMs,
-      maxOutboundStreams: init.maxOutboundStreams,
-      callOnLimitedConnection: init.callOnLimitedConnection,
-    }),
+  const link = libp2pLink({
+    node: init.node,
+    protocol: init.protocol,
+    drainTimeoutMs: init.drainTimeoutMs,
+    maxOutboundStreams: init.maxOutboundStreams,
+    callOnLimitedConnection: init.callOnLimitedConnection,
+    muxPerPeer: init.muxPerPeer,
+  });
+  const remote = createRemoteOverLink({
+    link,
     requestTimeoutMs: init.requestTimeoutMs,
     maxConcurrentOutbound: init.maxConcurrentOutbound,
     mapError: (error, target) => mapPeerCallError(error, target),
@@ -560,9 +591,13 @@ export function createRemote(init: CreateRemoteInit): Remote {
     // across and rebuilt with ITS name: a handler's `AbortSignal.timeout()`
     // arrives as a `TimeoutError`, and `mapPeerCallError` would report it as
     // this side's request timeout. Those reach the reader unchanged.
+    // (On the mux path, a dead stream aborts each port with the same
+    // `PeerGoneError`, so both paths map it alike.)
     mapBodyError: (error, target) =>
-      error instanceof Error && error.name === "PeerGoneError"
+      error instanceof Error &&
+      (error.name === "PeerGoneError" || error.name === "MuxPortClosedError")
         ? mapPeerCallError(error, target)
         : undefined,
   });
+  return { remote, close: () => link.close() };
 }

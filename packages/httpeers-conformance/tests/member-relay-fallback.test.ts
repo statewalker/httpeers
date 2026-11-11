@@ -37,6 +37,7 @@ import { createRemote } from "@statewalker/httpeers-libp2p";
 import { type MemberHandle, type MemberPlatform, startMember } from "@statewalker/httpeers-member";
 import { createLibp2p } from "libp2p";
 import { afterEach, describe, expect, it } from "vitest";
+import { MUX_PER_PEER } from "./exchange-path-option.js";
 import {
   HEARTBEAT_INTERVAL_MS,
   hubHoldsCircuitTo,
@@ -138,6 +139,7 @@ async function join(
   mounts.provide("/hello", async () => new Response("hello from the member"));
   const member = await startMember({
     key: "peers",
+    muxPerPeer: MUX_PER_PEER,
     mounts,
     rules: MESH_RULES,
     config: { relayAddrs: [live.relayAddr], hubPeerId: live.hubPeerId },
@@ -256,7 +258,11 @@ describe("a relay-mode member's serving side", () => {
     // The hub opts in to CALLING over limited connections, so only the
     // member's serving side stands in the way -- and `startMember` never opens
     // it. `relay-fallback.test.ts` has the control where a served peer opts in.
-    const fromHub = createRemote({ node: live.hubNode, callOnLimitedConnection: true });
+    const fromHub = createRemote({
+      node: live.hubNode,
+      callOnLimitedConnection: true,
+      muxPerPeer: MUX_PER_PEER,
+    });
     const error = await fromHub(member.peerId, new Request("http://member.invalid/hello")).then(
       () => null,
       (err: unknown) => err,

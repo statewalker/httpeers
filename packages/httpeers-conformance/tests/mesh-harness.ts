@@ -58,6 +58,7 @@ import {
 } from "@statewalker/httpeers-libp2p";
 import { startRelay } from "@statewalker/httpeers-relay";
 import { createLibp2p } from "libp2p";
+import { MUX_PER_PEER } from "./exchange-path-option.js";
 
 /**
  * The mesh's rules.
@@ -234,6 +235,7 @@ export async function startMesh(init: StartMeshInit = {}): Promise<Mesh> {
   const hubPeer = await servePeer({
     node,
     mounts: hub.mounts,
+    muxPerPeer: MUX_PER_PEER,
     access: withAccess({
       issuer: hubPeerId,
       rules: MESH_RULES,

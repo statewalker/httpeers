@@ -15,6 +15,7 @@ import { PeerCallError, type PeerIdStr, PeerStreamResetError } from "@statewalke
 import { afterEach, describe, expect, it } from "vitest";
 import { generateKey } from "../src/identity.js";
 import { createNode, createRemote, mapPeerCallError, serveTransport } from "../src/transport.js";
+import { MUX_PER_PEER } from "./exchange-path-option.js";
 
 const started: Array<() => Promise<unknown>> = [];
 
@@ -44,6 +45,7 @@ describe("a peer that dies mid-body", () => {
     // One chunk, then nothing: the body stays open until the node dies.
     await serveTransport({
       node: serverNode,
+      muxPerPeer: MUX_PER_PEER,
       dispatch: async () =>
         new Response(
           new ReadableStream<Uint8Array>({
@@ -55,7 +57,7 @@ describe("a peer that dies mid-body", () => {
     });
     await clientNode.dial(serverNode.getMultiaddrs()[0]);
 
-    const remote = createRemote({ node: clientNode });
+    const remote = createRemote({ node: clientNode, muxPerPeer: MUX_PER_PEER });
     const target = serverNode.peerId.toString() as PeerIdStr;
     const response = await remote(target, new Request("http://peer.local/stream"));
     const reader = response.body?.getReader();
@@ -83,6 +85,7 @@ describe("a peer that dies mid-body", () => {
       const clientNode = await node();
       await serveTransport({
         node: serverNode,
+        muxPerPeer: MUX_PER_PEER,
         dispatch: async () => {
           let sent = false;
           return new Response(
@@ -103,7 +106,7 @@ describe("a peer that dies mid-body", () => {
       });
       await clientNode.dial(serverNode.getMultiaddrs()[0]);
 
-      const remote = createRemote({ node: clientNode });
+      const remote = createRemote({ node: clientNode, muxPerPeer: MUX_PER_PEER });
       const target = serverNode.peerId.toString() as PeerIdStr;
       const response = await remote(target, new Request("http://peer.local/stream"));
       const reader = response.body?.getReader();
