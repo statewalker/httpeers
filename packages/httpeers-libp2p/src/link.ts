@@ -52,8 +52,7 @@ export interface Libp2pLinkInit {
   /**
    * EXPERIMENTAL (#56): carry every exchange with a peer as a windowed port
    * over one libp2p stream, instead of one stream per exchange. `true` for the
-   * defaults, or `MuxPerPeerOptions`. Unset, the `HTTPEERS_LIBP2P_MUX_PER_PEER`
-   * environment switch decides (off when absent). See `mux-link.ts`.
+   * defaults, or `MuxPerPeerOptions`. Off when unset. See `mux-link.ts`.
    */
   muxPerPeer?: MuxPerPeer;
 }
@@ -73,8 +72,8 @@ export type CallOnLimitedConnection = boolean | ((peerId: PeerIdStr) => boolean)
 /**
  * Wrap a running libp2p node as the one seam the bridge needs.
  *
- * One stream per exchange, unless `muxPerPeer` (or its environment switch)
- * selects the experimental one-mux-per-peer path.
+ * One stream per exchange, unless `muxPerPeer` selects the experimental
+ * one-mux-per-peer path.
  */
 export function libp2pLink(init: Libp2pLinkInit): ClosablePeerLink {
   const perExchange = perExchangeLink(init);
@@ -90,6 +89,8 @@ export function libp2pLink(init: Libp2pLinkInit): ClosablePeerLink {
     perExchange,
     protocol: init.protocol ?? PROTOCOL,
     options: mux,
+    maxInboundStreams: init.maxInboundStreams ?? DEFAULT_MAX_STREAMS,
+    drainTimeoutMs: init.drainTimeoutMs ?? DEFAULT_DRAIN_TIMEOUT_MS,
     serveOnLimitedConnection: init.serveOnLimitedConnection,
     limitedFor,
     dialerFor: (peerId, limited) => (limited ? keptCircuitFirst(node, peerId) : node),

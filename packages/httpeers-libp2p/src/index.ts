@@ -89,12 +89,14 @@ export { lastPeerIdOf } from "./multiaddr-parts.js";
  */
 export {
   DEFAULT_MUX_FRAME_SIZE,
+  DEFAULT_MUX_KEEPALIVE_MS,
   DEFAULT_MUX_WINDOW,
-  MUX_PER_PEER_ENV,
-  MUX_PER_PEER_GLOBAL,
+  MUX_MAX_STREAMS_PER_CONNECTION,
+  MUX_MESSAGE_HEADROOM,
   MUX_PROTOCOL,
   type MuxPerPeer,
   type MuxPerPeerOptions,
+  MuxPortClosedError,
   muxProtocolOf,
 } from "./mux-link.js";
 export {

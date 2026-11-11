@@ -31,8 +31,8 @@
  *
  * BOTH EXCHANGE PATHS (#56). Each run is made once per `--paths` entry: with
  * one libp2p stream per exchange (the default transport), and with the
- * experimental one windowed mux per peer (`HTTPEERS_LIBP2P_MUX_PER_PEER` for
- * the hub, `?mux=1` for the page). After each browser's run the hub's
+ * experimental one windowed mux per peer (`muxPerPeer` on the hub's
+ * `servePeer`, and `?mux=1`, which the page passes to `startMember`). After each browser's run the hub's
  * connections are checked for the protocol the path should have used, so a
  * switch that did nothing fails rather than passing twice.
  *
@@ -58,7 +58,6 @@ import {
   dialRelay,
   generateKey,
   hubRelayService,
-  MUX_PER_PEER_ENV,
   MUX_PROTOCOL,
   membershipGater,
   PROTOCOL,
@@ -156,7 +155,7 @@ async function echo(request) {
   });
 }
 
-async function startMesh() {
+async function startMesh(muxPerPeer) {
   const relay = await startRelay({ privateKey: await generateKey(), port: 0 });
   const relayAddr = relay.node
     .getMultiaddrs()
@@ -195,6 +194,7 @@ async function startMesh() {
   const hubPeer = await servePeer({
     node,
     mounts: hub.mounts,
+    muxPerPeer,
     access: withAccess({
       issuer: hubPeerId,
       rules: MESH_RULES,
@@ -255,9 +255,7 @@ try {
   site = await servePage(outDir);
 
   for (const path of paths) {
-    // The hub's links read this when they are built; the page gets `?mux=1`.
-    process.env[MUX_PER_PEER_ENV] = path === "mux" ? "1" : "0";
-    mesh = await startMesh();
+    mesh = await startMesh(path === "mux");
 
     for (const name of wanted) {
       const engine = engines[name];

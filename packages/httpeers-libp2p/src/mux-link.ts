@@ -36,8 +36,21 @@
  *     `PeerStreamResetError` by the transport, as for a reset stream). The
  *     dead session is forgotten in the same turn, so the next call dials a new
  *     one: reconnection is just the next call.
+ *   - **The serving side keeps the per-exchange path's bounds.** At most
+ *     `maxInboundStreams` (512) exchanges at once per CONNECTION, counted
+ *     across every mux on it (a port past the cap is refused, and the caller
+ *     sees `PeerStreamResetError`, as for a refused stream); an exchange idle
+ *     in both directions for `drainTimeoutMs` (15 s) is dropped, so a peer
+ *     that withholds credit cannot pin a handler; one message on the stream is
+ *     at most a frame plus headroom, and reassembly past the windows is capped
+ *     at one window; a keepalive closes a mux whose peer froze.
  *   - **Teardown.** `close()` (and the serving teardown) close every mux this
  *     link holds; stopping the node closes their streams, which does the same.
+ *
+ * LOADED ON DEMAND. `@statewalker/webrun-rpc` and `@statewalker/webrun-msgpack`
+ * are imported dynamically the first time a mux link opens or serves, so a
+ * consumer that never sets the flag does not load (or bundle into its main
+ * chunk) either.
  *
  * IDENTITY is still by closure: the serving side reads `remotePeer` from the
  * libp2p connection the mux stream arrived on, the Noise-proven id, and
@@ -50,15 +63,7 @@ import { peerIdFromString } from "@libp2p/peer-id";
 import { multiaddr } from "@multiformats/multiaddr";
 import type { PeerConnection, PeerLink } from "@statewalker/httpeers-bridge";
 import type { PeerIdStr, ProvenPeer } from "@statewalker/httpeers-core";
-import { msgpackCodec } from "@statewalker/webrun-msgpack";
-import {
-  DEFAULT_MAX_PORTS,
-  duplexOverPort,
-  type MessageTarget,
-  multiplexPort,
-  type PortMux,
-  serveDuplexOverPort,
-} from "@statewalker/webrun-rpc";
+import type { MessageTarget, PortMux } from "@statewalker/webrun-rpc";
 import type { Duplex } from "@statewalker/webrun-streams";
 import { messageTargetOverStream, PeerGoneError } from "@statewalker/webrun-streams-libp2p";
 
@@ -79,29 +84,57 @@ export const DEFAULT_MUX_WINDOW = 256 * 1024;
 
 /**
  * 16 KiB: the low end of webrun-rpc's suggested range. A small message waits
- * for at most one frame of another port's large one.
+ * for at most one frame of another port's large one. Stream chunks are split
+ * to fit it too, so no message on the stream is much larger.
  */
 export const DEFAULT_MUX_FRAME_SIZE = 16 * 1024;
 
 /**
+ * Room on top of `frameSize` for one message on the stream: the mux's and the
+ * stream's own envelopes (about 130 bytes per chunk, measured upstream), and
+ * a serialized error, which is not split.
+ */
+export const MUX_MESSAGE_HEADROOM = 16 * 1024;
+
+/**
  * Mux streams one connection may carry per protocol and direction. A caller
- * opens one per peer; a few more allow a reconnect to overlap a dying stream.
+ * opens one per peer and link; a few more allow a reconnect to overlap a dying
+ * stream. A link that finds them all taken uses a stream per exchange instead.
  */
 export const MUX_MAX_STREAMS_PER_CONNECTION = 8;
 
-/** The environment variable that turns the mux on where no option says otherwise (Node). */
-export const MUX_PER_PEER_ENV = "HTTPEERS_LIBP2P_MUX_PER_PEER";
-/** The same switch for a page, set on `globalThis` before the peer is built. */
-export const MUX_PER_PEER_GLOBAL = "__HTTPEERS_LIBP2P_MUX_PER_PEER__";
+/**
+ * The keepalive's interval: a mux whose peer answers none of three pings in a
+ * row (15 s) closes, failing its exchanges, even when libp2p has not noticed
+ * the connection is gone.
+ */
+export const DEFAULT_MUX_KEEPALIVE_MS = 5_000;
 
 /** Tuning for the experimental mux path. Every field is optional. */
 export interface MuxPerPeerOptions {
   /** Per-port window, in bytes. Default {@link DEFAULT_MUX_WINDOW}. */
   window?: number;
-  /** Fair-framing size, in bytes. Default {@link DEFAULT_MUX_FRAME_SIZE}. */
+  /** Fair-framing size, and the size stream chunks are split to, in bytes. Default {@link DEFAULT_MUX_FRAME_SIZE}. */
   frameSize?: number;
-  /** Open ports (exchanges) one mux may hold. Default webrun-rpc's `DEFAULT_MAX_PORTS` (1024). */
+  /**
+   * The largest message accepted on the stream, in bytes; a peer that sends a
+   * larger one is not speaking this protocol and the stream is aborted.
+   * Default `frameSize + MUX_MESSAGE_HEADROOM`.
+   */
+  maxMessageBytes?: number;
+  /**
+   * What the mux holds of a peer's framed messages past their windows, summed
+   * over its ports, in bytes. Default: one `window`.
+   */
+  maxReassembledBytes?: number;
+  /**
+   * Ports one mux's table may hold. Default: the link's `maxInboundStreams`
+   * (512). The serving side also caps exchanges per CONNECTION at
+   * `maxInboundStreams`, across all of its muxes.
+   */
   maxPorts?: number;
+  /** Keepalive interval in ms; `0` turns it off. Default {@link DEFAULT_MUX_KEEPALIVE_MS}. */
+  keepaliveMs?: number;
   /**
    * A CALLER whose peer does not speak the mux protocol uses one stream per
    * exchange instead, until that peer's connection is replaced (default).
@@ -115,27 +148,36 @@ export interface MuxPerPeerOptions {
 /** The flag as callers pass it: `true` for the defaults, or the tuning itself. */
 export type MuxPerPeer = boolean | MuxPerPeerOptions;
 
-/**
- * The flag in force: the option when given, else the environment switch
- * (`HTTPEERS_LIBP2P_MUX_PER_PEER=1` in Node, `globalThis.__HTTPEERS_LIBP2P_MUX_PER_PEER__`
- * in a page). The switch exists so a whole suite, built through layers that
- * do not forward the option, can run on the mux path; it is experimental and
- * goes away with the experiment.
- */
+/** The flag in force, or `undefined` for the default per-exchange path. Only the option decides. */
 export function resolveMuxPerPeer(option: MuxPerPeer | undefined): MuxPerPeerOptions | undefined {
-  const flag = option ?? muxPerPeerFromEnvironment();
-  if (flag === false || flag == null) return undefined;
-  return flag === true ? {} : flag;
+  if (option == null || option === false) return undefined;
+  return option === true ? {} : option;
 }
 
-function muxPerPeerFromEnvironment(): boolean {
-  const g = globalThis as {
-    process?: { env?: Record<string, string | undefined> };
-    [MUX_PER_PEER_GLOBAL]?: unknown;
-  };
-  if (g[MUX_PER_PEER_GLOBAL] === true) return true;
-  const value = g.process?.env?.[MUX_PER_PEER_ENV];
-  return value === "1" || value === "true";
+/**
+ * A port the serving side closed: refused past its cap, dropped after
+ * `drainTimeoutMs` idle, or torn down. Mapped to `PeerStreamResetError`, as a
+ * refused or reset stream is on the per-exchange path.
+ */
+export class MuxPortClosedError extends Error {
+  override name = "MuxPortClosedError";
+}
+
+/** What webrun-rpc says when the peer closed a port. */
+const PEER_CLOSED_PORT = "webrun-rpc: the peer closed the port";
+
+type MuxLibs = {
+  rpc: typeof import("@statewalker/webrun-rpc");
+  codec: typeof import("@statewalker/webrun-msgpack")["msgpackCodec"];
+};
+let muxLibs: Promise<MuxLibs> | undefined;
+/** webrun-rpc and webrun-msgpack, loaded once, the first time a mux link needs them. */
+function loadMuxLibs(): Promise<MuxLibs> {
+  muxLibs ??= Promise.all([
+    import("@statewalker/webrun-rpc"),
+    import("@statewalker/webrun-msgpack"),
+  ]).then(([rpc, msgpack]) => ({ rpc, codec: msgpack.msgpackCodec }));
+  return muxLibs;
 }
 
 /** What `libp2pMuxLink` needs, beside the per-exchange link it falls back to and serves. */
@@ -146,6 +188,10 @@ export interface Libp2pMuxLinkInit {
   /** The fetch protocol; the mux protocol derives from it. */
   protocol: string;
   options: MuxPerPeerOptions;
+  /** Exchanges served at once per connection, across its muxes; and the default port table. */
+  maxInboundStreams: number;
+  /** A served exchange idle in both directions this long is dropped. */
+  drainTimeoutMs: number;
   serveOnLimitedConnection?: boolean;
   /** Whether a call to `peerId` may open its stream on a limited connection. */
   limitedFor: (peerId: PeerIdStr) => boolean;
@@ -172,6 +218,14 @@ export function libp2pMuxLink(init: Libp2pMuxLinkInit): ClosablePeerLink {
   const { node, perExchange, options } = init;
   const protocol = options.protocol ?? muxProtocolOf(init.protocol);
   const fallback = options.fallback ?? true;
+  const windowBytes = options.window ?? DEFAULT_MUX_WINDOW;
+  const frameSize = options.frameSize ?? DEFAULT_MUX_FRAME_SIZE;
+  const maxMessageBytes = options.maxMessageBytes ?? frameSize + MUX_MESSAGE_HEADROOM;
+  const maxReassembledBytes = options.maxReassembledBytes ?? windowBytes;
+  const maxPorts = options.maxPorts ?? init.maxInboundStreams;
+  const keepaliveMs = options.keepaliveMs ?? DEFAULT_MUX_KEEPALIVE_MS;
+  // Chunks split below the frame, so a chunk's envelope still fits in one.
+  const maxChunkBytes = Math.max(1024, frameSize - 1024);
 
   /** Outbound sessions, by peer. A pending dial is shared by every call that arrives meanwhile. */
   const outbound = new Map<PeerIdStr, Promise<Session>>();
@@ -186,18 +240,22 @@ export function libp2pMuxLink(init: Libp2pMuxLinkInit): ClosablePeerLink {
   let closed = false;
 
   const startSession = (
+    libs: MuxLibs,
     stream: Stream,
     side: "initiator" | "responder",
     onPort?: (port: MessageTarget) => boolean | undefined,
   ): Session => {
-    const { target, signal } = messageTargetOverStream(stream);
+    const { target, signal } = messageTargetOverStream(stream, { maxMessageBytes });
     const dead = new AbortController();
-    const mux = multiplexPort(target as unknown as MessageTarget, {
-      codec: msgpackCodec,
+    const mux = libs.rpc.multiplexPort(target as unknown as MessageTarget, {
+      codec: libs.codec,
       side,
-      window: options.window ?? DEFAULT_MUX_WINDOW,
-      frameSize: options.frameSize ?? DEFAULT_MUX_FRAME_SIZE,
-      maxPorts: options.maxPorts ?? DEFAULT_MAX_PORTS,
+      window: windowBytes,
+      frameSize,
+      maxReassembledBytes,
+      maxPorts,
+      maxMessageSize: maxChunkBytes,
+      ...(keepaliveMs > 0 ? { keepalive: { intervalMs: keepaliveMs } } : {}),
       // The stream's death closes the mux, which fails every port on it.
       signal,
       ...(onPort == null ? {} : { onPort }),
@@ -212,35 +270,58 @@ export function libp2pMuxLink(init: Libp2pMuxLinkInit): ClosablePeerLink {
     };
     live.add(session);
     dead.signal.addEventListener("abort", () => live.delete(session), { once: true });
-    const onStreamGone = () => dead.abort(signal.reason);
+    const onStreamGone = () => {
+      dead.abort(signal.reason);
+    };
     if (signal.aborted) onStreamGone();
     else signal.addEventListener("abort", onStreamGone, { once: true });
-    // A stream that died before `messageTargetOverStream` was listening (the
-    // peer negotiated the protocol, then refused it -- a limited connection
-    // the peer does not serve on) fired its `close` already, and its signal
-    // would never abort: every port on it would wait for the call's timeout.
-    if (stream.status !== "open") {
+    // A stream that died, or that the peer half-closed, before
+    // `messageTargetOverStream` was listening (the peer negotiated the
+    // protocol, then refused it -- a limited connection the peer does not
+    // serve on) fired its event already, and its signal would never abort:
+    // every port on it would wait for the call's timeout.
+    if (
+      stream.status !== "open" ||
+      stream.remoteWriteStatus !== "writable" ||
+      stream.readStatus === "closed"
+    ) {
       void session.close(new PeerGoneError()).catch(() => {});
     }
     return session;
   };
 
   const dial = async (peerId: PeerIdStr): Promise<Session> => {
+    // Counted here rather than left to libp2p: past the cap it is the PEER
+    // that resets the stream (its inbound check), which looks like a dead
+    // peer rather than a full table.
+    const taken = node
+      .getConnections(peerIdFromString(peerId))
+      .filter((c) => c.status === "open")
+      .map(
+        (c) =>
+          c.streams.filter((st) => st.protocol === protocol && st.direction === "outbound").length,
+      );
+    if (taken.length > 0 && Math.min(...taken) >= MUX_MAX_STREAMS_PER_CONNECTION) {
+      const full = new Error(`httpeers-libp2p: every ${protocol} stream to ${peerId} is taken`);
+      full.name = "TooManyOutboundProtocolStreamsError";
+      throw full;
+    }
     const limited = init.limitedFor(peerId);
-    const stream = await init
-      .dialerFor(peerId, limited)
-      .dialProtocol(multiaddr(`/p2p/${peerId}`), [protocol], {
+    const [libs, stream] = await Promise.all([
+      loadMuxLibs(),
+      init.dialerFor(peerId, limited).dialProtocol(multiaddr(`/p2p/${peerId}`), [protocol], {
         maxOutboundStreams: MUX_MAX_STREAMS_PER_CONNECTION,
         // Fully: a peer without the protocol must say so now, not after the
         // first exchange has been written into a stream nobody reads.
         negotiateFully: true,
         ...(limited ? { runOnLimitedConnection: true } : {}),
-      } as never);
+      } as never),
+    ]);
     if (closed) {
       stream.abort(new Error("httpeers-libp2p: the link was closed"));
       throw new Error("httpeers-libp2p: the link was closed");
     }
-    return startSession(stream, "initiator");
+    return startSession(libs, stream, "initiator");
   };
 
   const sessionFor = (peerId: PeerIdStr): Promise<Session> => {
@@ -285,12 +366,18 @@ export function libp2pMuxLink(init: Libp2pMuxLinkInit): ClosablePeerLink {
       try {
         port = await openPort(peerId);
       } catch (error) {
+        // Every mux stream this connection allows is taken (by other links
+        // to the same peer): this call goes the per-exchange way.
+        if (isStreamLimit(error)) return perExchange.open(peerId);
         if (!fallback || !isUnsupportedProtocol(error)) throw error;
         for (const c of node.getConnections(peerIdFromString(peerId))) refused.add(c);
         return perExchange.open(peerId);
       }
+      const { rpc } = await loadMuxLibs();
+      const duplex = rpc.duplexOverPort(port, { maxMessageSize: maxChunkBytes });
       return {
-        call: duplexOverPort(port) as Duplex,
+        call: ((input: AsyncIterable<Uint8Array>) =>
+          mappingErrors(duplex(input), peerClosedPort)) as Duplex,
         async close() {
           (port as { close?: () => void }).close?.();
         },
@@ -301,14 +388,43 @@ export function libp2pMuxLink(init: Libp2pMuxLinkInit): ClosablePeerLink {
       // The per-exchange protocol first: a caller without the flag is served
       // exactly as before.
       const stopPerExchange = await perExchange.serve(handlerFor);
+      const libs = await loadMuxLibs();
       const accepted = new Set<Session>();
+      /**
+       * Exchanges being served, per connection, across all of its muxes: the
+       * per-exchange path's `maxInboundStreams` contract, which counts streams
+       * per connection, kept for ports.
+       */
+      const servedOn = new WeakMap<Connection, { open: number }>();
       const onStream = (stream: Stream, connection: Connection): void => {
         // The Noise-proven peer of the connection this stream arrived on.
         // Every port on this mux is served as this peer, and nothing a port
         // carries can change it.
         const peer = connection.remotePeer.toString() as ProvenPeer;
-        const session = startSession(stream, "responder", (port) => {
-          serveDuplexOverPort(port, handlerFor(peer));
+        let count = servedOn.get(connection);
+        if (count == null) {
+          count = { open: 0 };
+          servedOn.set(connection, count);
+        }
+        const served = count;
+        const session = startSession(libs, stream, "responder", (port) => {
+          if (served.open >= init.maxInboundStreams) return false;
+          served.open += 1;
+          const portClosed = libs.rpc.getPortCloseSignal(port);
+          portClosed?.addEventListener("abort", () => (served.open -= 1), { once: true });
+          const handler = handlerFor(peer);
+          // An exchange that ends abnormally (dropped idle, abandoned, failed)
+          // closes its port once its abort notice is posted: the notice alone
+          // may sit behind a full window, leaving the caller waiting and the
+          // port counted here. One that finishes ends both directions
+          // (half-close) and frees the port itself.
+          const closePort = () => setTimeout(() => (port as { close?: () => void }).close?.(), 0);
+          libs.rpc.serveDuplexOverPort(port, (input) => onAbnormalEnd(handler(input), closePort), {
+            maxMessageSize: maxChunkBytes,
+            // An exchange idle in both directions this long is dropped: a
+            // peer that opens ports and withholds credit pins nothing past it.
+            timeout: init.drainTimeoutMs,
+          });
           return true;
         });
         accepted.add(session);
@@ -344,4 +460,86 @@ export function libp2pMuxLink(init: Libp2pMuxLinkInit): ClosablePeerLink {
 
 function isUnsupportedProtocol(error: unknown): boolean {
   return error instanceof Error && error.name === "UnsupportedProtocolError";
+}
+
+function isStreamLimit(error: unknown): boolean {
+  return error instanceof Error && error.name === "TooManyOutboundProtocolStreamsError";
+}
+
+/** The peer closing a port, as this package names it; anything else as it was. */
+function peerClosedPort(error: unknown): unknown {
+  return error instanceof Error && error.message === PEER_CLOSED_PORT
+    ? new MuxPortClosedError("the serving peer closed the exchange's port", { cause: error })
+    : error;
+}
+
+/**
+ * `it`, calling `onAbnormal` once if it ends any way but by finishing: a
+ * `return()` or `throw()` from its consumer, or a rejection. Like
+ * {@link mappingErrors}, a plain object, so `return()` reaches `it` at once.
+ */
+function onAbnormalEnd(
+  it: AsyncGenerator<Uint8Array>,
+  onAbnormal: () => void,
+): AsyncGenerator<Uint8Array> {
+  let settled = false;
+  const abnormal = () => {
+    if (settled) return;
+    settled = true;
+    onAbnormal();
+  };
+  const out = {
+    next: async (...args: [] | [unknown]) => {
+      try {
+        const result = await it.next(...args);
+        if (result.done) settled = true;
+        return result;
+      } catch (error) {
+        abnormal();
+        throw error;
+      }
+    },
+    return: (value?: unknown) => {
+      abnormal();
+      return it.return(value as never);
+    },
+    throw: (error?: unknown) => {
+      abnormal();
+      return it.throw(error);
+    },
+    [Symbol.asyncIterator]() {
+      return out;
+    },
+  };
+  return out as unknown as AsyncGenerator<Uint8Array>;
+}
+
+/**
+ * `it`, with each rejection passed through `map`. A plain object rather than
+ * an async generator around `it`, so `return()` still reaches `it` at once
+ * while a `next()` is pending (an async generator would queue it behind).
+ */
+function mappingErrors(
+  it: AsyncGenerator<Uint8Array>,
+  map: (error: unknown) => unknown,
+): AsyncGenerator<Uint8Array> {
+  const mapped = <T>(p: Promise<T>): Promise<T> =>
+    p.catch((error: unknown) => {
+      throw map(error);
+    });
+  const out = {
+    next: (...args: [] | [unknown]) => mapped(it.next(...args)),
+    return: (value?: unknown) => mapped(it.return(value as never)),
+    throw: (error?: unknown) => mapped(it.throw(error)),
+    [Symbol.asyncIterator]() {
+      return out;
+    },
+  };
+  const dispose = (Symbol as { asyncDispose?: symbol }).asyncDispose;
+  if (dispose != null) {
+    (out as Record<symbol, unknown>)[dispose] = async () => {
+      await out.return();
+    };
+  }
+  return out as unknown as AsyncGenerator<Uint8Array>;
 }

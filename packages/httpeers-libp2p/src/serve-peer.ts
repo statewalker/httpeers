@@ -85,8 +85,8 @@ export interface ServePeerInit {
    * EXPERIMENTAL (#56): both directions of this peer over one windowed mux per
    * peer -- its calls (`call`, and forwarding) open one, and it SERVES the mux
    * protocol beside the per-exchange one, so callers without the flag are
-   * unaffected. Unset, the `HTTPEERS_LIBP2P_MUX_PER_PEER` switch decides. See
-   * `MuxPerPeerOptions` and the package README.
+   * unaffected. Off when unset. See `MuxPerPeerOptions` and the
+   * package README.
    */
   muxPerPeer?: MuxPerPeer;
 }

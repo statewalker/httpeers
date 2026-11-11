@@ -16,6 +16,10 @@
  *     stream per exchange for a peer without it (or fails clearly, with
  *     `fallback: false`), and a peer with the flag still serves callers
  *     without it;
+ *   - the serving side keeps the per-exchange bounds: exchanges capped per
+ *     connection across its muxes, an idle exchange dropped after
+ *     `drainTimeoutMs`, an oversized message refused;
+ *   - a link that finds every mux stream taken falls back;
  *   - teardown lets go of the mux.
  *
  * Loopback TCP, real Noise and yamux, nothing stubbed.
@@ -32,7 +36,13 @@ import {
 } from "@statewalker/httpeers-core";
 import { afterEach, describe, expect, it } from "vitest";
 import { generateKey } from "../src/identity.js";
-import { DEFAULT_MUX_WINDOW, MUX_PROTOCOL } from "../src/mux-link.js";
+import {
+  DEFAULT_MUX_FRAME_SIZE,
+  DEFAULT_MUX_WINDOW,
+  MUX_MAX_STREAMS_PER_CONNECTION,
+  MUX_MESSAGE_HEADROOM,
+  MUX_PROTOCOL,
+} from "../src/mux-link.js";
 import { servePeer } from "../src/serve-peer.js";
 import { createNode, createRemote, PROTOCOL, serveTransport } from "../src/transport.js";
 
@@ -56,10 +66,19 @@ async function node(listen: string[] = []): Promise<Libp2p> {
 }
 
 /** A served node and a client node already connected to it. */
-async function pair(dispatch: FetchHandler, serveMux: boolean | undefined = true) {
+async function pair(
+  dispatch: FetchHandler,
+  serveMux: boolean | undefined = true,
+  serving: Partial<Parameters<typeof serveTransport>[0]> = {},
+) {
   const serverNode = await node(["/ip4/127.0.0.1/tcp/0"]);
   const clientNode = await node();
-  const stop = await serveTransport({ node: serverNode, dispatch, muxPerPeer: serveMux });
+  const stop = await serveTransport({
+    node: serverNode,
+    dispatch,
+    muxPerPeer: serveMux,
+    ...serving,
+  });
   started.push(stop);
   await clientNode.dial(serverNode.getMultiaddrs()[0]);
   return { serverNode, clientNode, target: serverNode.peerId.toString() as PeerIdStr };
@@ -82,6 +101,18 @@ const route =
 
 /** A body that never ends and never sends: the call stays open. */
 const openBody = () => new Response(new ReadableStream<Uint8Array>({ start() {} }));
+
+/** An unsigned LEB128 varint, as the mux stream's length prefix. */
+function varint(value: number): number[] {
+  const out: number[] = [];
+  let v = value;
+  while (v >= 0x80) {
+    out.push((v & 0x7f) | 0x80);
+    v >>>= 7;
+  }
+  out.push(v);
+  return out;
+}
 
 /** Settles to the error, or `undefined` if `p` resolved. */
 const failureOf = (p: Promise<unknown>): Promise<unknown> =>
@@ -261,5 +292,83 @@ describe("one mux per peer (experimental)", () => {
     await expect
       .poll(() => streamsOn(serverNode, clientNode, MUX_PROTOCOL), { timeout: 5_000 })
       .toBe(0);
+  }, 30_000);
+  it("the serving side caps exchanges per CONNECTION at maxInboundStreams, across its muxes", async () => {
+    const mounts = createMounts();
+    mounts.provide("/open", async () => openBody());
+    const { clientNode, serverNode, target } = await pair(route(mounts), true, {
+      maxInboundStreams: 4,
+    });
+    // Two links: two muxes on the one connection.
+    const a = createRemote({ node: clientNode, muxPerPeer: true });
+    const b = createRemote({ node: clientNode, muxPerPeer: true });
+    const call = (remote: typeof a) =>
+      remote(target, new Request("http://peer.local/open")).then(
+        (response) => response,
+        (error: unknown) => error,
+      );
+
+    const first = await Promise.all([call(a), call(a), call(a)]);
+    const second = await Promise.all([call(b), call(b), call(b)]);
+    expect(streamsOn(clientNode, serverNode, MUX_PROTOCOL)).toBe(2);
+
+    const all = [...first, ...second];
+    const answered = all.filter((r) => r instanceof Response);
+    const refused = all.filter((r) => !(r instanceof Response));
+    expect(answered).toHaveLength(4);
+    expect(refused).toHaveLength(2);
+    for (const error of refused) expect(error).toBeInstanceOf(PeerStreamResetError);
+    for (const r of answered) void (r as Response).body?.cancel().catch(() => {});
+  }, 30_000);
+
+  it("drops a served exchange idle for drainTimeoutMs: an unread endless body's handler is cancelled", async () => {
+    let cancelled = false;
+    const mounts = createMounts();
+    mounts.provide(
+      "/flood",
+      async () =>
+        new Response(
+          new ReadableStream<Uint8Array>({
+            pull(controller) {
+              controller.enqueue(new Uint8Array(64 * 1024));
+            },
+            cancel() {
+              cancelled = true;
+            },
+          }),
+        ),
+    );
+    const { clientNode, target } = await pair(route(mounts), true, { drainTimeoutMs: 500 });
+    const remote = createRemote({ node: clientNode, muxPerPeer: true });
+
+    const response = await remote(target, new Request("http://peer.local/flood"));
+    expect(response.status).toBe(200);
+    // Never read: the window fills, credit stops, and the port goes idle.
+    await expect.poll(() => cancelled, { timeout: 5_000 }).toBe(true);
+    // The caller's body fails as a reset exchange does, not as a hang.
+    const failure = await failureOf(response.arrayBuffer());
+    expect(failure).toBeInstanceOf(PeerStreamResetError);
+  }, 30_000);
+
+  it("aborts a mux stream whose peer announces a message past maxMessageBytes", async () => {
+    const { clientNode, serverNode } = await pair(async () => new Response("ok"));
+    const stream = await clientNode.dialProtocol(serverNode.peerId, MUX_PROTOCOL);
+    // A varint length of 8 MiB (far past a 16 KiB frame plus headroom), then
+    // a little of it: the receiver must refuse rather than buffer it.
+    stream.send(Uint8Array.from([...varint(8 * 1024 * 1024), 1, 2, 3, 4]));
+    await expect.poll(() => stream.status, { timeout: 5_000 }).not.toBe("open");
+    expect(DEFAULT_MUX_FRAME_SIZE + MUX_MESSAGE_HEADROOM).toBeLessThan(8 * 1024 * 1024);
+  }, 30_000);
+
+  it("a link that finds every mux stream on the connection taken uses a stream per exchange", async () => {
+    const { clientNode, serverNode, target } = await pair(async () => new Response("hello"));
+    const links = Array.from({ length: MUX_MAX_STREAMS_PER_CONNECTION + 1 }, () =>
+      createRemote({ node: clientNode, muxPerPeer: true }),
+    );
+    for (const remote of links) {
+      const response = await remote(target, new Request("http://peer.local/x"));
+      expect(await response.text()).toBe("hello");
+    }
+    expect(streamsOn(clientNode, serverNode, MUX_PROTOCOL)).toBe(MUX_MAX_STREAMS_PER_CONNECTION);
   }, 30_000);
 });

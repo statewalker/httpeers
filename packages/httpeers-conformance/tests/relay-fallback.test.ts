@@ -36,7 +36,6 @@ import { webSockets } from "@libp2p/websockets";
 import { createMounts, MESH_TOKEN_HEADER, PeerCallError } from "@statewalker/httpeers-core";
 import {
   createRemote,
-  MUX_PER_PEER_ENV,
   MUX_PROTOCOL,
   type Peer,
   PROTOCOL,
@@ -46,12 +45,13 @@ import {
 } from "@statewalker/httpeers-libp2p";
 import { createLibp2p } from "libp2p";
 import { afterEach, describe, expect, it } from "vitest";
+import { MUX_PER_PEER } from "./exchange-path-option.js";
 import { hubHoldsCircuitTo, type Mesh, startMesh } from "./mesh-harness.js";
 
 const CHUNKS = 20;
 
 /** The protocol a call rides: the mux's when the suite runs on that path (`test:mux`). */
-const CALL_PROTOCOL = process.env[MUX_PER_PEER_ENV] === "1" ? MUX_PROTOCOL : PROTOCOL;
+const CALL_PROTOCOL = MUX_PER_PEER ? MUX_PROTOCOL : PROTOCOL;
 
 let mesh: Mesh | null = null;
 let member: Libp2p | null = null;
@@ -119,7 +119,12 @@ async function relayedMember(
 
   const mounts = createMounts();
   mounts.provide("/hello", async () => new Response("hello from the member"));
-  memberPeer = await servePeer({ node, mounts, ...peerInit(live.hubPeerId) });
+  memberPeer = await servePeer({
+    node,
+    mounts,
+    muxPerPeer: MUX_PER_PEER,
+    ...peerInit(live.hubPeerId),
+  });
 
   const kept = await reachHubRelayed(node, live.relayAddr, live.hubPeerId);
   expect(kept.limits != null).toBe(true);
@@ -203,12 +208,18 @@ describe("a member reaches its hub over a kept relay circuit", () => {
   it("refuses the same call when the member did not opt in to calling (negative control)", async () => {
     const { live, node, kept } = await relayedMember(() => ({}));
 
-    const error = await refusal(createRemote({ node })(live.hubPeerId, inviteRequest("unused")));
+    const error = await refusal(
+      createRemote({ node, muxPerPeer: MUX_PER_PEER })(live.hubPeerId, inviteRequest("unused")),
+    );
     expect(error).toBeInstanceOf(PeerCallError);
     expect((error as PeerCallError).kind).toBe("limited-connection");
 
     // A predicate is per target: one that allows some OTHER peer does not allow the hub.
-    const narrow = createRemote({ node, callOnLimitedConnection: (peerId) => peerId === "other" });
+    const narrow = createRemote({
+      node,
+      callOnLimitedConnection: (peerId) => peerId === "other",
+      muxPerPeer: MUX_PER_PEER,
+    });
     const narrowed = await refusal(narrow(live.hubPeerId, inviteRequest("unused")));
     expect((narrowed as PeerCallError).kind).toBe("limited-connection");
 
@@ -222,7 +233,11 @@ describe("a member reaches its hub over a kept relay circuit", () => {
     // The hub turns the same limited connection around and calls the member,
     // with the calling side opted in -- so only the MEMBER's serving flag stands
     // in the way.
-    const fromHub = createRemote({ node: live.hubNode, callOnLimitedConnection: true });
+    const fromHub = createRemote({
+      node: live.hubNode,
+      callOnLimitedConnection: true,
+      muxPerPeer: MUX_PER_PEER,
+    });
     const error = await refusal(
       fromHub(node.peerId.toString(), new Request("http://member.invalid/hello")),
     );
@@ -239,7 +254,11 @@ describe("a member reaches its hub over a kept relay circuit", () => {
     const { live, node } = await relayedMember(() => ({ serveOnLimitedConnection: true }));
     const hubEnd = await hubHoldsCircuitTo(live, node.peerId.toString());
 
-    const fromHub = createRemote({ node: live.hubNode, callOnLimitedConnection: true });
+    const fromHub = createRemote({
+      node: live.hubNode,
+      callOnLimitedConnection: true,
+      muxPerPeer: MUX_PER_PEER,
+    });
     const response = await fromHub(
       node.peerId.toString(),
       new Request("http://member.invalid/hello"),

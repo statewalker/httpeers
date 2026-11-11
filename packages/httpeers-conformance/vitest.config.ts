@@ -3,9 +3,10 @@ import { defineConfig } from "vitest/config";
 /**
  * The whole suite runs on both exchange paths (#56): one libp2p stream per
  * exchange (the default) and the experimental one-mux-per-peer path. The
- * transport reads `HTTPEERS_LIBP2P_MUX_PER_PEER` wherever no `muxPerPeer`
- * option is passed, which is everywhere in the layers this suite builds
- * through (hub, member, relay).
+ * projects set `HTTPEERS_LIBP2P_MUX_PER_PEER`; the suite reads it
+ * (`tests/exchange-path-option.ts`) and passes `muxPerPeer` to every transport
+ * it builds (the hub harness, `startMember`, `createRemote`). No library reads
+ * it. `relay-fallback.test.ts` checks the protocol a call rides on each path.
  */
 const SWITCH = "HTTPEERS_LIBP2P_MUX_PER_PEER";
 

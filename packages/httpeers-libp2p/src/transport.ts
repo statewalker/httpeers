@@ -337,6 +337,9 @@ export function mapPeerCallError(err: unknown, peerId: PeerIdStr): PeerCallError
     // bridge a `mapBodyError` that sends this error, and only this one,
     // through this function.
     case "PeerGoneError":
+    // The mux path's refused or dropped port (`mux-link.ts`): what a refused
+    // or reset stream is on the per-exchange path.
+    case "MuxPortClosedError":
     case "TooManyOutboundProtocolStreamsError":
     case "TooManyInboundProtocolStreamsError":
       return new PeerStreamResetError(peerId, cause);
@@ -457,8 +460,8 @@ export interface ServeTransportInit {
   runOnLimitedConnection?: boolean;
   /**
    * EXPERIMENTAL (#56): one windowed mux per peer instead of one stream per
-   * exchange. Unset, the `HTTPEERS_LIBP2P_MUX_PER_PEER` switch decides. See
-   * `MuxPerPeerOptions` and the package README.
+   * exchange. Off when unset. See `MuxPerPeerOptions` and the
+   * package README.
    */
   muxPerPeer?: MuxPerPeer;
 }
@@ -524,8 +527,8 @@ export interface CreateRemoteInit {
   callOnLimitedConnection?: CallOnLimitedConnection;
   /**
    * EXPERIMENTAL (#56): one windowed mux per peer instead of one stream per
-   * exchange. Unset, the `HTTPEERS_LIBP2P_MUX_PER_PEER` switch decides. See
-   * `MuxPerPeerOptions` and the package README.
+   * exchange. Off when unset. See `MuxPerPeerOptions` and the
+   * package README.
    */
   muxPerPeer?: MuxPerPeer;
 }
@@ -591,7 +594,8 @@ export function createClosableRemote(init: CreateRemoteInit): {
     // (On the mux path, a dead stream aborts each port with the same
     // `PeerGoneError`, so both paths map it alike.)
     mapBodyError: (error, target) =>
-      error instanceof Error && error.name === "PeerGoneError"
+      error instanceof Error &&
+      (error.name === "PeerGoneError" || error.name === "MuxPortClosedError")
         ? mapPeerCallError(error, target)
         : undefined,
   });

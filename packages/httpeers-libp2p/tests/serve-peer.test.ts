@@ -16,6 +16,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import { generateKey, peerIdOf } from "../src/identity.js";
 import { type Peer, servePeer } from "../src/serve-peer.js";
 import { createNode } from "../src/transport.js";
+import { MUX_PER_PEER } from "./exchange-path-option.js";
 
 const started: Array<{ stop(): Promise<void> }> = [];
 
@@ -46,11 +47,15 @@ describe("servePeer", () => {
     const mounts = createMounts();
     mounts.provide("/hello", async () => json({ hello: true }));
 
-    const server: Peer = await servePeer({ node: serverNode, mounts });
+    const server: Peer = await servePeer({ node: serverNode, mounts, muxPerPeer: MUX_PER_PEER });
     started.push(server);
 
     await clientNode.dial(serverNode.getMultiaddrs()[0]);
-    const client = await servePeer({ node: clientNode, mounts: createMounts() });
+    const client = await servePeer({
+      node: clientNode,
+      mounts: createMounts(),
+      muxPerPeer: MUX_PER_PEER,
+    });
     started.push(client);
 
     const response = await client.call(
@@ -72,10 +77,14 @@ describe("servePeer", () => {
     const mounts = createMounts();
     mounts.provide("/whoami", echoPeer());
 
-    const server = await servePeer({ node: serverNode, mounts });
+    const server = await servePeer({ node: serverNode, mounts, muxPerPeer: MUX_PER_PEER });
     started.push(server);
     await clientNode.dial(serverNode.getMultiaddrs()[0]);
-    const client = await servePeer({ node: clientNode, mounts: createMounts() });
+    const client = await servePeer({
+      node: clientNode,
+      mounts: createMounts(),
+      muxPerPeer: MUX_PER_PEER,
+    });
     started.push(client);
 
     const response = await client.call(
@@ -103,6 +112,7 @@ describe("servePeer", () => {
     const server = await servePeer({
       node: serverNode,
       mounts,
+      muxPerPeer: MUX_PER_PEER,
       access: (next) => async (request) => {
         seen.push(new URL(request.url).pathname);
         return next(request);
@@ -111,7 +121,11 @@ describe("servePeer", () => {
     started.push(server);
 
     await clientNode.dial(serverNode.getMultiaddrs()[0]);
-    const client = await servePeer({ node: clientNode, mounts: createMounts() });
+    const client = await servePeer({
+      node: clientNode,
+      mounts: createMounts(),
+      muxPerPeer: MUX_PER_PEER,
+    });
     started.push(client);
 
     await client.call(server.peerId, new Request(`http://peer.local/${server.peerId}/guarded`));
@@ -127,10 +141,18 @@ describe("servePeer", () => {
     const serverNode = await node(["/ip4/127.0.0.1/tcp/0"]);
     const clientNode = await node();
 
-    const server = await servePeer({ node: serverNode, mounts: createMounts() });
+    const server = await servePeer({
+      node: serverNode,
+      mounts: createMounts(),
+      muxPerPeer: MUX_PER_PEER,
+    });
     started.push(server);
     await clientNode.dial(serverNode.getMultiaddrs()[0]);
-    const client = await servePeer({ node: clientNode, mounts: createMounts() });
+    const client = await servePeer({
+      node: clientNode,
+      mounts: createMounts(),
+      muxPerPeer: MUX_PER_PEER,
+    });
     started.push(client);
 
     // A REAL third-party peerId, generated. The first version of this test
@@ -152,7 +174,11 @@ describe("servePeer", () => {
 
   it("stop() is idempotent", async () => {
     const serverNode = await node(["/ip4/127.0.0.1/tcp/0"]);
-    const server = await servePeer({ node: serverNode, mounts: createMounts() });
+    const server = await servePeer({
+      node: serverNode,
+      mounts: createMounts(),
+      muxPerPeer: MUX_PER_PEER,
+    });
 
     await server.stop();
     // An assembly that tears down twice — a page unloading while a test also

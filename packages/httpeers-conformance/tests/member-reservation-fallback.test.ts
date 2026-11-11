@@ -43,6 +43,7 @@ import {
 } from "@statewalker/httpeers-member";
 import { createLibp2p } from "libp2p";
 import { afterEach, describe, expect, it } from "vitest";
+import { MUX_PER_PEER } from "./exchange-path-option.js";
 import { MESH_RULES, type Mesh, startMesh } from "./mesh-harness.js";
 
 let mesh: Mesh | null = null;
@@ -112,6 +113,7 @@ async function join(
 ): Promise<MemberHandle> {
   const member = await startMember({
     key: "peers",
+    muxPerPeer: MUX_PER_PEER,
     mounts: createMounts(),
     rules: MESH_RULES,
     config: { relayAddrs: [live.relayAddr], hubPeerId: live.hubPeerId },

@@ -23,7 +23,7 @@
 
 import { ruleSet } from "@statewalker/httpeers-access";
 import { createMounts, type FetchHandler } from "@statewalker/httpeers-core";
-import { generateKey, MUX_PER_PEER_GLOBAL } from "@statewalker/httpeers-libp2p";
+import { generateKey } from "@statewalker/httpeers-libp2p";
 import { createGateway, startMember } from "@statewalker/httpeers-member";
 import { browserPlatform, mountEdge } from "@statewalker/httpeers-member/browser";
 
@@ -140,11 +140,7 @@ async function run(): Promise<void> {
   if (relay == null || hub == null || invitation == null) {
     throw new Error("the page needs ?relay=&hub=&invitation=");
   }
-  // Before the member is built: the transport reads the switch when it builds
-  // each link, and the layers between here and it do not forward the option.
-  if (params.get("mux") === "1") {
-    (globalThis as Record<string, unknown>)[MUX_PER_PEER_GLOBAL] = true;
-  }
+  const muxPerPeer = params.get("mux") === "1";
 
   setState("joining the mesh");
   const member = await startMember({
@@ -156,6 +152,7 @@ async function run(): Promise<void> {
     platform: browserPlatform({ serviceWorkerUrl: "/sw.js", dev: true }),
     invitationId: invitation,
     privateKey: await generateKey(),
+    muxPerPeer,
   });
   if (member.baseUrl == null) throw new Error("the member mounted no edge");
 
