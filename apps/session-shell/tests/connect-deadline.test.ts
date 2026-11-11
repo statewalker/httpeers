@@ -246,6 +246,46 @@ describe("boundConnects: the answer", () => {
     expect(finished.map((f) => f.timedOut)).toEqual([false, false]);
   });
 
+  it("passes an app's JSON 500 whose body never ends through promptly, body intact", async () => {
+    const { raw, scope, finished } = setup(100);
+    const encoder = new TextEncoder();
+    serveWith(
+      scope,
+      () =>
+        new Response(
+          new ReadableStream<Uint8Array>({
+            start(controller) {
+              // Starts like the relay's envelope, and never ends.
+              controller.enqueue(encoder.encode('{"message":"still thinking'));
+            },
+          }),
+          { status: 500, headers: { "content-type": "application/json" } },
+        ),
+    );
+    const started = Date.now();
+    const response = await settleWithin(raw.dispatch(api()) as Promise<Response>, 2_000);
+    if (response === "pending") throw new Error("the answer was held back");
+    expect(Date.now() - started).toBeLessThan(1_000);
+    expect(response.status).toBe(500);
+    expect(finished.map((f) => f.timedOut)).toEqual([false]);
+    const reader = response.body?.getReader();
+    const first = await settleWithin(reader?.read() ?? Promise.resolve(undefined), 1_000);
+    if (first === "pending" || first == null || first.done) throw new Error("body not readable");
+    expect(new TextDecoder().decode(first.value)).toBe('{"message":"still thinking');
+    await reader?.cancel();
+  });
+
+  it("leaves a network response alone, whatever it looks like", async () => {
+    const { raw, scope, finished } = setup(100);
+    serveWith(scope, () => {
+      const response = libraryEnvelope(connectTimeoutMessage(100));
+      Object.defineProperty(response, "type", { value: "basic" });
+      return response;
+    });
+    expect((await raw.dispatch(navigation()))?.status).toBe(500);
+    expect(finished).toEqual([]);
+  });
+
   it("passes every other answer through without finishing it", async () => {
     const { raw, scope, finished } = setup(100);
     serveWith(scope, () => new Response("hello", { status: 200 }));

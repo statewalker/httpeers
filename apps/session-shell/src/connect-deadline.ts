@@ -107,6 +107,8 @@ interface FetchEventLike {
 export interface ConnectDeadlineOptions {
   /** Default `CONNECT_TIMEOUT_MS`. */
   timeoutMs?: number;
+  /** How long a 500 envelope's body may take to read. Default `ENVELOPE_READ_MS`. */
+  envelopeReadMs?: number;
   /**
    * The answer to a request whose relay answer is a 500 envelope: `timedOut`
    * says whether its CONNECT was the one that timed out. Every other answer
@@ -145,48 +147,70 @@ function transferOf(arg: TransferArg): Transferable[] | undefined {
 }
 
 /**
- * The most of a 500 envelope's body that is read. The relay's own envelope is
- * a few hundred bytes; an app's JSON 500 can be anything, and reading all of
- * it would hold its answer back until it ended.
+ * The most of a 500 envelope's body that is read, and for how long. The
+ * relay's own envelope is a few hundred bytes built in memory, so it reads at
+ * once; an app's JSON 500 can be anything, of any length, ending whenever it
+ * likes, and must not be held back until it ends -- or forever, if it never
+ * does. Past either limit the body is not the timeout's, and the original
+ * goes on to the browser untouched.
  */
 const ENVELOPE_READ_LIMIT = 8 * 1024;
+export const ENVELOPE_READ_MS = 250;
+
+/** The body as text, or `undefined` past `ENVELOPE_READ_LIMIT`. */
+async function readCapped(
+  reader: ReadableStreamDefaultReader<Uint8Array>,
+): Promise<string | undefined> {
+  const chunks: Uint8Array[] = [];
+  let size = 0;
+  for (;;) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    size += value.byteLength;
+    if (size > ENVELOPE_READ_LIMIT) return undefined;
+    chunks.push(value);
+  }
+  const bytes = new Uint8Array(size);
+  let at = 0;
+  for (const chunk of chunks) {
+    bytes.set(chunk, at);
+    at += chunk.byteLength;
+  }
+  return new TextDecoder().decode(bytes);
+}
 
 /**
  * The envelope's message, read from a clone -- the original body is the
- * browser's -- and only if the body ends within `ENVELOPE_READ_LIMIT`.
+ * browser's -- and only if the body ends within `ENVELOPE_READ_LIMIT` bytes
+ * and `readMs`. Either way the clone is cancelled once this is decided, so
+ * the tee stops keeping a copy for it.
  */
-async function envelopeMessage(response: Response): Promise<unknown> {
+async function envelopeMessage(response: Response, readMs: number): Promise<unknown> {
   const reader = response.clone().body?.getReader();
   if (reader == null) return undefined;
-  const chunks: Uint8Array[] = [];
-  let size = 0;
+  let timer: ReturnType<typeof setTimeout> | undefined;
   try {
-    for (;;) {
-      const { done, value } = await reader.read();
-      if (done) break;
-      size += value.byteLength;
-      if (size > ENVELOPE_READ_LIMIT) {
-        void reader.cancel().catch(() => {});
-        return undefined;
-      }
-      chunks.push(value);
-    }
-    const bytes = new Uint8Array(size);
-    let at = 0;
-    for (const chunk of chunks) {
-      bytes.set(chunk, at);
-      at += chunk.byteLength;
-    }
-    const body = JSON.parse(new TextDecoder().decode(bytes)) as { message?: unknown } | null;
-    return body?.message;
+    const text = await Promise.race([
+      // A read the timer beat is cancelled below; its outcome is nobody's.
+      readCapped(reader).catch(() => undefined),
+      new Promise<undefined>((resolve) => {
+        timer = setTimeout(() => resolve(undefined), readMs);
+      }),
+    ]);
+    if (text == null) return undefined;
+    return (JSON.parse(text) as { message?: unknown } | null)?.message;
   } catch {
     return undefined;
+  } finally {
+    clearTimeout(timer);
+    void reader.cancel().catch(() => {});
   }
 }
 
 export function boundConnects<S extends ScopeLike>(scope: S, options: ConnectDeadlineOptions): S {
   const timeoutMs = options.timeoutMs ?? CONNECT_TIMEOUT_MS;
   const message = connectTimeoutMessage(timeoutMs);
+  const readMs = options.envelopeReadMs ?? ENVELOPE_READ_MS;
 
   function postBounded(client: ClientLike, call: ChannelCall, transfer: Transferable[]): void {
     const [reply, ...rest] = transfer;
@@ -240,8 +264,13 @@ export function boundConnects<S extends ScopeLike>(scope: S, options: ConnectDea
   });
 
   async function settle(response: Response, request: Request): Promise<Response> {
+    // A NETWORK RESPONSE IS NOBODY'S TO FINISH. Before the library has read
+    // its routes back it answers a request that turns out to be nobody's with
+    // `fetch(request)`; that answer has a network type, while everything the
+    // relay itself builds -- its envelope and the app's answers -- is "default".
+    if (response.type !== "default") return response;
     if (response.status !== 500 || !isRelayEnvelope(response)) return response;
-    const timedOut = (await envelopeMessage(response)) === message;
+    const timedOut = (await envelopeMessage(response, readMs)) === message;
     return options.finish(response, request, timedOut);
   }
 
