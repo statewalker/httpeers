@@ -122,8 +122,12 @@ directions. What the caller presumes (exact sizing; the `pipeline` and
 `end` capabilities) is what every build that has served
 `/httpeers/1.0.0/mux` acks, since all of them run webrun-rpc 0.10 with the
 msgpack codec. It is checked: if the real ack says otherwise, the caller
-closes the mux (its exchanges fail with `PeerStreamResetError`, the next
-call opens a new one). Because the mux's keepalive counts anything it reads
+closes the mux (its exchanges fail with `PeerStreamResetError`), and the
+next mux on that connection presumes nothing and runs the full handshake.
+One cost: a caller no longer waits for its first chunk's confirmation, so on
+a port the serving side refuses it may send up to one window of request body
+(256 KiB by default; about 246 KB measured) before the refusal reaches it,
+which the serving side drops without buffering. Because the mux's keepalive counts anything it reads
 as a sign of life, the presumed acks would keep it content with a frozen
 peer as long as calls keep opening ports; the module runs the same check on
 what really arrives and closes the mux after three silent intervals.

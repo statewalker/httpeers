@@ -255,6 +255,11 @@ export function libp2pMuxLink(init: Libp2pMuxLinkInit): ClosablePeerLink {
    * and nothing here outlives the connection it describes.
    */
   const refused = new WeakSet<Connection>();
+  /**
+   * Connections whose peer acked a port otherwise than presumed
+   * (`mux-presumed-ack.ts`): muxes on them run the full window handshake.
+   */
+  const noPresuming = new WeakSet<Connection>();
   let closed = false;
 
   const startSession = (
@@ -262,6 +267,7 @@ export function libp2pMuxLink(init: Libp2pMuxLinkInit): ClosablePeerLink {
     stream: Stream,
     side: "initiator" | "responder",
     onPort?: (port: MessageTarget) => boolean | undefined,
+    connection?: Connection,
   ): Session => {
     const { target: pipe, signal } = muxTargetOverStream(stream, { maxMessageBytes });
     const dead = new AbortController();
@@ -270,14 +276,19 @@ export function libp2pMuxLink(init: Libp2pMuxLinkInit): ClosablePeerLink {
     // (`mux-presumed-ack.ts`). The serving side needs nothing for it.
     let session: Session | undefined;
     const presumed =
-      side === "initiator"
+      side === "initiator" && !(connection != null && noPresuming.has(connection))
         ? presumingAcks({
             codec: libs.codec,
             target: pipe as unknown as MessageTarget,
             keepaliveMs,
             misses: KEEPALIVE_MISSES,
-            // Only ever after a port opened, so the session is there.
-            onBroken: (error) => void session?.close(new PeerGoneError(error)).catch(() => {}),
+            // Only ever after a port opened, so the session is there. A
+            // peer that acked otherwise is not presumed again on this
+            // connection: its next mux runs the full handshake.
+            onBroken: (error, contradicted) => {
+              if (contradicted && connection != null) noPresuming.add(connection);
+              void session?.close(new PeerGoneError(error)).catch(() => {});
+            },
           })
         : undefined;
     const target = presumed?.target ?? (pipe as unknown as MessageTarget);
@@ -350,6 +361,15 @@ export function libp2pMuxLink(init: Libp2pMuxLinkInit): ClosablePeerLink {
       full.name = "TooManyOutboundProtocolStreamsError";
       throw full;
     }
+    // A connection that is going away can still be listed as open with its
+    // muxer already closed (a peer that just died): libp2p would reuse it,
+    // and fail the dial with `ConnectionClosedError`. Let it go first, so the
+    // dial opens a new one.
+    for (const c of node.getConnections(peerIdFromString(peerId))) {
+      if (c.status === "open" && muxerClosed(c)) {
+        c.abort(new Error("httpeers-libp2p: the connection's muxer is closed"));
+      }
+    }
     const limited = init.limitedFor(peerId);
     const [libs, stream] = await Promise.all([
       loadMuxLibs(),
@@ -365,7 +385,10 @@ export function libp2pMuxLink(init: Libp2pMuxLinkInit): ClosablePeerLink {
       stream.abort(new Error("httpeers-libp2p: the link was closed"));
       throw new Error("httpeers-libp2p: the link was closed");
     }
-    return startSession(libs, stream, "initiator");
+    const connection = node
+      .getConnections(peerIdFromString(peerId))
+      .find((c) => c.streams.includes(stream));
+    return startSession(libs, stream, "initiator", undefined, connection);
   };
 
   const sessionFor = (peerId: PeerIdStr): Promise<Session> => {
@@ -390,7 +413,17 @@ export function libp2pMuxLink(init: Libp2pMuxLinkInit): ClosablePeerLink {
     // Twice at most: a session can die between being handed out and opening
     // its port (the stream reset in that window). The second attempt dials.
     for (let attempt = 0; ; attempt++) {
-      const session = await sessionFor(peerId);
+      let session: Session;
+      try {
+        session = await sessionFor(peerId);
+      } catch (error) {
+        // The connection closed under the dial (the peer just died, and
+        // libp2p still listed it): once, a task later, dial again, on a new
+        // connection.
+        if (attempt > 0 || !isConnectionClosed(error)) throw error;
+        await new Promise((resolve) => setTimeout(resolve, 0));
+        continue;
+      }
       try {
         return await session.mux.openPort({ kind: "httpeers" });
       } catch (error) {
@@ -534,6 +567,19 @@ export function libp2pMuxLink(init: Libp2pMuxLinkInit): ClosablePeerLink {
 
 function isUnsupportedProtocol(error: unknown): boolean {
   return error instanceof Error && error.name === "UnsupportedProtocolError";
+}
+
+function isConnectionClosed(error: unknown): boolean {
+  return (
+    error instanceof Error &&
+    (error.name === "ConnectionClosedError" || error.name === "ConnectionClosingError")
+  );
+}
+
+/** libp2p's connection keeps its muxer outside the interface; `false` when it cannot tell. */
+function muxerClosed(connection: Connection): boolean {
+  const status = (connection as { muxer?: { status?: unknown } }).muxer?.status;
+  return status != null && status !== "open";
 }
 
 function isStreamLimit(error: unknown): boolean {

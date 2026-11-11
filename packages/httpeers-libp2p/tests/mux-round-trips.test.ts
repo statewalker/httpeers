@@ -93,7 +93,7 @@ function muxPair(
     presume: boolean;
     serverCodec?: PortCodec;
     keepaliveMs?: number;
-    onBroken?: (error: Error) => void;
+    onBroken?: (error: Error, contradicted: boolean) => void;
   },
 ) {
   const presumed = presume
@@ -143,7 +143,9 @@ function muxPair(
   return { caller, server, exchange };
 }
 
-const ONE_WAY = 40;
+// Wide enough that one round trip plus the CPU of a loaded machine stays well
+// under the 1.5 round trips that tell one round trip from two.
+const ONE_WAY = 100;
 const RTT = 2 * ONE_WAY;
 
 describe("mux round trips", () => {
@@ -172,26 +174,28 @@ describe("mux round trips", () => {
   });
 
   it("breaks the mux when the real ack contradicts the presumption", async () => {
-    const broken: Error[] = [];
+    const broken: Array<{ error: Error; contradicted: boolean }> = [];
     // A responder whose codec does not read `end` acks without it.
     const { halfClose: _, ...withoutEnd } = msgpackCodec;
     const { caller } = muxPair(delayedLink(5), {
       presume: true,
       serverCodec: withoutEnd as PortCodec,
-      onBroken: (error) => broken.push(error),
+      onBroken: (error, contradicted) => broken.push({ error, contradicted }),
     });
     await caller.openPort({ kind: "httpeers" });
     await expect.poll(() => broken.length).toBe(1);
-    expect(broken[0]?.message).toMatch(/acknowledged port 0/);
+    expect(broken[0]?.error.message).toMatch(/acknowledged port 0/);
+    // So the link presumes nothing on that connection again.
+    expect(broken[0]?.contradicted).toBe(true);
   });
 
   it("notices a peer gone silent while ports keep opening, which the presumed acks hide from the mux's keepalive", async () => {
     const link = delayedLink(2);
-    const broken: Error[] = [];
+    const broken: Array<{ error: Error; contradicted: boolean }> = [];
     const { caller } = muxPair(link, {
       presume: true,
       keepaliveMs: 30,
-      onBroken: (error) => broken.push(error),
+      onBroken: (error, contradicted) => broken.push({ error, contradicted }),
     });
     // Alive long enough to have answered a keepalive ping.
     await new Promise((resolve) => setTimeout(resolve, 100));
@@ -202,7 +206,9 @@ describe("mux round trips", () => {
     );
     cleanup.push(() => clearInterval(opening));
     await expect.poll(() => broken.length, { timeout: 2000 }).toBe(1);
-    expect(broken[0]?.message).toMatch(/nothing from the peer/);
+    expect(broken[0]?.error.message).toMatch(/nothing from the peer/);
+    // Silence says nothing against the presumption.
+    expect(broken[0]?.contradicted).toBe(false);
   });
 });
 
@@ -238,7 +244,7 @@ async function delayingProxy(targetPort: number, oneWayMs: number): Promise<numb
 
 describe("mux round trips end to end", () => {
   it("answers a GET and a POST in one round trip through a delaying proxy", async () => {
-    const oneWay = 60;
+    const oneWay = 100;
     const rtt = 2 * oneWay;
     const serverNode = await createNode({
       privateKey: await generateKey(),

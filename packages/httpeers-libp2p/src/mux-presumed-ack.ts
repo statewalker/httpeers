@@ -38,9 +38,16 @@
  * opener's capabilities (`pipeline`, `end`), and returns credit for what its
  * consumers read. The presumption is checked: when the real ack arrives and
  * says anything else, `onBroken` runs and the caller closes the mux (every
- * exchange on it fails, and the next call dials a new one). A responder that
- * refuses the port (`maxPorts`, `onPort`) closes it as before, and drops the
- * pipelined chunks it does not know, as it dropped the calls.
+ * exchange on it fails, and the next call dials a new one, which presumes
+ * nothing on that connection: the full handshake, two round trips).
+ *
+ * WHAT A REFUSED PORT COSTS. A responder that refuses the port (`maxPorts`,
+ * `onPort`) closes it as before and drops what arrives for it without
+ * buffering it. But the caller no longer waits for its first chunk to be
+ * confirmed before sending the next: until the refusal reaches it, it may
+ * send up to one window of request body (256 KiB by default, the `window`
+ * option or the hub's `HUB_MUX_WINDOW` otherwise; about 246 KB measured) that the
+ * responder throws away, where before it sent one chunk.
  *
  * THE KEEPALIVE. The mux counts anything it reads as a sign of life, the
  * presumed ack included, so a caller that kept opening ports would keep its
@@ -68,8 +75,11 @@ export interface PresumingAcksInit {
   keepaliveMs: number;
   /** Intervals in a row with nothing from the peer before `onBroken` (the mux's `misses`). */
   misses: number;
-  /** The real ack contradicted the presumption, or the peer went silent: close the mux. */
-  onBroken: (error: Error) => void;
+  /**
+   * Close the mux: the real ack contradicted the presumption (`contradicted`:
+   * then presume nothing on this connection again), or the peer went silent.
+   */
+  onBroken: (error: Error, contradicted: boolean) => void;
 }
 
 /** The codec and target to give the caller's `multiplexPort`, and `stop`, for when the mux is over. */
@@ -93,10 +103,10 @@ export function presumingAcks(init: PresumingAcksInit): PresumingAcks {
   let silent = 0;
   let broken = false;
 
-  const fail = (error: Error): void => {
+  const fail = (error: Error, contradicted = true): void => {
     if (broken) return;
     broken = true;
-    onBroken(error);
+    onBroken(error, contradicted);
   };
 
   /** A real envelope from the peer: alive, and an ack checked against what was presumed. */
@@ -198,6 +208,7 @@ export function presumingAcks(init: PresumingAcksInit): PresumingAcks {
           new Error(
             `httpeers-libp2p: nothing from the peer for ${init.misses} keepalive intervals of ${init.keepaliveMs} ms`,
           ),
+          false,
         );
       }
     }, init.keepaliveMs);
