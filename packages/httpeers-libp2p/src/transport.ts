@@ -332,8 +332,9 @@ export function mapPeerCallError(err: unknown, peerId: PeerIdStr): PeerCallError
     // class as a reset, not a kind of its own: the retry advice is identical
     // (sound only for an idempotent request, the peer may have acted), and the
     // libp2p error, when there is one, stays reachable as `cause.cause`. Most
-    // often seen while a response BODY streams: the bridge maps body errors
-    // through this function too.
+    // often seen while a response BODY streams: `createRemote` passes the
+    // bridge a `mapBodyError` that sends this error, and only this one,
+    // through this function.
     case "PeerGoneError":
     case "TooManyOutboundProtocolStreamsError":
     case "TooManyInboundProtocolStreamsError":
@@ -554,5 +555,14 @@ export function createRemote(init: CreateRemoteInit): Remote {
     requestTimeoutMs: init.requestTimeoutMs,
     maxConcurrentOutbound: init.maxConcurrentOutbound,
     mapError: (error, target) => mapPeerCallError(error, target),
+    // Mid-body, only the transport cutting the call short is ours to classify.
+    // Anything else ending the body is the serving peer's own error, sent
+    // across and rebuilt with ITS name: a handler's `AbortSignal.timeout()`
+    // arrives as a `TimeoutError`, and `mapPeerCallError` would report it as
+    // this side's request timeout. Those reach the reader unchanged.
+    mapBodyError: (error, target) =>
+      error instanceof Error && error.name === "PeerGoneError"
+        ? mapPeerCallError(error, target)
+        : undefined,
   });
 }

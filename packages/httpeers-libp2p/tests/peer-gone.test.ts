@@ -6,11 +6,12 @@
  * reaches the caller through the response BODY, not through `Remote`'s own
  * promise; `mapPeerCallError` is applied there too, and a reader must see the
  * same typed `PeerStreamResetError` a reset before the head produces, with the
- * transport's error kept as `cause`.
+ * transport's error kept as `cause`. An error the serving peer's OWN body
+ * raises is not the transport's: it reaches the reader as the peer sent it.
  */
 
 import { tcp } from "@libp2p/tcp";
-import { type PeerIdStr, PeerStreamResetError } from "@statewalker/httpeers-core";
+import { PeerCallError, type PeerIdStr, PeerStreamResetError } from "@statewalker/httpeers-core";
 import { afterEach, describe, expect, it } from "vitest";
 import { generateKey } from "../src/identity.js";
 import { createNode, createRemote, mapPeerCallError, serveTransport } from "../src/transport.js";
@@ -75,6 +76,52 @@ describe("a peer that dies mid-body", () => {
     expect(reset.peerId).toBe(target);
     expect((reset.cause as Error).name).toBe("PeerGoneError");
   }, 20_000);
+
+  for (const name of ["AppError", "TimeoutError", "StreamResetError"]) {
+    it(`a ${name} the serving peer's own body raises reaches the reader unchanged`, async () => {
+      const serverNode = await node(["/ip4/127.0.0.1/tcp/0"]);
+      const clientNode = await node();
+      await serveTransport({
+        node: serverNode,
+        dispatch: async () => {
+          let sent = false;
+          return new Response(
+            new ReadableStream<Uint8Array>({
+              pull(controller) {
+                if (!sent) {
+                  sent = true;
+                  controller.enqueue(new TextEncoder().encode("first"));
+                  return;
+                }
+                const error = new Error("app boom");
+                error.name = name;
+                controller.error(error);
+              },
+            }),
+          );
+        },
+      });
+      await clientNode.dial(serverNode.getMultiaddrs()[0]);
+
+      const remote = createRemote({ node: clientNode });
+      const target = serverNode.peerId.toString() as PeerIdStr;
+      const response = await remote(target, new Request("http://peer.local/stream"));
+      const reader = response.body?.getReader();
+      if (reader === undefined) throw new Error("expected a body");
+      const failure = await (async () => {
+        try {
+          for (;;) if ((await reader.read()).done) return undefined;
+        } catch (error) {
+          return error;
+        }
+      })();
+
+      expect(failure).toBeInstanceOf(Error);
+      expect(failure).not.toBeInstanceOf(PeerCallError);
+      expect((failure as Error).name).toBe(name);
+      expect((failure as Error).message).toContain("app boom");
+    }, 20_000);
+  }
 
   it("maps PeerGoneError by name, keeping it as cause", () => {
     const reset = new Error("stream reset");

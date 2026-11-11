@@ -54,7 +54,7 @@ const stop = await serveFetchOverLink({
   dispatch: async (req) => new Response(`hello, ${String(lookupPeer(req))}`),
 });
 
-const call = createRemoteOverLink({ link: linkA }); // options: maxConcurrentOutbound, requestTimeoutMs, mapError
+const call = createRemoteOverLink({ link: linkA }); // options: maxConcurrentOutbound, requestTimeoutMs, mapError, mapBodyError
 const res = await call(peerB, new Request("http://peer.local/hello"));
 await res.text(); // "hello, <peerA>"
 await stop();
@@ -87,8 +87,15 @@ peer cannot lie about who it is.
 `createRemoteOverLink` holds a concurrency permit (64 by default) across all
 targets and a per-call timeout (30 s, dial included), and cleans up even when
 the timeout fires mid-dial. Without the permit, a page that fires a hundred
-calls opens a hundred streams, the far side's inbound limit refuses some of
-them, and the symptom is *unrelated* calls failing.
+calls opens a hundred streams at once, the far side's inbound limit refuses
+some of them, and the symptom is *unrelated* calls failing.
+
+The permit counts calls **waiting for their response head**: it is taken
+before the dial and given back as soon as the head arrives. A call whose body
+is still streaming (an SSE stream, a tunnel, a large download, a body nobody
+reads) keeps its duplex but holds no permit. So the permit bounds how many
+streams are being opened at once, not how many are open; long-lived bodies
+still count against the transport's own per-connection stream limit.
 
 ### The duplex is closed only on the error path
 
@@ -103,6 +110,18 @@ instead of failing, which is what duplex bugs look like.
 says "All multiaddr dials failed", a WebSocket says something else. A bridge
 that matched one transport's wording would mis-classify every other. Return
 `undefined` to let the original error through.
+
+`mapError` sees failures **before the response head** only. An error that ends
+the response **body** goes to a second option, `mapBodyError`, which maps
+nothing by default. They are separate because a body can fail in two ways: the
+transport cut the call short (the peer died mid-body), or the serving peer's
+own code failed and sent its error across, rebuilt with the peer's name and
+message. Only the first is the transport's to classify: a mapper written for
+pre-head failures would read a far handler's `TimeoutError` as this side's
+request timeout. So `mapBodyError` should map only what the transport raises
+when a stream is cut (`@statewalker/httpeers-libp2p` maps `PeerGoneError` and
+nothing else) and return `undefined` for the rest. The caller's own abort is
+never mapped: the body fails with `signal.reason`.
 
 ### A `MessagePort` proves nothing, so `./ports` asserts identity
 
