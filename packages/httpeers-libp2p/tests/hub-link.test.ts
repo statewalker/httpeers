@@ -15,16 +15,9 @@
  * refusals from a real hub, so a libp2p upgrade that changes the wording
  * fails there and not only here.
  */
-import type { Connection, Libp2p } from "@libp2p/interface";
-import { multiaddr } from "@multiformats/multiaddr";
-import { describe, expect, it, vi } from "vitest";
-import {
-  defaultWebRTCAttempts,
-  dialWebRTC,
-  HubReservationError,
-  reserveOnHub,
-  WEBRTC_UPGRADE_ATTEMPTS,
-} from "../src/hub-link.js";
+import type { Libp2p } from "@libp2p/interface";
+import { describe, expect, it } from "vitest";
+import { HubReservationError, reserveOnHub } from "../src/hub-link.js";
 
 const HUB = "12D3KooWDpJ7As7BWAwRMfu1VU2WCqNjvq387JEYKDBj4kx6nXTN";
 
@@ -115,53 +108,5 @@ describe("reserveOnHub's refusal", () => {
     const inner = listenFailure("Error: reservation failed with status RESERVATION_REFUSED");
     const err = await reserveOnHub(refusingNode(inner), HUB).catch((e: unknown) => e);
     expect((err as Error).cause).toBe(inner);
-  });
-});
-
-describe("dialWebRTC", () => {
-  // A stand-in node: each dial pops the next outcome.
-  function nodeDialling(outcomes: Array<Error | "ok">): { node: Libp2p; dials: () => number } {
-    let dials = 0;
-    const node = {
-      dial: async () => {
-        const outcome = outcomes[dials++];
-        if (outcome instanceof Error) throw outcome;
-        return { id: "conn" } as unknown as Connection;
-      },
-    } as unknown as Libp2p;
-    return { node, dials: () => dials };
-  }
-
-  it("retries a failed WebRTC upgrade and returns the connection that came up", async () => {
-    const { node, dials } = nodeDialling([new Error("DTLS handshake failed"), "ok"]);
-    const conn = await dialWebRTC(node, multiaddr("/ip4/127.0.0.1/tcp/1/ws/p2p-circuit/webrtc"));
-    expect(conn).toEqual({ id: "conn" });
-    expect(dials()).toBe(2);
-  });
-
-  it("in a browser (a native RTCPeerConnection), tries once: there is no race to retry", async () => {
-    vi.stubGlobal("RTCPeerConnection", function RTCPeerConnection() {});
-    try {
-      expect(defaultWebRTCAttempts()).toBe(1);
-      const { node, dials } = nodeDialling([new Error("ICE failed"), "ok"]);
-      await expect(
-        dialWebRTC(node, multiaddr("/ip4/127.0.0.1/tcp/1/ws/p2p-circuit/webrtc")),
-      ).rejects.toThrow("ICE failed");
-      expect(dials()).toBe(1);
-    } finally {
-      vi.unstubAllGlobals();
-    }
-  });
-
-  it("under Node (no native RTCPeerConnection), keeps the node-datachannel retry", () => {
-    expect(defaultWebRTCAttempts()).toBe(WEBRTC_UPGRADE_ATTEMPTS);
-  });
-
-  it("gives up after its attempts and rethrows the last failure", async () => {
-    const { node, dials } = nodeDialling([new Error("one"), new Error("two"), new Error("three")]);
-    await expect(
-      dialWebRTC(node, multiaddr("/ip4/127.0.0.1/tcp/1/ws/p2p-circuit/webrtc"), 3),
-    ).rejects.toThrow("three");
-    expect(dials()).toBe(3);
   });
 });

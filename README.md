@@ -155,11 +155,16 @@ with nothing stubbed.
 
 ## What will surprise you
 
-- **`node-datachannel` must be allowed to build.** `@libp2p/webrtc` needs this
-  native module, and pnpm 10 blocks install scripts unless a package is named
-  in `onlyBuiltDependencies` (it is, in `pnpm-workspace.yaml`). Remove that
-  entry and pnpm prints `Ignored build scripts: node-datachannel`, reports
-  success, and `@statewalker/httpeers-member/node` then throws on import.
+- **`node-datachannel`'s binary comes from an optional package.** `@libp2p/webrtc`
+  needs this native module under Node. Its prebuilt `.node` file ships in
+  `@node-datachannel/<platform>` (e.g. `linux-x64-gnu`), an optional dependency
+  installed for the running platform only. Install without optional
+  dependencies, or copy a `node_modules` across platforms, and
+  `@statewalker/httpeers-member/node` throws on import. The version matters too:
+  WebRTC dials are made once and need node-datachannel 0.33.6 or newer
+  (libdatachannel 0.24.6), which `pnpm-workspace.yaml` enforces with an
+  override. (`onlyBuiltDependencies` still names `node-datachannel`, from when
+  an install script fetched the binary; today's releases have none.)
 - **Apps bundle workspace packages from `dist/`.** The packages' `exports` have
   a `source` condition, but the Vite builds do not enable it. After changing a
   package, rebuild it before building or testing an app that uses it.

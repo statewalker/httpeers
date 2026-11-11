@@ -23,14 +23,19 @@ pnpm add @statewalker/httpeers-libp2p
 ```
 
 libp2p and its transports are regular dependencies. Under Node,
-`@libp2p/webrtc` needs the native `node-datachannel` module; with pnpm 10 it
-must be listed in `onlyBuiltDependencies`, or pnpm skips its build script and
-the import fails at runtime (see the repository root README).
+`@libp2p/webrtc` needs the native `node-datachannel` module, whose binary comes
+from the optional `@node-datachannel/<platform>` package: keep optional
+dependencies on (see the repository root README). This package depends on
+`node-datachannel` `^0.33.6` (libdatachannel 0.24.6). WebRTC dials are made
+once, and older releases lose a DTLS startup race on the offerer under CPU
+load. `@libp2p/webrtc` itself accepts `^0.33.4`, so if your lockfile gives it an
+older copy, add a pnpm override. `warnIfOldLibdatachannel()` from `./node`
+warns once when the loaded copy is too old.
 
 | Import | Gives | Runs in |
 |---|---|---|
 | `.` | `createNode`, `servePeer`, identity (`generateKey`, `peerIdOf`, `signerOf`, `identityStore`), reachability, duplex | Node and browsers |
-| `./node` | `nodeTransports()` (TCP), `fileBytesStore` | Node only (`@libp2p/tcp`, `node:fs`) |
+| `./node` | `nodeTransports()` (TCP), `fileBytesStore`, `warnIfOldLibdatachannel` | Node only (`@libp2p/tcp`, `node:fs`) |
 | `./browser` | `browserTransports()` (WebSockets, circuit relay, WebRTC), `idbBytesStore` | browsers (IndexedDB) |
 
 The root never reaches `@libp2p/tcp` or a `node:` builtin; `tests/boundary.test.ts`

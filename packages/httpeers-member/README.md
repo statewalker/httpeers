@@ -32,8 +32,10 @@ stays free of it. Install what your entry point imports:
 - `./browser`: the same minus `@libp2p/tcp`, plus `idb-keyval` and
   `@statewalker/webrun-http-browser` (the ServiceWorker edge).
 
-Under Node, `@libp2p/webrtc` needs the native `node-datachannel` module; see the
-repository root README for the pnpm 10 `onlyBuiltDependencies` setting.
+Under Node, `@libp2p/webrtc` needs the native `node-datachannel` module (0.33.6
+or newer; its binary comes from the optional `@node-datachannel/<platform>`
+package). See the repository root README. `nodePlatform` warns once at startup
+if the loaded libdatachannel is older than 0.24.6.
 
 | Import | Gives |
 |---|---|

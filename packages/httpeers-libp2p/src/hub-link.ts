@@ -8,7 +8,7 @@
 
 import type { Connection, Libp2p } from "@libp2p/interface";
 import { peerIdFromString } from "@libp2p/peer-id";
-import { type Multiaddr, multiaddr } from "@multiformats/multiaddr";
+import { multiaddr } from "@multiformats/multiaddr";
 import { lastPeerIdOf } from "./multiaddr-parts.js";
 import { type RelaySupervisor, superviseRelay } from "./reservation.js";
 
@@ -28,69 +28,6 @@ export function hubRoute(hubPeerId: string, peerId: string): string {
   return `/p2p/${hubPeerId}/p2p-circuit/webrtc/p2p/${peerId}`;
 }
 
-/** How many times `dialWebRTC` tries a WebRTC upgrade under node-datachannel before giving up. */
-export const WEBRTC_UPGRADE_ATTEMPTS = 3;
-
-/**
- * How many attempts `dialWebRTC` makes by default: one where WebRTC is the
- * runtime's own (a browser), `WEBRTC_UPGRADE_ATTEMPTS` elsewhere (Node, with
- * node-datachannel). Read at each call, not at import.
- *
- * WHY ONE IN A BROWSER. The retry exists for a node-datachannel race (below),
- * which a browser's WebRTC does not have. There, a path that cannot come up
- * (symmetric NAT, UDP blocked) fails every attempt alike, each after libp2p's
- * per-address dial timeout (6 s in libp2p 3), and the caller's relay fallback
- * waits for all of them: measured in Chromium with UDP blocked, a Guest's join
- * took 18 s, all of it in three timed-out upgrades, and 6 s with one.
- *
- * THE TEST IS THE GLOBAL, NOT THE IMPLEMENTATION libp2p PICKS (it picks by the
- * package's `browser` field). Under Node they agree unless a process installs a
- * global RTCPeerConnection (e.g. node-datachannel's polyfill assigned to
- * `globalThis`): libp2p still runs node-datachannel there, and this would
- * drop its retry. Pass `attempts` explicitly in such a process.
- */
-export function defaultWebRTCAttempts(): number {
-  return typeof (globalThis as { RTCPeerConnection?: unknown }).RTCPeerConnection === "function"
-    ? 1
-    : WEBRTC_UPGRADE_ATTEMPTS;
-}
-
-/**
- * Dial a `/webrtc` address, trying the upgrade again when it fails.
- *
- * WHY. Under Node, WebRTC is libdatachannel (`node-datachannel`), and
- * libdatachannel <= 0.24.5 can lose a race on the OFFERER: setting the remote
- * answer hands it to the ICE agent before the answer's fingerprint is
- * committed, ICE can complete at once (the answerer has been sending checks),
- * and the DTLS handshake that follows finds no remote fingerprint to verify
- * against -- `DTLS alert: unknown CA`, the peer connection fails, and
- * libp2p's dial times out. It needs the threads to interleave badly, which a
- * busy CPU makes common: the conformance suite lost it in most runs under
- * load. Each attempt is an independent race, so one retry nearly always
- * succeeds. Fixed upstream by libdatachannel 0235225 ("start DTLS after
- * remote description"); drop the retry once node-datachannel ships it.
- * Browsers implement WebRTC themselves and are not affected, so they get one
- * attempt (`defaultWebRTCAttempts`).
- *
- * A WebRTC path that cannot come up fails every attempt, and the caller's
- * fallback (the relay circuit) runs as before.
- */
-export async function dialWebRTC(
-  node: Libp2p,
-  target: Multiaddr | Multiaddr[],
-  attempts: number = defaultWebRTCAttempts(),
-): Promise<Connection> {
-  let lastError: unknown;
-  for (let attempt = 1; attempt <= attempts; attempt++) {
-    try {
-      return await node.dial(target);
-    } catch (err) {
-      lastError = err;
-    }
-  }
-  throw lastError;
-}
-
 /**
  * Reach the hub over WebRTC through the public relay, and keep ONLY the
  * WebRTC connection.
@@ -102,9 +39,14 @@ export async function dialWebRTC(
  * limited or not -- so while the limited one is open, every dial THROUGH the
  * hub fails with `LimitedConnectionError`. Found by the `proto/hub-relay`
  * prototype; the "connects two members directly" test fails without it.
+ *
+ * ONE ATTEMPT. Under Node the WebRTC upgrade needs libdatachannel >= 0.24.6
+ * (node-datachannel >= 0.33.6, pinned as a floor in the workspace): older
+ * releases could start DTLS on the offerer before the remote fingerprint was
+ * committed (`DTLS alert: unknown CA`), and this dial used to be retried for it.
  */
 export async function reachHub(node: Libp2p, relayAddr: string, hubPeerId: string): Promise<void> {
-  await dialWebRTC(node, multiaddr(`${relayAddr}/p2p-circuit/webrtc/p2p/${hubPeerId}`));
+  await node.dial(multiaddr(`${relayAddr}/p2p-circuit/webrtc/p2p/${hubPeerId}`));
   const limited = node.getConnections(peerIdFromString(hubPeerId)).filter((c) => c.limits != null);
   await Promise.all(limited.map((c) => c.close()));
 }

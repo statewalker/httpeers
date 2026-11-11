@@ -28,12 +28,15 @@ import type { Ed25519PrivateKey, Libp2p } from "@libp2p/interface";
 import { tcp } from "@libp2p/tcp";
 import { webRTC } from "@libp2p/webrtc";
 import { webSockets } from "@libp2p/websockets";
+import { warnIfOldLibdatachannel } from "@statewalker/httpeers-libp2p/node";
 import { createLibp2p } from "libp2p";
 import type { MemberPlatform } from "./start-member.js";
 
 export async function createNodeMemberNode(init: {
   privateKey?: Ed25519PrivateKey;
 }): Promise<Libp2p> {
+  // Once per process: this peer dials WebRTC once, which needs libdatachannel >= 0.24.6.
+  warnIfOldLibdatachannel();
   return createLibp2p({
     ...(init.privateKey != null ? { privateKey: init.privateKey } : {}),
     addresses: { listen: ["/ip4/127.0.0.1/tcp/0", "/p2p-circuit", "/webrtc"] },
