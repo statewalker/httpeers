@@ -28,19 +28,31 @@ import type { Ed25519PrivateKey, Libp2p } from "@libp2p/interface";
 import { tcp } from "@libp2p/tcp";
 import { webRTC } from "@libp2p/webrtc";
 import { webSockets } from "@libp2p/websockets";
+import { type IceServer, webRTCInitOf } from "@statewalker/httpeers-libp2p";
 import { warnIfOldLibdatachannel } from "@statewalker/httpeers-libp2p/node";
 import { createLibp2p } from "libp2p";
 import type { MemberPlatform } from "./start-member.js";
 
 export async function createNodeMemberNode(init: {
   privateKey?: Ed25519PrivateKey;
+  /**
+   * WebRTC's STUN/TURN servers. Unset keeps `@libp2p/webrtc`'s own public
+   * default; `HTTPEERS_ICE_SERVERS` opts into the mesh's server. See
+   * `@statewalker/httpeers-libp2p`'s `ice-servers.ts`.
+   */
+  iceServers?: readonly IceServer[];
 }): Promise<Libp2p> {
   // Once per process: this peer dials WebRTC once, which needs libdatachannel >= 0.24.6.
   warnIfOldLibdatachannel();
   return createLibp2p({
     ...(init.privateKey != null ? { privateKey: init.privateKey } : {}),
     addresses: { listen: ["/ip4/127.0.0.1/tcp/0", "/p2p-circuit", "/webrtc"] },
-    transports: [webSockets(), circuitRelayTransport(), webRTC(), tcp()],
+    transports: [
+      webSockets(),
+      circuitRelayTransport(),
+      webRTC(webRTCInitOf(init.iceServers) as Parameters<typeof webRTC>[0]),
+      tcp(),
+    ],
     connectionEncrypters: [noise()],
     streamMuxers: [yamux()],
     connectionGater: { denyDialMultiaddr: async () => false },
@@ -50,3 +62,17 @@ export async function createNodeMemberNode(init: {
 
 /** The whole Node platform: a node factory, and nothing else. */
 export const nodePlatform: MemberPlatform = { createNode: createNodeMemberNode };
+
+/**
+ * `nodePlatform` with a choice of WebRTC ICE servers, e.g.
+ * `nodePlatformWith({ iceServers: HTTPEERS_ICE_SERVERS })`. Unset is `nodePlatform`.
+ */
+export function nodePlatformWith(init: { iceServers?: readonly IceServer[] }): MemberPlatform {
+  return {
+    createNode: ({ privateKey }) =>
+      createNodeMemberNode({
+        ...(privateKey != null ? { privateKey } : {}),
+        ...(init.iceServers != null ? { iceServers: init.iceServers } : {}),
+      }),
+  };
+}

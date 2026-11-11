@@ -133,6 +133,7 @@ export async function startDaemon(config: HubConfig, modules: ServiceModule[]): 
     privateKey,
     isMember: () => isMember,
     ...(config.maxReservations != null ? { maxReservations: config.maxReservations } : {}),
+    ...(config.iceServers != null ? { iceServers: config.iceServers } : {}),
   });
 
   const unwind: Array<() => void | Promise<void>> = [() => node.stop()];

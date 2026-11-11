@@ -37,7 +37,13 @@ import { identify } from "@libp2p/identify";
 import type { Ed25519PrivateKey, Libp2p } from "@libp2p/interface";
 import { webRTC } from "@libp2p/webrtc";
 import { webSockets } from "@libp2p/websockets";
-import { hubRelayService, type IsMember, membershipGater } from "@statewalker/httpeers-libp2p";
+import {
+  hubRelayService,
+  type IceServer,
+  type IsMember,
+  membershipGater,
+  webRTCInitOf,
+} from "@statewalker/httpeers-libp2p";
 import { createLibp2p, type ServiceFactoryMap } from "libp2p";
 
 /**
@@ -121,6 +127,13 @@ export interface CreateBrowserNodeInit {
    * passes it.
    */
   isMember?: IsMember;
+  /**
+   * The STUN/TURN servers WebRTC gathers candidates from. Unset keeps
+   * `@libp2p/webrtc`'s own public default; `HTTPEERS_ICE_SERVERS` (from
+   * `@statewalker/httpeers-libp2p`) opts into `stun:stun.httpeers.net:3478`
+   * with one public fallback. See that package's `ice-servers.ts`.
+   */
+  iceServers?: readonly IceServer[];
 }
 
 /**
@@ -144,7 +157,11 @@ export async function createBrowserNode(init: CreateBrowserNodeInit): Promise<Li
     // nothing else; a `/p2p-circuit` entry here would make libp2p reserve on
     // the first relay it meets -- the public one -- and spend its capacity.
     addresses: { listen: init.isMember != null ? ["/p2p-circuit", "/webrtc"] : ["/webrtc"] },
-    transports: [webSockets(), webRTC(), circuitRelayTransport()],
+    transports: [
+      webSockets(),
+      webRTC(webRTCInitOf(init.iceServers) as Parameters<typeof webRTC>[0]),
+      circuitRelayTransport(),
+    ],
     connectionEncrypters: [noise()],
     streamMuxers: [yamux()],
     connectionGater: {

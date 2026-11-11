@@ -2,17 +2,18 @@
 
 ## What it is
 
-The production deployment of the mesh's services on one host: **four containers** on a single
-`httpeers_edge` network, fronted by Caddy, which terminates TLS for `*.httpeers.net` and
+The production deployment of the mesh's services on one host: **five containers** — four on a
+single `httpeers_edge` network, fronted by Caddy, plus a STUN server on its own published port. Caddy terminates TLS for `*.httpeers.net` and
 `*.p.httpeers.net`, plus `cellb.dev` and `*.cellb.dev` (a second domain, served by the same
 `sites` app; `www.cellb.dev` redirects to the apex).
 
 | Service | Image | What it is |
 |---|---|---|
-| `caddy` | `httpeers-ingress` | The only service with published ports (`80`, `443`). Holds the certificates (`*.httpeers.net`, `*.p.httpeers.net`, `*.s.httpeers.net`) and routes by `Host`. |
+| `caddy` | `httpeers-ingress` | Publishes `80`, `443`. Holds the certificates (`*.httpeers.net`, `*.p.httpeers.net`, `*.s.httpeers.net`) and routes by `Host`. |
 | `relay` | `httpeers-relay` | The circuit relay. Reached through Caddy, never directly. |
 | `sites` | `httpeers-sites` | The static-site host, reading from `rustfs`. |
 | `rustfs` | `rustfs/rustfs` | S3-compatible storage. One first-level prefix per site. |
+| `stun` | `coturn/coturn` (pinned) | STUN only, at `stun:stun.httpeers.net:3478`. Publishes `3478/udp` and `3478/tcp` itself: Caddy cannot proxy UDP. No TURN, no relaying, no credentials. See [The STUN server](#the-stun-server). |
 
 **A second, separate stack runs on the same host**: the LLM appliance (hub, LiteLLM, Postgres,
 Traefik) in `/opt/httpeers-llm`, compose project `httpeers-llm`, on its own network and with no
@@ -27,7 +28,7 @@ image cannot solve the DNS-01 challenge below).
 
 | File | What it is |
 |---|---|
-| `docker-compose.yml` | the four services, their volumes and the `httpeers_edge` network |
+| `docker-compose.yml` | the five services, their volumes and the `httpeers_edge` network |
 | `Caddyfile` | routing by `Host`, the wildcard certificates, the relay's bootstrap document (bind-mounted, not in the image) |
 | `ingress/Dockerfile` | Caddy with the Gandi DNS module (`ghcr.io/statewalker/httpeers-ingress`) |
 | `.env.example` | `ACME_EMAIL`, `GANDI_BEARER_TOKEN`, `RELAY_ANNOUNCE_ADDRS`, `RELAY_KEY`, `S3_*`, `SITES_CACHE_TTL_MS` |
@@ -38,6 +39,12 @@ Images are built by `.github/workflows/relay.yml`, `sites.yml` and `ingress.yml`
 and `up -d` in `DEPLOY_PATH`) when the repository variable `DEPLOY_ENABLED` is `true`; the relay
 deploy fails if the relay's peerId changed. The ingress image is never deployed automatically,
 because restarting it restarts TLS for everything.
+
+**Nothing deploys this file.** No workflow watches `deploy/docker-compose.yml`, `deploy/README.md`
+or `deploy/server/`, and none copies the compose file to the server: the deploy jobs run
+`docker compose up -d relay|sites` against the server's own copy. A change here — a new service,
+such as `stun` — reaches production only when a person copies the file over and starts it
+(`deploy/server/README.md`, "Adding a service to the edge stack").
 
 ## How to run it
 
@@ -71,6 +78,10 @@ without `*.p` every session name is NXDOMAIN for as long as the challenge record
 at every issuance and renewal, plus negative caching. A side effect of the record: the
 bare `p.httpeers.net` stops resolving (NOERROR, no address), which is correct — it is not
 a site. The `*.s` record does the same for the test session zone, `<name>.s.httpeers.net`.
+
+**`stun.httpeers.net` needs no record either**: the `*` record answers for it. There is no
+`stun` site block, so `https://stun.httpeers.net` serves whatever Caddy serves an unknown name;
+only port `3478` means anything there.
 
 Gandi accepts a wildcard record without validating it, so a typo here fails silently at
 resolution time rather than at entry. `*.p` is a valid name, and the Personal Access Token below
@@ -122,6 +133,9 @@ docker volume create httpeers_rustfs_data
 
 docker compose up -d
 ```
+
+Open `3478/udp` and `3478/tcp` in the host firewall for the STUN server, next to `80` and `443`
+(see [The STUN server](#the-stun-server)).
 
 The relay will refuse to start with no identity. Seed one:
 
@@ -250,6 +264,100 @@ The `relayAddrs` entry must match the address in `docker compose logs relay`,
 peerId included — it is generated from what the relay advertises, so a mismatch
 means something is wrong with the volume, not with the configuration.
 
+### The STUN server
+
+`stun` answers STUN Binding requests on `3478`, UDP and TCP, and nothing else. A WebRTC peer
+asks it which address it sees the peer as, and offers the answer as its server-reflexive
+(`srflx`) ICE candidate — which is what lets two members behind NAT find each other's public
+address and connect directly instead of through a relay circuit.
+
+- **STUN only.** `--stun-only` makes coturn ignore every TURN request, and
+  `--denied-peer-ip` over all of IPv4 and IPv6 refuses any relay even if that flag were ever
+  dropped. No realm, no users (`--no-auth`): a Binding request needs neither, and a server
+  that relays nothing has nothing to protect with a password. No TLS (`5349`) for now: that
+  needs a certificate, and browsers do not need `stuns:`. The telnet admin console is off
+  (coturn's default; `--cli` would turn it on).
+- **Its own published ports, not Caddy's.** Caddy proxies HTTP over TCP; STUN is mostly UDP,
+  and its whole answer is "the address your packet came from", so it must come straight from
+  the host. Docker's port mapping keeps the client's source address for traffic from outside.
+- **The image is pinned by tag and digest.** Bump both together, deliberately.
+- **It is not on `httpeers_edge`.** Nothing talks to it over that network, and it talks to
+  nothing.
+
+#### Firewall
+
+Open, on the host firewall and on any provider-level firewall or security group in front of it:
+
+| Port | Protocol | For |
+|---|---|---|
+| `3478` | UDP | STUN — what browsers and node-datachannel use |
+| `3478` | TCP | STUN over TCP — for networks that drop outbound UDP |
+
+Nothing else: no relay port range, because nothing relays. With `ufw`:
+
+```sh
+sudo ufw allow 3478/udp
+sudo ufw allow 3478/tcp
+```
+
+**Docker bypasses `ufw`.** It publishes ports through its own iptables chain (`DOCKER`), ahead of
+`ufw`'s rules, so `3478` is open to the internet the moment `docker compose up -d stun` runs,
+whatever `ufw status` says. The `ufw` rules record intent and matter if Docker's iptables
+handling is ever turned off; the provider-level firewall is the one that actually gates it. Check
+from **outside** (below), not by reading the rule list.
+
+#### DNS
+
+The `*` A record covers it. From any machine:
+
+```sh
+dig +short stun.httpeers.net A        # the server's address -- the same as relay.httpeers.net
+dig +short stun.httpeers.net AAAA     # must be empty -- see below
+```
+
+**No AAAA for `stun` until Docker IPv6 is configured.** The service binds `0.0.0.0` (IPv4
+only) on purpose. A bare `3478:3478` would also listen on the host's IPv6 address, but without
+IPv6 in the daemon and on the network, docker-proxy forwards those packets into the container
+over IPv4, so the STUN server would answer an IPv6 client with a private Docker address as its
+"public" one. With the explicit IPv4 binding, a client that resolves an AAAA record sends its
+IPv6 Binding requests into nothing instead: harmless for ICE (that server just yields no IPv6
+`srflx` candidate) but a confusing half-failure. Add a wildcard or `stun` AAAA only together
+with Docker IPv6 and a `[::]:3478:3478` port binding.
+
+If the `A` answer differs from `dig +short relay.httpeers.net`, someone added an explicit
+`stun` record; it wins over the wildcard.
+
+#### Is it alive?
+
+From a machine **outside** the server's network (from the server itself, a request to
+`127.0.0.1` comes back with Docker's bridge address, not yours):
+
+```sh
+turnutils_stunclient stun.httpeers.net      # coturn's client (apt install coturn / brew install coturn)
+# ... UDP reflexive addr: <your public ip>:<port>
+```
+
+On the server, the container's own healthcheck runs the same client against its listener:
+
+```sh
+docker compose ps stun                        # (healthy)
+docker exec httpeers_stun turnutils_stunclient 127.0.0.1
+```
+
+In a browser, the check that matters — a page gets an `srflx` candidate from it. Paste in the
+devtools console of any `https://` page:
+
+```js
+const pc = new RTCPeerConnection({ iceServers: [{ urls: "stun:stun.httpeers.net:3478" }] });
+pc.createDataChannel("probe");
+pc.onicecandidate = (e) => e.candidate && console.log(e.candidate.type, e.candidate.candidate);
+await pc.setLocalDescription(await pc.createOffer());
+// expect a line starting "srflx" with your public address; only "host" lines means no answer
+```
+
+Or at <https://webrtc.github.io/samples/src/content/peerconnection/trickle-ice/>, with
+`stun:stun.httpeers.net:3478` as the only server: a `srflx` row is a working server.
+
 ## What will surprise you
 
 > **PATs expire, and certificate renewal will fail silently when it does.** Caddy renews at
@@ -319,3 +427,5 @@ Run the `dig` again **during** an issuance or renewal (`docker compose logs cadd
 | `curl -s https://relay.httpeers.net/.well-known/httpeers-relay.json` | the published relay address |
 | `docker exec -w /etc/caddy httpeers_caddy caddy reload --config /etc/caddy/Caddyfile` | apply a Caddyfile change |
 | `pnpm --filter @statewalker/httpeers-session-shell live-check` | DNS, TLS and HTTP checks for session origins, with fresh names |
+| `docker compose up -d stun` | start or update the STUN server |
+| `turnutils_stunclient stun.httpeers.net` | the STUN server answers, from outside |
