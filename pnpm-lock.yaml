@@ -121,8 +121,8 @@ catalogs:
       specifier: ^0.2.3
       version: 0.2.3
     '@statewalker/webrun-streams-libp2p':
-      specifier: ^0.1.6
-      version: 0.1.7
+      specifier: ^0.2.0
+      version: 0.2.0
     '@tailwindcss/vite':
       specifier: ^4.3.3
       version: 4.3.3
@@ -969,7 +969,7 @@ importers:
         version: 0.2.3
       '@statewalker/webrun-streams-libp2p':
         specifier: 'catalog:'
-        version: 0.1.7(@libp2p/interface@3.4.0)(@multiformats/multiaddr@13.0.3)(libp2p@3.5.1)
+        version: 0.2.0(@libp2p/interface@3.4.0)(@multiformats/multiaddr@13.0.3)(libp2p@3.5.1)
       libp2p:
         specifier: 'catalog:'
         version: 3.5.1
@@ -3043,8 +3043,8 @@ packages:
   '@statewalker/webrun-rpc@0.5.1':
     resolution: {integrity: sha512-DpnT0dJ0KpdL5QKqKTmN75CnGc1w24iHdZqYfJQLVpSKEIR/GjPb3Vzbzb4NIu9tCHsroW+Dq1CO84Jp6YCXzw==}
 
-  '@statewalker/webrun-streams-libp2p@0.1.7':
-    resolution: {integrity: sha512-CL4Pw/HjT3gy2suxN9XXvzhfujgFbGWI3au8QN7dPmuMxABoJqIjpoV5aAZCoxq82RIlifk+G1+A/Ox/7vv5mQ==}
+  '@statewalker/webrun-streams-libp2p@0.2.0':
+    resolution: {integrity: sha512-Q84ZyrDs7QfgUpQrNJSfN9zSOWNUZdRdjFHNjVvRt5FhMog1tTKIccPFeHmD+808RWWBWxK2M6Msk+kUiuNJXA==}
     peerDependencies:
       '@libp2p/interface': ^3.0.0
       '@multiformats/multiaddr': ^13.0.0
@@ -7637,7 +7637,7 @@ snapshots:
     dependencies:
       '@statewalker/webrun-streams': 0.2.3
 
-  '@statewalker/webrun-streams-libp2p@0.1.7(@libp2p/interface@3.4.0)(@multiformats/multiaddr@13.0.3)(libp2p@3.5.1)':
+  '@statewalker/webrun-streams-libp2p@0.2.0(@libp2p/interface@3.4.0)(@multiformats/multiaddr@13.0.3)(libp2p@3.5.1)':
     dependencies:
       '@libp2p/interface': 3.4.0
       '@multiformats/multiaddr': 13.0.3

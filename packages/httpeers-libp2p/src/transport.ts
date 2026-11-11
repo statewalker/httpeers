@@ -152,27 +152,36 @@ export const DEFAULT_REQUEST_TIMEOUT_MS = 8_000;
  * (Task 6a) MOVED the cliff rather than removing it: past the cap, libp2p
  * RESETS the stream instead of queueing it, so a caller sees a rejected
  * promise instead of latency, and nothing retries or backs off. This
- * constant bounds `createRemote`'s own concurrency instead, so a well-behaved
- * `Remote` never has to find that cliff at all: `createRemote` runs every
- * outbound call through a private, in-process semaphore of this width before
- * it ever calls `connect()` (which is what triggers libp2p's own
+ * constant bounds `createRemote`'s own concurrency instead: `createRemote`
+ * runs every outbound call through a private, in-process semaphore of this
+ * width before it ever calls `connect()` (which is what triggers libp2p's own
  * `maxOutboundStreams` check, `TooManyOutboundProtocolStreamsError` --
  * `errors.ts` row 3a). Excess calls QUEUE, in FIFO order, rather than racing
  * each other into that cap.
  *
+ * WHAT IT COUNTS: calls WAITING FOR THEIR RESPONSE HEAD -- dial, protocol
+ * negotiation, the request, and the wait for the head. The permit is released
+ * as soon as the head arrives (`httpeers-bridge`'s `createRemoteOverLink`),
+ * NOT when the body ends: a call whose body is still streaming (an SSE
+ * stream, a WS tunnel, a large download, or a body nobody reads) keeps its
+ * libp2p stream open but no longer holds a permit. So this does NOT bound how
+ * many outbound streams are open at once; it bounds how many are being
+ * opened. Long-lived bodies can still add up to libp2p's per-connection cap,
+ * which is why that cap (`DEFAULT_MAX_STREAMS`) stays raised too.
+ *
  * DEFAULTED TO `DEFAULT_MAX_STREAMS`, NOT SOME OTHER NUMBER, DELIBERATELY:
  * this is a per-`Remote` (i.e. per-`Peer`) budget, not per-target-peer, so a
- * `Peer` that only ever calls ONE target sees IDENTICAL admitted concurrency
- * to before -- it will now queue instead of reset at the same threshold,
- * never tighter -- while a `Peer` fanning calls out to MANY targets at once
+ * `Peer` that only ever calls ONE target is never admitted fewer calls
+ * awaiting a head than that target's cap would allow -- it queues instead of
+ * resetting at the same threshold, never tighter -- while a `Peer` fanning calls out to MANY targets at once
  * (a relay/hub forwarding on behalf of several callers) gets an additional,
- * new global ceiling on its own total outbound fan-out that did not exist
- * before this task. That second effect is intentional: `DEFAULT_MAX_STREAMS`
+ * new global ceiling on how many calls it has waiting for a head at once,
+ * across every target, that did not exist before this task. That second effect is intentional: `DEFAULT_MAX_STREAMS`
  * is a PER-CONNECTION cap, so nothing previously bounded how many
- * connections' worth of streams one `Remote` could have open at once: a
- * `Peer` calling 20 different targets at 512 streams apiece could reach
- * 10,240 concurrent outbound streams without ever touching any single
- * connection's cap. That is exactly the kind of local resource exhaustion a
+ * connections' worth of streams one `Remote` could be opening at once: a
+ * `Peer` calling 20 different targets at 512 streams apiece could have
+ * 10,240 calls awaiting a head without ever touching any single connection's
+ * cap. That is exactly the kind of local resource exhaustion a
  * DoS-adjacent control (see `DEFAULT_MAX_STREAMS`'s own doc comment) should
  * not leave open just because it happens to fan out across many peers
  * instead of one.
@@ -316,6 +325,16 @@ export function mapPeerCallError(err: unknown, peerId: PeerIdStr): PeerCallError
     // specifically.
     case "StreamResetError":
     case "StreamAbortedError":
+    // `webrun-streams-libp2p` >= 0.2: the call's stream ended before the call
+    // finished -- a connection that died without a FIN, a stream reset
+    // mid-read (libp2p's `StreamResetError` is then its `cause`), or a peer
+    // that ended its side and died while this side was still sending. Same
+    // class as a reset, not a kind of its own: the retry advice is identical
+    // (sound only for an idempotent request, the peer may have acted), and the
+    // libp2p error, when there is one, stays reachable as `cause.cause`. Most
+    // often seen while a response BODY streams: the bridge maps body errors
+    // through this function too.
+    case "PeerGoneError":
     case "TooManyOutboundProtocolStreamsError":
     case "TooManyInboundProtocolStreamsError":
       return new PeerStreamResetError(peerId, cause);
@@ -487,8 +506,8 @@ export interface CreateRemoteInit {
    * T-3 (Task 18): the width of this `Remote`'s outbound admission
    * semaphore. Defaults to `DEFAULT_MAX_CONCURRENT_OUTBOUND`. See that
    * constant's doc comment for the full contract -- what "width" bounds
-   * (this `Remote`'s total in-flight calls, across every target peer, not
-   * per-connection), and why queueing past it shares `requestTimeoutMs`
+   * (this `Remote`'s calls waiting for a response head, across every target
+   * peer, not per-connection; a streaming body holds no permit), and why queueing past it shares `requestTimeoutMs`
    * rather than getting its own timer.
    */
   maxConcurrentOutbound?: number;
@@ -513,7 +532,8 @@ export interface CreateRemoteInit {
  * per `Peer` (see `peer.ts`'s `createPeer`), so the semaphore built here is
  * that peer's single, shared outbound admission gate for as long as the
  * `Peer` lives -- every call through this `Remote`, to every target,
- * competes for the same `maxConcurrentOutbound` permits. See
+ * competes for the same `maxConcurrentOutbound` permits until its response
+ * head arrives. See
  * `DEFAULT_MAX_CONCURRENT_OUTBOUND`'s doc comment for why that scope (global
  * to this `Remote`, not per-target-peer) was chosen.
  */

@@ -101,6 +101,9 @@ export interface CreateRemoteOverLinkInit {
    * bridge that pattern-matched one transport's wording would quietly
    * mis-classify every other one. Return `undefined` to let the original
    * throw through unchanged.
+   *
+   * Also applied to an error that ends the response BODY (the call failed after its head was
+   * in), so a peer that dies mid-body surfaces as the same class it would before the head.
    */
   mapError?: (error: unknown, target: PeerIdStr) => Error | undefined;
 }
@@ -148,7 +151,11 @@ export function createRemoteOverLink(init: CreateRemoteOverLinkInit): Remote {
             timer.rejection(),
             fetchOverDuplex(opened.call, call),
           ]);
-          return closingOnAbort(response, req.signal, closeSoon);
+          // A body cut short (the peer died mid-stream) fails with the same mapped error a
+          // call that failed before its head would: the transport's own error is its `cause`.
+          return closingOnAbort(response, req.signal, closeSoon, (error) =>
+            mapError?.(error, target),
+          );
         } finally {
           merged.dispose();
         }
@@ -201,8 +208,16 @@ function eitherSignal(a: AbortSignal, b: AbortSignal): { signal: AbortSignal; di
  * webrun-http-streams sees an abort only when the body's next chunk arrives: a peer that has
  * sent the head and then nothing would keep the call, and its channel, until it sends again.
  * Closing the connection ends the call at once. The listener goes when the body ends, however.
+ *
+ * `mapError` turns an error the transport raises while the body streams into the caller's
+ * class; `undefined` from it keeps the original. The caller's own abort reason is never mapped.
  */
-function closingOnAbort(response: Response, signal: AbortSignal, close: () => void): Response {
+function closingOnAbort(
+  response: Response,
+  signal: AbortSignal,
+  close: () => void,
+  mapError: (error: unknown) => unknown,
+): Response {
   if (signal.aborted) {
     close();
     return response;
@@ -240,7 +255,7 @@ function closingOnAbort(response: Response, signal: AbortSignal, close: () => vo
         } catch (error) {
           if (ended) return;
           end();
-          c.error(error);
+          c.error(mapError(error) ?? error);
         }
       },
       async cancel(reason) {

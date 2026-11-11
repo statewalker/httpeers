@@ -215,6 +215,14 @@ export class PeerProtocolUnsupportedError extends PeerCallError {
  * response from a foreign codec is a different, real condition) into this
  * class.
  *
+ * A FOURTH source, from `webrun-streams-libp2p` 0.2: `PeerGoneError`, thrown
+ * when a call's stream ends before the call finished — a connection that
+ * died without a FIN, a stream reset mid-read (libp2p's `StreamResetError`
+ * is then ITS `cause`), or a peer that ended its side and died while this
+ * side was still sending. `mapPeerCallError` maps it here, keeping it as
+ * `cause`. It usually surfaces while a response body streams, and the body
+ * then fails with this class rather than the raw transport error.
+ *
  * RETRY: conditionally sound, and only for a request the caller knows is
  * idempotent (this package carries no idempotency-key layer to make a
  * non-idempotent retry safe). A cap-driven reset is usually transient
