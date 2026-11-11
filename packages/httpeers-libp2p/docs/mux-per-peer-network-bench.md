@@ -16,15 +16,18 @@ maintainer to decide.
 
 ## Summary
 
-| Profile (TCP) | Bulk Mbit/s: per-exchange / mux 256K / mux 4M | Ping p50 under bulk, ms: per-exchange / mux 256K / mux 4M | 256 B exchanges/s at K=100: per-exchange / mux |
+| Profile (TCP) | Bulk Mbit/s: per-exchange / mux 256K / mux 4M | Ping p50 under bulk, ms: per-exchange / mux 256K / mux 4M | 256 B exchanges/s at K=100: per-exchange / mux 256K |
 |---|---|---|---|
-| LAN, 1 Gbit, 1 ms | 956 / 688 / 953 | 43 / **6** / 47 | 961 / 1100 |
-| Broadband, 50 Mbit, 30 ms, no loss | 48 / 47 / 48 | 958 / **79** / 862 | 875 / 525 |
-| Broadband, 50 Mbit, 30 ms, 0.1% loss | 14 / 12 / 14 | 346 / **222** / 455 | 746 / 400 |
-| Mobile, 10 Mbit, 80±10 ms, no loss | 9.8 / 9.4 / 9.6 | 4845 / **394** / 1968 | 471 / 240 |
-| Mobile, 10 Mbit, 80±10 ms, 1% loss | 1.3 / 1.4 / 1.5 | 1915 / 2447 / 3087 | 174 / 80 |
-| Long fat pipe, 100 Mbit, 100 ms, no loss | 96 / **18** / 96 | 485 / **205** / 516 | 460 / 300 |
-| Bad, 2 Mbit, 200 ms, 3% loss | every run fails on both paths with the defaults (see "The connection dies"); with the monitor not aborting: 0.4 / 0.3 / 0.4 | 7687 / 9117 / 10621 | 54 / 17 |
+| LAN, 1 Gbit, 1 ms | 956 / 688 / 953 | 43 / **6** / 47 | 1104 / 1153 |
+| Broadband, 50 Mbit, 30 ms, no loss | 48 / 47 / 48 | 958 / **79** / 862 | 805 / 519 |
+| Broadband, 50 Mbit, 30 ms, 0.1% loss | 14 / 12 / 14 | 346 / **222** / 455 | 743 / 379 |
+| Mobile, 10 Mbit, 80±10 ms, no loss | 9.8 / 9.4 / 9.6 | 4845 / **394** / 1968 | 452 / 228 |
+| Mobile, 10 Mbit, 80±10 ms, 1% loss | 1.3 / 1.4 / 1.5 | 1915 / 2447 / 3087 | 169 / 58 |
+| Long fat pipe, 100 Mbit, 100 ms, no loss | 96 / **18** / 96 | 485 / **205** / 516 | 439 / 305 |
+| Bad, 2 Mbit, 200 ms, 3% loss | every run fails on both paths with the defaults (see "The connection dies"); with the monitor not aborting (all three columns): 0.4 / 0.3 / 0.4 | 7687 / 9117 / 10621 (n = 3–7 samples) | 38 / 16 |
+
+Exchange rates are from the corrected rerun (see Method). Ping samples under
+bulk: 42–200 per cell on the faster profiles, 5–13 on mobile, 3–7 on bad.
 
 What the numbers say:
 
@@ -39,7 +42,9 @@ What the numbers say:
 2. **A fixed window in bytes is the wrong unit.** 256 KiB is 2 ms of a 1 Gbit
    link (LAN: bulk capped at 72%) and 21 ms at 100 Mbit (long fat pipe: 18 of
    96 Mbit/s), but 1.5 s at the 1.4 Mbit/s TCP manages on the lossy mobile
-   link, where the mux's pings wait 2.4 s, as long as the per-exchange path's.
+   link, where the mux's pings wait 2.4 s, longer than the per-exchange
+   path's 1.9 s (and on the bad link 9.1 s at 256 KiB and 10.6 s at 4 MiB,
+   against 7.7 s).
    A window that tracks the BDP would get full throughput where 256 KiB caps
    it and keep the isolation where 256 KiB is already too much. Recommended
    below.
@@ -58,10 +63,19 @@ What the numbers say:
    is not established. A 1-RTT exchange looks available to the mux if the
    caller's window travels with the port open. Not changed here.
 5. **At high concurrency on a long path the mux is slower for small
-   exchanges**: at K=100 it does 30–65% of the per-exchange rate on every
-   profile with RTT ≥ 30 ms (on LAN it is ahead). At K=1 they are equal, so
-   it is something about many ports opening at once over a long path. Not
-   root-caused.
+   exchanges**: at K=100 it does 34–69% of the per-exchange rate on every
+   profile with RTT ≥ 30 ms, i.e. the per-exchange path is 1.4–2.9× faster
+   (worst on the lossy links: 2.9× on lossy mobile, 2.4× on bad). On LAN
+   the two are within noise. At K=1 and K=10 they are about equal. A lead,
+   not a root cause: the mux completes the K=100 exchanges in lock-step
+   rounds. In a diagnostic on a 100 ms link (100 exchanges started at once,
+   3 rounds), the heads arrived over 290–322 ms but every body arrived
+   together at 335–336 ms, after the last head; on the per-exchange path
+   heads and bodies arrived together, spread over 224–297 ms. So on the mux
+   a round is as slow as its slowest exchange plus a further step, which
+   fits the per-exchange window handshake (point 4) or serialised delivery
+   on the serving side, and a loss that stalls one exchange holds back the
+   whole round.
 6. **On a slow, lossy link the connection dies under a bulk download, on both
    paths**: libp2p's connection monitor pings every 10 s with a 5 s minimum
    timeout and aborts the whole connection when the ping is stuck behind the
@@ -131,8 +145,24 @@ Durations and sample counts shrink on slow profiles (e.g. 4 s of bulk on LAN,
 15 s on the bad profile). Each cell is the median over runs: 3 runs for the
 four requested profiles, 2 for the three added ones (`broadband-noloss`,
 `mobile-noloss`, `longfat`; with two runs the cell is the higher of the
-two, since the median takes the upper middle value). The per-exchange path is measured once per
+two values, since the median takes the upper middle one: the worse for a
+latency, the better for a rate). The per-exchange path is measured once per
 profile (the mux window does not apply to it).
+
+Percentiles: "p99" is the sample at index ⌊0.99 n⌋, so with n ≤ 100 samples
+it is the slowest sample (the maximum). Each TCP table gives the number of
+samples taken under bulk (pings are sent one after another until a count or
+a time cap is reached, so slow cases have few: 3–7 on the bad link).
+
+**The 256 B exchange rates (K = 1 / 10 / 100) come from a rerun.** The
+first run counted exchanges still in flight at the deadline, which complete
+after it, but divided by the nominal duration: an upward bias of up to one
+round of K, largest for the mux at K = 100, whose 100 exchanges complete in
+lock-step rounds (its first-run cells were exact multiples of 100 ÷
+seconds). The rate is now completed exchanges over the actual elapsed time,
+and the rows marked "rerun" were measured again with only that case
+(`--cases small`), 3 runs each on all seven profiles. Every other row is from
+the first run. The WebRTC rates were rerun the same way.
 
 For WebRTC the serving process also runs a circuit relay (signalling only);
 the caller dials `/p2p-circuit/webrtc` through it, checks the resulting
@@ -148,9 +178,12 @@ node packages/httpeers-libp2p/scripts/bench-mux-net.mjs --profiles lan,broadband
 node packages/httpeers-libp2p/scripts/bench-mux-net.mjs --profiles longfat,broadband-noloss,mobile-noloss --runs 2
 node packages/httpeers-libp2p/scripts/bench-mux-net.mjs --transport webrtc --runs 3
 node packages/httpeers-libp2p/scripts/bench-mux-net.mjs --profiles bad --keep-on-ping-failure
+# the exchange-rate rerun
+node packages/httpeers-libp2p/scripts/bench-mux-net.mjs --cases small --profiles lan,broadband,mobile,bad,broadband-noloss,mobile-noloss,longfat
+node packages/httpeers-libp2p/scripts/bench-mux-net.mjs --cases small --transport webrtc
 ```
 
-The full run here took about three hours, most of it the slow profiles.
+The full set here took about four hours (including the exchange-rate rerun), most of it the slow profiles.
 
 ## Results: TCP
 
@@ -165,10 +198,11 @@ connection downloads as fast as it can.
 | Bulk alone (Mbit/s) | 956.2 | 688.0 | 953.4 |
 | Ping p50 / p99 idle (ms) | 6.2 / 10.8 | 6.5 / 14.5 | 5.9 / 12.6 |
 | Ping p50 / p99 under bulk (ms) | 43.0 / 58.9 | 6.1 / 10.7 | 46.5 / 68.1 |
-| 256 B exchanges/s, K = 1 / 10 / 100 | 167 / 647 / 961 | 163 / 647 / 1100 | 167 / 657 / 1133 |
+| 256 B exchanges/s, K = 1 / 10 / 100 (rerun, see note) | 158 / 682 / 1104 | 157 / 693 / 1153 | 160 / 668 / 1128 |
 | 64 KiB GET idle, first byte / whole p50 (ms) | 6.2 / 6.2 | 5.9 / 6.3 | 5.7 / 6.2 |
 | 64 KiB GET under bulk, first byte p50 / p99 (ms) | 42.5 / 53.0 | 6.0 / 10.5 | 44.8 / 58.4 |
 | 64 KiB GET under bulk, whole p50 / p99 (ms) | 42.9 / 53.7 | 6.2 / 11.3 | 45.8 / 59.3 |
+| Samples under bulk: pings / 64 KiB GETs (median over runs) | 186 / 40 | 200 / 40 | 174 / 40 |
 
 The idle ping (6 ms) is mostly software: the same ping on loopback takes
 3.3 ms; the link adds two round trips.
@@ -180,10 +214,11 @@ The idle ping (6 ms) is mostly software: the same ping on loopback takes
 | Bulk alone (Mbit/s) | 48.1 | 47.0 | 47.8 |
 | Ping p50 / p99 idle (ms) | 66.3 / 72.7 | 65.9 / 630.6 | 65.8 / 70.7 |
 | Ping p50 / p99 under bulk (ms) | 958.3 / 1067.8 | 78.5 / 83.9 | 862.3 / 910.3 |
-| 256 B exchanges/s, K = 1 / 10 / 100 | 15 / 154 / 875 | 15 / 125 / 525 | 15 / 128 / 525 |
+| 256 B exchanges/s, K = 1 / 10 / 100 (rerun, see note) | 15 / 151 / 805 | 15 / 125 / 519 | 15 / 125 / 521 |
 | 64 KiB GET idle, first byte / whole p50 (ms) | 76.0 / 76.0 | 75.5 / 76.6 | 75.2 / 76.0 |
 | 64 KiB GET under bulk, first byte p50 / p99 (ms) | 947.4 / 1176.3 | 89.6 / 130.9 | 860.4 / 986.7 |
 | 64 KiB GET under bulk, whole p50 / p99 (ms) | 958.6 / 1187.4 | 91.7 / 131.3 | 893.2 / 998.1 |
+| Samples under bulk: pings / 64 KiB GETs (median over runs) | 17 / 17 | 100 / 20 | 20 / 19 |
 
 The clearest case for the mux at the default window: the same throughput,
 and a request beside the download answers in 79–92 ms instead of about a
@@ -200,10 +235,11 @@ cells take the higher value.)
 | Bulk alone (Mbit/s) | 13.8 | 11.9 | 13.6 |
 | Ping p50 / p99 idle (ms) | 66.4 / 139.2 | 65.9 / 97.4 | 66.0 / 125.0 |
 | Ping p50 / p99 under bulk (ms) | 345.7 / 674.7 | 222.2 / 522.2 | 454.7 / 1009.7 |
-| 256 B exchanges/s, K = 1 / 10 / 100 | 12 / 80 / 746 | 14 / 115 / 400 | 15 / 110 / 375 |
+| 256 B exchanges/s, K = 1 / 10 / 100 (rerun, see note) | 13 / 79 / 743 | 15 / 120 / 379 | 15 / 113 / 386 |
 | 64 KiB GET idle, first byte / whole p50 (ms) | 125.8 / 125.9 | 96.1 / 97.0 | 98.6 / 99.3 |
 | 64 KiB GET under bulk, first byte p50 / p99 (ms) | 282.6 / 555.3 | 311.8 / 462.4 | 484.7 / 1000.8 |
 | 64 KiB GET under bulk, whole p50 / p99 (ms) | 322.6 / 592.4 | 325.7 / 475.6 | 527.0 / 1095.2 |
+| Samples under bulk: pings / 64 KiB GETs (median over runs) | 55 / 20 | 82 / 20 | 42 / 20 |
 
 Loss holds TCP near 14 Mbit/s and makes every number noisier. A lost segment
 stalls the whole connection until it is retransmitted (head-of-line blocking
@@ -218,10 +254,11 @@ path: the isolation shrinks to 222 vs 346 ms for pings and disappears for the
 | Bulk alone (Mbit/s) | 9.8 | 9.4 | 9.6 |
 | Ping p50 / p99 idle (ms) | 168.3 / 191.3 | 169.5 / 195.9 | 168.3 / 190.4 |
 | Ping p50 / p99 under bulk (ms) | 4845.4 / 5315.8 | 393.5 / 443.5 | 1968.1 / 2177.7 |
-| 256 B exchanges/s, K = 1 / 10 / 100 | 6 / 59 / 471 | 6 / 52 / 240 | 6 / 52 / 240 |
+| 256 B exchanges/s, K = 1 / 10 / 100 (rerun, see note) | 6 / 53 / 452 | 6 / 49 / 228 | 6 / 50 / 225 |
 | 64 KiB GET idle, first byte / whole p50 (ms) | 230.0 / 230.1 | 228.4 / 232.2 | 226.6 / 230.5 |
 | 64 KiB GET under bulk, first byte p50 / p99 (ms) | 5847.7 / 5866.2 | 452.4 / 523.5 | 1887.2 / 2160.2 |
 | 64 KiB GET under bulk, whole p50 / p99 (ms) | 5866.3 / 5903.3 | 455.9 / 667.3 | 1984.9 / 2160.9 |
+| Samples under bulk: pings / 64 KiB GETs (median over runs) | 5 / 5 | 52 / 12 | 11 / 11 |
 
 On the per-exchange path a request beside a download waits about 5 s: close
 to the connection monitor's 5 s ping timeout and to the 8 s
@@ -236,16 +273,17 @@ this link and only part of it is in flight at once.
 | Bulk alone (Mbit/s) | 1.3 | 1.4 | 1.5 |
 | Ping p50 / p99 idle (ms) | 272.7 / 680.5 | 259.2 / 496.4 | 248.5 / 635.0 |
 | Ping p50 / p99 under bulk (ms) | 1914.6 / 3282.6 | 2447.1 / 3727.4 | 3086.9 / 4472.4 |
-| 256 B exchanges/s, K = 1 / 10 / 100 | 3 / 21 / 174 | 3 / 22 / 80 | 4 / 24 / 80 |
+| 256 B exchanges/s, K = 1 / 10 / 100 (rerun, see note) | 3 / 20 / 169 | 3 / 22 / 58 | 3 / 22 / 61 |
 | 64 KiB GET idle, first byte / whole p50 (ms) | 769.8 / 769.8 | 573.9 / 574.3 | 396.1 / 399.5 |
 | 64 KiB GET under bulk, first byte p50 / p99 (ms) | 1735.7 / 3339.0 | 2389.9 / 3500.3 | 2767.4 / 3890.6 |
 | 64 KiB GET under bulk, whole p50 / p99 (ms) | 2421.8 / 4085.3 | 2745.6 / 3829.6 | 3150.4 / 4293.4 |
+| Samples under bulk: pings / 64 KiB GETs (median over runs) | 13 / 11 | 11 / 9 | 8 / 8 |
 
 1% random loss is harsh for TCP (real cellular links hide most radio loss
 with link-layer retransmission, so this is closer to a poor Wi-Fi or a
 congested path): TCP gets 1.4 of 10 Mbit/s. At that rate the 256 KiB window is
-1.5 s of data, so the mux's pings wait behind it as long as the per-exchange
-path's do. This is the case for sizing the window in time rather than bytes.
+1.5 s of data, so the mux's pings wait behind it longer than the
+per-exchange path's do (2.4 s against 1.9 s). This is the case for sizing the window in time rather than bytes.
 
 ### Long fat pipe: 100 Mbit/s, RTT 100 ms, no loss, 50 ms queue (2 runs)
 
@@ -254,10 +292,11 @@ path's do. This is the case for sizing the window in time rather than bytes.
 | Bulk alone (Mbit/s) | 96.3 | 18.3 | 95.6 |
 | Ping p50 / p99 idle (ms) | 207.1 / 215.4 | 206.8 / 216.3 | 207.0 / 212.9 |
 | Ping p50 / p99 under bulk (ms) | 484.7 / 625.5 | 205.1 / 215.7 | 515.5 / 716.6 |
-| 256 B exchanges/s, K = 1 / 10 / 100 | 5 / 48 / 460 | 5 / 45 / 300 | 5 / 45 / 300 |
+| 256 B exchanges/s, K = 1 / 10 / 100 (rerun, see note) | 5 / 46 / 439 | 5 / 45 / 305 | 5 / 45 / 298 |
 | 64 KiB GET idle, first byte / whole p50 (ms) | 211.6 / 211.7 | 212.2 / 213.1 | 210.9 / 211.8 |
 | 64 KiB GET under bulk, first byte p50 / p99 (ms) | 479.1 / 696.7 | 209.3 / 211.3 | 594.9 / 686.5 |
 | 64 KiB GET under bulk, whole p50 / p99 (ms) | 484.9 / 702.4 | 209.9 / 212.6 | 603.2 / 690.1 |
+| Samples under bulk: pings / 64 KiB GETs (median over runs) | 42 / 16 | 60 / 16 | 38 / 16 |
 
 BDP 1.25 MB: one 256 KiB window per RTT is 21 Mbit/s, and the mux delivers
 18. A 4 MiB window fills the link.
@@ -274,14 +313,20 @@ connection (`--keep-on-ping-failure`; 3 runs):
 | Bulk alone (Mbit/s) | 0.4 | 0.3 | 0.4 |
 | Ping p50 / p99 idle (ms) | 1216.1 / 2204.4 | 1070.7 / 1627.0 | 1065.8 / 1903.2 |
 | Ping p50 / p99 under bulk (ms) | 7686.6 / 10699.7 | 9117.0 / 10197.1 | 10620.8 / 11274.0 |
-| 256 B exchanges/s, K = 1 / 10 / 100 | 1 / 8 / 54 | 1 / 7 / 17 | 1 / 8 / 17 |
+| 256 B exchanges/s, K = 1 / 10 / 100 (rerun with default settings, see note) | 1 / 7 / 38 | 1 / 6 / 16 | 1 / 6 / 13 |
 | 64 KiB GET idle, first byte / whole p50 (ms) | 3164.7 / 3164.8 | 2759.1 / 3139.8 | 2994.9 / 3146.3 |
 | 64 KiB GET under bulk, first byte p50 / p99 (ms) | 6493.4 / 10909.7 | 8016.9 / 9420.0 | 8334.7 / 10018.4 |
 | 64 KiB GET under bulk, whole p50 / p99 (ms) | 13253.0 / 14568.5 | 11329.9 / 12876.3 | 10152.1 / 12935.3 |
+| Samples under bulk: pings / 64 KiB GETs (median over runs) | 7 / 3 | 4 / 3 | 3 / 3 |
 | Runs that completed | 2 of 3 | 3 of 3 | 3 of 3 |
 
-(The failed per-exchange run hit the 8 s `DEFAULT_REQUEST_TIMEOUT_MS` on a
-64 KiB GET beside the download.) At 3% loss TCP gets 0.3–0.4 of 2 Mbit/s and
+The per-exchange column comes from the 2 runs that completed. The third
+hit the 8 s `DEFAULT_REQUEST_TIMEOUT_MS` on a 64 KiB GET beside the download
+and is excluded, and with two runs each cell is the higher value (see
+Method), so its latencies are the worse of the two and its rates the better.
+All three columns used `--keep-on-ping-failure` except the exchange-rate
+row, which was rerun with httpeers' defaults (no download runs during that
+phase, so the connection monitor does not come into it). At 3% loss TCP gets 0.3–0.4 of 2 Mbit/s and
 everything beside a download waits 7–13 s on every path. Neither path is
 usable for interactive traffic beside a bulk transfer on a link like this;
 256 KiB is about 6 s of data at this rate. Only a window sized in time would
@@ -320,29 +365,35 @@ delay, as BBR does), and shrink when the RTT measured under load climbs well
 above the idle RTT. The mux already measures round trips (keepalive), and
 `maxReassembledBytes` would have to follow the window. Until then the
 current 256 KiB default is the better fixed choice for the traffic httpeers
-mostly carries (small HTTP beside occasional large bodies on links up to a
-few hundred Mbit/s); `window` remains a per-deployment override for fat
-pipes.
+mostly carries (small HTTP beside occasional large bodies) wherever the BDP
+is at most about 256 KiB: one window per round trip caps a bulk transfer at
+about 2.1 Mbit ÷ RTT in seconds (e.g. 70 Mbit/s at 30 ms, 21 Mbit/s at
+100 ms). `window` remains a per-deployment override above that.
 
 ## WebRTC (Node ↔ Node, node-datachannel)
 
 Feasible with the same emulation: the data channel's UDP crosses the
-emulator, with real drops. Same measurements, 3 runs each.
+emulator, with real drops. Same measurements, 3 runs each. The exchange
+rates are from the rerun with only that case (see Method); there, the
+per-exchange path completed more often than in the full runs, because no
+other phase could fail first: every one of its failed rerun runs failed at
+K=10 (data channel error events, a reset, 8 s request timeouts).
 
 | Profile | | per-exchange | mux 256 KiB | mux 4096 KiB |
 |---|---|---|---|---|
 | LAN | Bulk alone (Mbit/s) | 634 (1 of 3 runs) | 361 | 615 |
 | | Ping p50 under bulk (ms) | 108 | 11 | 74 |
-| | 256 B exchanges/s K = 1 / 10 / 100 | 118 / 330 / 441 | 137 / 607 / 1067 | 140 / 610 / 1105 |
+| | 256 B exchanges/s K = 1 / 10 / 100 (rerun) | 117 / 357 / 402 (1 of 3 runs) | 136 / 611 / 1105 | 133 / 594 / 1040 |
 | | 64 KiB GET under bulk, whole p50 (ms) | 112 | 12 | 76 |
 | Broadband (0.1% loss) | Bulk alone (Mbit/s) | all runs failed | 10.5 | 9.8 |
 | | Ping p50 / p99 under bulk (ms) | | 338 / 747 | 3826 / 5462 |
-| | 256 B exchanges/s K = 1 / 10 / 100 | | 15 / 70 / 351 | 15 / 73 / 377 |
+| | 256 B exchanges/s K = 1 / 10 / 100 (rerun) | 10 / 72 / 278 (2 of 3 runs) | 15 / 90 / 333 | 14 / 71 / 353 |
 | Mobile (1% loss) | Bulk alone (Mbit/s) | all runs failed | 1.5 | all runs failed |
 | | Ping p50 / p99 under bulk (ms) | | 2583 / 3788 | |
-| | 256 B exchanges/s K = 1 / 10 / 100 | | 5 / 24 / 100 | |
+| | 256 B exchanges/s K = 1 / 10 / 100 (rerun) | 4 / 24 / 65 (2 of 3 runs) | 5 / 26 / 74 | 5 / 27 / 88 |
 | Bad (3% loss) | Bulk alone (Mbit/s) | all runs failed | 0.3 | all runs failed |
 | | Ping p50 under bulk (ms) | | 13136 | |
+| | 256 B exchanges/s K = 1 / 10 / 100 (rerun) | 1 / 8 / 21 (2 of 3 runs) | 2 / 6 / 16 | 2 / 6 / 18 |
 
 A follow-up of the per-exchange path alone, with the failing phase recorded
 (3 runs each):
@@ -353,7 +404,7 @@ A follow-up of the per-exchange path alone, with the failing phase recorded
 | Failures | `call to peer ... failed: [object Event]` (a data channel's error event) during the K=10 and the K=100 small-exchange phases | none |
 | Bulk alone (Mbit/s) | 611 | 45.9 |
 | Ping p50 idle / under bulk (ms) | 8.1 / 101 | 97 / 1108 |
-| 256 B exchanges/s K = 1 / 10 / 100 | 119 / 344 / 425 | 10 / 77 / 362 |
+| 256 B exchanges/s K = 1 / 10 / 100 | 117 / 357 / 402 (rerun) | 10 / 77 / 362 (first-run counting, overstated by up to one round of K) |
 | 64 KiB GET idle, whole p50 (ms) | 10.9 | 163 |
 
 So without loss the per-exchange path over WebRTC can complete, but at an
@@ -378,12 +429,14 @@ What this shows:
   and on lossy mobile `sniff: stream ended before any bytes arrived` while
   10 exchanges ran at once and 8 s request timeouts on idle pings. Without
   loss it completed on broadband (3 of 3), but at about three round trips
-  per exchange; where it ran, its small-exchange rate at K=100 was 40% of
-  the mux's on LAN. Not root-caused here; it looks like per-channel setup
+  per exchange; at K=100 its small-exchange rate was 36% of the mux's on
+  LAN and 83–88% on lossy broadband and mobile (ahead of the mux only on
+  the bad link, 21 vs 16). Not root-caused here; it looks like per-channel setup
   cost and failure under loss in libp2p's WebRTC transport or
   node-datachannel rather than anything in httpeers.
-- WebRTC bulk is slower than TCP at the same link (LAN 634 vs 956 Mbit/s,
-  broadband 10 vs 14), as expected from SCTP over userland DTLS.
+- WebRTC bulk is slower than TCP at the same link (per-exchange on LAN 634
+  vs 956 Mbit/s; mux 256 KiB on LAN 361 vs 688, on lossy broadband 10.5 vs
+  11.9), as expected from SCTP over userland DTLS.
 
 Browser WebRTC (Chrome/Firefox's own SCTP stacks) and NAT traversal are not
 covered: they need a browser on a real network.
@@ -425,10 +478,10 @@ also removes most of the cause (less data queued ahead of the ping).
 
 | Traffic class | Recommended path | Why |
 |---|---|---|
-| Sockets and tunnels (duplex, long-lived, often interactive beside other traffic) | mux, once the window adapts; until then mux at 256 KiB where a peer link is ≤ ~200 Mbit/s | The isolation is the point: a request beside a download stays within a few round trips of idle on the mux (79 ms on broadband, 394 ms on mobile, no loss) and waits 1–5 s on the per-exchange path. (Measured with HTTP exchanges; duplex tunnels were not measured separately.) One stream per peer also removes the per-protocol stream caps a tunnel-heavy peer runs into. |
-| Small HTTP (API calls, tokens, presence) | either; mux preferred when the same peer also moves large bodies | Equal at K=1 (2 RTT each on both paths). The per-exchange path is 1.5–2× faster at K=100 on links with RTT ≥ 30 ms (a mux issue worth fixing), the mux is ahead on LAN and on WebRTC. What decides it in practice is the 2nd point: small requests beside a large body. |
+| Sockets and tunnels (duplex, long-lived, often interactive beside other traffic) | mux, once the window adapts; until then mux at 256 KiB where the link's BDP is at most about 256 KiB (bulk is capped at about 2.1 Mbit ÷ RTT in seconds) | The isolation is the point: a request beside a download stays within a few round trips of idle on the mux (79 ms on broadband, 394 ms on mobile, no loss) and waits 1–5 s on the per-exchange path. (Measured with HTTP exchanges; duplex tunnels were not measured separately.) One stream per peer also removes the per-protocol stream caps a tunnel-heavy peer runs into. |
+| Small HTTP (API calls, tokens, presence) | either; mux preferred when the same peer also moves large bodies | Equal at K=1 and about equal at K=10 (2 RTT each on both paths). The per-exchange path is 1.4–2.9× faster at K=100 on links with RTT ≥ 30 ms (worst with loss; a mux issue worth fixing); on LAN the two are within noise, and on WebRTC the mux is ahead except on the bad link. What decides it in practice is the 2nd point: small requests beside a large body. |
 | Large bodies (downloads, uploads, media) | per-exchange today; mux only with an adaptive window | A fixed 256 KiB window caps bulk on LAN and fat pipes (72% and 19%); 4 MiB removes the cap but also most of the isolation, so no fixed window serves both. |
-| WebRTC links | mux | The per-exchange path failed in most WebRTC runs (a data channel per exchange); the mux ran on every profile. |
+| WebRTC links | mux at 256 KiB | The per-exchange path failed in most WebRTC runs (a data channel per exchange); the mux at 256 KiB ran on every profile, while at 4 MiB it failed beside a download on the lossy mobile and bad links. |
 
 Changes this suggests, independent of the decision:
 
@@ -437,10 +490,31 @@ Changes this suggests, independent of the decision:
 2. Send the caller's window with the port open, so the serving side can
    pipeline at once and an exchange takes one round trip instead of two on
    the mux.
-3. Find why the mux falls behind at K=100 on long paths.
+3. Find why the mux falls behind at K=100 on long paths (start from the
+   lock-step rounds in summary point 5).
 4. Configure libp2p's connection monitor in `createNode` (see above): today a
    single large download over a slow, lossy link kills the connection on
    both paths.
+
+## Raw data
+
+The `--out` JSON of the runs the tables come from is in [`data/`](data/)
+(not part of the published package, which ships `dist` and `src` only):
+
+| File | Tables |
+|---|---|
+| `tcp-requested-profiles.json` | LAN, broadband, mobile, bad (all runs failed) |
+| `tcp-extra-profiles.json` | broadband and mobile without loss, long fat pipe |
+| `tcp-bad-keep-on-ping-failure.json` | bad with `--keep-on-ping-failure` |
+| `webrtc.json` | WebRTC, all four profiles |
+| `tcp-exchange-rates-rerun.json`, `webrtc-exchange-rates-rerun.json` | the exchange-rate rows (rerun) |
+
+The first four hold per-profile medians only (per-run values were not kept
+then; the rerun files have them under `raw`), and their exchange rates are
+the overstated first-run ones the tables no longer use. The per-exchange
+WebRTC follow-up (LAN and broadband without loss), the `DEBUG` confirmation
+run and the round-trip diagnostics were not saved as JSON; their numbers are
+only in this document.
 
 ## What still needs a real network
 

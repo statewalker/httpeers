@@ -26,9 +26,10 @@ and written to the other after, per direction:
 
 Use: netem-tun.py --rate-mbit 50 --delay-ms 15 --loss 0.001 [--jitter-ms 0]
          [--queue-ms 100] [--mtu 1500] [--seed 1]
-It creates namespaces `nemA` and `nemB`, prints "READY" on stdout once they
-route, runs until SIGTERM/SIGINT or stdin closes, then deletes both
-namespaces (which removes the TUN devices). Run commands in a namespace with
+It creates namespaces `nemA` and `nemB` (refusing if they exist, unless
+--force), prints "READY" on stdout once they route, runs until
+SIGINT/SIGTERM/SIGHUP or stdin closes, then deletes both namespaces (which
+removes the TUN devices). Run commands in a namespace with
 `ip netns exec nemA ...`. On exit it prints per-direction counters to stderr.
 """
 
@@ -38,6 +39,7 @@ import fcntl
 import os
 import random
 import select
+import shutil
 import signal
 import struct
 import subprocess
@@ -52,8 +54,20 @@ NS = ("nemA", "nemB")
 ADDR = ("10.77.0.1", "10.77.0.2")
 
 
+class Interrupted(Exception):
+    """A signal arrived before the forwarding loop started."""
+
+
 def sh(*cmd, check=True):
-    return subprocess.run(cmd, check=check, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE)
+    done = subprocess.run(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE, text=True)
+    if check and done.returncode != 0:
+        sys.exit(f"netem-tun: `{' '.join(cmd)}` failed ({done.returncode}): {done.stderr.strip()}")
+    return done
+
+
+def existing_namespaces():
+    out = subprocess.run(("ip", "netns", "list"), capture_output=True, text=True, check=True)
+    return {line.split()[0] for line in out.stdout.splitlines() if line.strip()}
 
 
 def open_tun(name):
@@ -62,9 +76,11 @@ def open_tun(name):
     return fd
 
 
-def teardown():
-    for ns in NS:
-        sh("ip", "netns", "del", ns, check=False)
+def teardown(namespaces):
+    for ns in namespaces:
+        done = sh("ip", "netns", "del", ns, check=False)
+        if done.returncode != 0:
+            print(f"netem-tun: could not delete namespace {ns}: {done.stderr.strip()}", file=sys.stderr)
 
 
 class Direction:
@@ -130,20 +146,51 @@ def main():
     p.add_argument("--mtu", type=int, default=1500)
     p.add_argument("--cc", default="cubic", help="TCP congestion control in both namespaces")
     p.add_argument("--seed", type=int, default=1)
+    p.add_argument("--force", action="store_true", help="delete existing nemA/nemB first")
     args = p.parse_args()
 
-    teardown()
+    if os.geteuid() != 0:
+        sys.exit("netem-tun: needs root (network namespaces, /dev/net/tun, sysctl)")
+    for tool in ("ip", "sysctl"):
+        if shutil.which(tool) is None:
+            sys.exit(f"netem-tun: `{tool}` not found (install iproute2 / procps)")
+    stale = existing_namespaces() & set(NS)
+    if stale and not args.force:
+        sys.exit(
+            f"netem-tun: namespace(s) {', '.join(sorted(stale))} already exist "
+            "(another run, or a crashed one); pass --force to delete them"
+        )
+    teardown(sorted(stale))
+
+    # One handler for SIGINT, SIGTERM and SIGHUP: during setup it unwinds into
+    # the cleanup below; once forwarding, it ends the loop, which cleans up too.
+    stop = []
+    forwarding = []
+
+    def on_signal(*_):
+        if forwarding:
+            stop.append(1)
+        else:
+            raise Interrupted()
+
+    for sig in (signal.SIGINT, signal.SIGTERM, signal.SIGHUP):
+        signal.signal(sig, on_signal)
+
     fds = []
+    created = []
     # A namespace may only pick an algorithm the root namespace allows; add
-    # ours for the run and put the list back afterwards.
+    # ours for the run and put the list back afterwards, if we changed it.
     allowed_path = "/proc/sys/net/ipv4/tcp_allowed_congestion_control"
     allowed = open(allowed_path).read().strip()
-    if args.cc not in allowed.split():
-        with open(allowed_path, "w") as f:
-            f.write(f"{allowed} {args.cc}")
+    changed_allowed = False
     try:
+        if args.cc not in allowed.split():
+            with open(allowed_path, "w") as f:
+                f.write(f"{allowed} {args.cc}")
+            changed_allowed = True
         for i, ns in enumerate(NS):
             sh("ip", "netns", "add", ns)
+            created.append(ns)
             fds.append(open_tun(ns))
             sh("ip", "link", "set", ns, "netns", ns)
             ex = ("ip", "netns", "exec", ns)
@@ -156,9 +203,7 @@ def main():
             fds[0]: Direction("A->B", fds[1], args, rng),
             fds[1]: Direction("B->A", fds[0], args, rng),
         }
-        stop = []
-        signal.signal(signal.SIGTERM, lambda *_: stop.append(1))
-        signal.signal(signal.SIGINT, lambda *_: stop.append(1))
+        forwarding.append(1)
         print("READY", flush=True)
         watch = [fds[0], fds[1], sys.stdin.fileno()]
         while not stop:
@@ -187,12 +232,20 @@ def main():
                 d.flush(now)
         for d in dirs.values():
             print(f"netem-tun {d.name}: {dict(d.stats)}", file=sys.stderr)
+    except Interrupted:
+        print("netem-tun: interrupted during setup; cleaning up", file=sys.stderr)
     finally:
+        # Cleanup must not be cut short by a second signal.
+        for sig in (signal.SIGINT, signal.SIGTERM, signal.SIGHUP):
+            signal.signal(sig, signal.SIG_IGN)
         for fd in fds:
             os.close(fd)
-        teardown()
-        with open(allowed_path, "w") as f:
-            f.write(allowed)
+        teardown(created)
+        if changed_allowed:
+            with open(allowed_path, "w") as f:
+                f.write(allowed)
+    if not forwarding:
+        sys.exit(1)  # interrupted before READY
 
 
 if __name__ == "__main__":

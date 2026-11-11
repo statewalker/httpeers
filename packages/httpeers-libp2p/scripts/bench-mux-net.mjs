@@ -6,7 +6,10 @@
 //   sudo node packages/httpeers-libp2p/scripts/bench-mux-net.mjs \
 //     [--profiles lan,broadband,mobile,bad] [--transport tcp|webrtc] [--runs 3] \
 //     [--windows 262144,4194304] [--paths stream,mux] [--out results.json] \
-//     [--keep-on-ping-failure]
+//     [--keep-on-ping-failure] [--cases ping,small,blob,bulk]
+//
+// `--cases` runs a subset (e.g. `small` for the exchange rates alone);
+// `bulk` is the bulk download and everything measured beside it.
 //
 // Profiles: lan, broadband, mobile, bad (the default set), and
 // broadband-noloss, mobile-noloss, longfat (see PROFILES).
@@ -34,6 +37,7 @@
 import { spawn } from "node:child_process";
 import { writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
+import { createInterface } from "node:readline";
 import { fileURLToPath } from "node:url";
 import { noise } from "@chainsafe/libp2p-noise";
 import { yamux } from "@chainsafe/libp2p-yamux";
@@ -102,6 +106,8 @@ const PROFILES = {
   },
 };
 
+/** `--cases`: which measurements a run makes; bulk includes everything under bulk. */
+const ALL_CASES = ["ping", "small", "blob", "bulk"];
 const BULK_CHUNK = 64 * 1024;
 const BLOB = 64 * 1024;
 const SMALL = 256;
@@ -175,6 +181,8 @@ if (args.includes("--serve")) {
     await waitForCircuitReservation(node);
     dialAddr = `${relay.getMultiaddrs()[0]}/p2p-circuit/webrtc/p2p/${node.peerId}`;
   }
+  // The caller gone (crashed, killed) means nobody will send "stop".
+  process.on("disconnect", () => process.exit(1));
   const chunk = new Uint8Array(BULK_CHUNK);
   const blob = new Uint8Array(BLOB);
   await serveTransport({
@@ -247,9 +255,18 @@ async function blobs(remote, target, n, untilMs = Number.POSITIVE_INFINITY) {
   return { first, whole };
 }
 
+/**
+ * K workers doing exchanges back to back for about `seconds`: completed
+ * exchanges per second of ACTUAL elapsed time, until the last worker's last
+ * exchange is done. Exchanges in flight at the deadline still complete after
+ * it, so dividing by the nominal `seconds` overstated the rate by up to one
+ * round of K -- most where a round is long (slow links, K = 100) and where the
+ * K exchanges complete together (the mux does, in lock-step rounds).
+ */
 async function forSeconds(seconds, worker, k) {
   let count = 0;
-  const until = performance.now() + seconds * 1000;
+  const started = performance.now();
+  const until = started + seconds * 1000;
   await Promise.all(
     Array.from({ length: k }, async () => {
       while (performance.now() < until) {
@@ -258,10 +275,11 @@ async function forSeconds(seconds, worker, k) {
       }
     }),
   );
-  return count / seconds;
+  return count / ((performance.now() - started) / 1000);
 }
 
-async function oneRun({ mux, window, transport, t, keepOnPingFailure }) {
+async function oneRun({ mux, window, transport, t, keepOnPingFailure, cases = ALL_CASES }) {
+  const run = new Set(cases);
   const childArgs = [
     "--serve",
     "--transport",
@@ -271,18 +289,23 @@ async function oneRun({ mux, window, transport, t, keepOnPingFailure }) {
     ...(keepOnPingFailure ? ["--keep-on-ping-failure"] : []),
   ];
   const child = spawn("ip", ["netns", "exec", "nemB", process.execPath, SCRIPT, ...childArgs], {
-    stdio: ["ignore", "inherit", "ignore", "ipc"],
+    stdio: ["ignore", "inherit", "pipe", "ipc"],
+  });
+  // The serving side's log (e.g. exchanges reset at teardown), marked as such.
+  createInterface({ input: child.stderr }).on("line", (line) => {
+    process.stderr.write(`[serve] ${line}\n`);
   });
   const served = await new Promise((resolve, reject) => {
     child.once("message", resolve);
     child.once("exit", (code) => reject(new Error(`serving child exited ${code}`)));
   });
-  const node = await makeNode(
-    { privateKey: await generateKey(), transports: nodeTransports(transport) },
-    keepOnPingFailure,
-  );
+  let node;
   const result = {};
   try {
+    node = await makeNode(
+      { privateKey: await generateKey(), transports: nodeTransports(transport) },
+      keepOnPingFailure,
+    );
     if (transport === "webrtc") {
       await node.dial(multiaddr(served.relayAddr));
       const conn = await node.dial(multiaddr(served.addr));
@@ -301,12 +324,15 @@ async function oneRun({ mux, window, transport, t, keepOnPingFailure }) {
 
     phase = "idle pings";
     await pings(remote, target, 10); // warm up
-    const idle = await pings(remote, target, t.pings);
-    result.pingIdleP50 = median(idle);
-    result.pingIdleP99 = quantile(idle, 0.99);
+    if (run.has("ping")) {
+      const idle = await pings(remote, target, t.pings);
+      result.pingIdleP50 = median(idle);
+      result.pingIdleP99 = quantile(idle, 0.99);
+      result.pingIdleN = idle.length;
+    }
 
     const payload = new Uint8Array(SMALL);
-    for (const k of [1, 10, 100]) {
+    for (const k of run.has("small") ? [1, 10, 100] : []) {
       phase = `small exchanges K=${k}`;
       result[`smallK${k}`] = await forSeconds(
         t.small,
@@ -322,11 +348,14 @@ async function oneRun({ mux, window, transport, t, keepOnPingFailure }) {
       );
     }
 
-    phase = "64 KiB GETs, idle";
-    const idleBlobs = await blobs(remote, target, Math.ceil(t.blobs / 2));
-    result.blobIdleFirstP50 = median(idleBlobs.first);
-    result.blobIdleWholeP50 = median(idleBlobs.whole);
+    if (run.has("blob")) {
+      phase = "64 KiB GETs, idle";
+      const idleBlobs = await blobs(remote, target, Math.ceil(t.blobs / 2));
+      result.blobIdleFirstP50 = median(idleBlobs.first);
+      result.blobIdleWholeP50 = median(idleBlobs.whole);
+    }
 
+    if (!run.has("bulk")) return result;
     // Bulk last: an endless body may keep the link busy after it is cancelled.
     phase = "bulk alone";
     const bulk = await remote(target, new Request("http://peer.local/bulk"));
@@ -367,7 +396,7 @@ async function oneRun({ mux, window, transport, t, keepOnPingFailure }) {
     await Promise.race([reader.cancel().catch(() => {}), sleep(1000)]);
     await Promise.race([pump.catch(() => {}), sleep(500)]);
   } finally {
-    await Promise.race([node.stop(), sleep(3000)]);
+    if (node) await Promise.race([node.stop(), sleep(3000)]);
     child.send("stop");
     await Promise.race([new Promise((r) => child.once("exit", r)), sleep(4000)]);
     child.kill("SIGKILL");
@@ -450,6 +479,13 @@ const WINDOWS = opt("--windows", `${DEFAULT_MUX_WINDOW},${4 * 1024 * 1024}`)
 const PATHS = opt("--paths", "stream,mux").split(",");
 const OUT = opt("--out", undefined);
 const KEEP = args.includes("--keep-on-ping-failure");
+const CASES = opt("--cases", ALL_CASES.join(",")).split(",");
+for (const c of CASES) if (!ALL_CASES.includes(c)) throw new Error(`unknown case ${c}`);
+const PROFILE_NAMES = opt("--profiles", "lan,broadband,mobile,bad").split(",");
+// All names checked before the first link comes up, not one hour in.
+for (const name of PROFILE_NAMES)
+  if (PROFILES[name] == null)
+    throw new Error(`unknown profile ${name}; known: ${Object.keys(PROFILES).join(", ")}`);
 
 const configs = [
   ...(PATHS.includes("stream") ? [{ label: "per-exchange", mux: false }] : []),
@@ -459,11 +495,11 @@ const configs = [
 ];
 
 const all = {};
-for (const name of opt("--profiles", "lan,broadband,mobile,bad").split(",")) {
+for (const name of PROFILE_NAMES) {
   const profile = PROFILES[name];
-  if (profile == null) throw new Error(`unknown profile ${name}`);
   const emu = await startLink(profile.link);
   const table = {};
+  const raw = {};
   try {
     for (const c of configs) {
       const runs = [];
@@ -475,6 +511,7 @@ for (const name of opt("--profiles", "lan,broadband,mobile,bad").split(",")) {
           transport: TRANSPORT,
           t: profile.t,
           keepOnPingFailure: KEEP,
+          cases: CASES,
         });
         if (r) runs.push(r);
         else process.stderr.write("  (run failed)\n");
@@ -483,18 +520,31 @@ for (const name of opt("--profiles", "lan,broadband,mobile,bad").split(",")) {
         ? Object.fromEntries(Object.keys(runs[0]).map((k) => [k, median(runs.map((r) => r[k]))]))
         : {};
       table[c.label].runs = runs.length;
+      raw[c.label] = runs;
     }
   } finally {
     await stopLink(emu);
   }
-  all[name] = { link: profile.link, transport: TRANSPORT, keepOnPingFailure: KEEP, table };
+  all[name] = {
+    link: profile.link,
+    transport: TRANSPORT,
+    keepOnPingFailure: KEEP,
+    cases: CASES,
+    runsRequested: RUNS,
+    table,
+    raw,
+  };
 
   const fmt = (x, d = 1) => (Number.isFinite(x) ? x.toFixed(d) : "—");
   const int = (x) => (Number.isFinite(x) ? `${Math.round(x)}` : "—");
   const rows = [
     ["Bulk alone (Mbit/s)", (r) => fmt(r.bulkAloneMbit)],
     ["Ping p50 / p99 idle (ms)", (r) => `${fmt(r.pingIdleP50)} / ${fmt(r.pingIdleP99)}`],
-    ["Ping p50 / p99 under bulk (ms)", (r) => `${fmt(r.pingBulkP50)} / ${fmt(r.pingBulkP99)}`],
+    // p99 of n <= 100 samples is the slowest sample: n is printed beside it.
+    [
+      "Ping p50 / p99 under bulk (ms), samples",
+      (r) => `${fmt(r.pingBulkP50)} / ${fmt(r.pingBulkP99)}, n=${int(r.pingBulkN)}`,
+    ],
     [
       "256 B exchanges/s, K = 1 / 10 / 100",
       (r) => `${int(r.smallK1)} / ${int(r.smallK10)} / ${int(r.smallK100)}`,
@@ -504,8 +554,8 @@ for (const name of opt("--profiles", "lan,broadband,mobile,bad").split(",")) {
       (r) => `${fmt(r.blobIdleFirstP50)} / ${fmt(r.blobIdleWholeP50)}`,
     ],
     [
-      "64 KiB GET under bulk, first byte p50 / p99 (ms)",
-      (r) => `${fmt(r.blobBulkFirstP50)} / ${fmt(r.blobBulkFirstP99)}`,
+      "64 KiB GET under bulk, first byte p50 / p99 (ms), samples",
+      (r) => `${fmt(r.blobBulkFirstP50)} / ${fmt(r.blobBulkFirstP99)}, n=${int(r.blobBulkN)}`,
     ],
     [
       "64 KiB GET under bulk, whole p50 / p99 (ms)",
