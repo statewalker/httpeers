@@ -45,6 +45,14 @@ async function handler(request: Request): Promise<Response> {
   if (url.pathname === "/api/echo") {
     return new Response(`echo ${request.method} ${url.search} ${await request.text()}`);
   }
+  if (url.pathname === "/api/fail") {
+    // An app's own JSON 500 -- the shape of the relay's envelope, but the
+    // app's words. The worker must pass it through as the app made it (#20).
+    return new Response(JSON.stringify({ message: "the app's own failure" }), {
+      status: 500,
+      headers: { "content-type": "application/json" },
+    });
+  }
   return new Response("no such page", { status: 404 });
 }
 

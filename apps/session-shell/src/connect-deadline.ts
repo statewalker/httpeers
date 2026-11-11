@@ -12,32 +12,32 @@
  * shell had before bounded its CONNECT at 15 s and answered 504; this puts
  * that bound back.
  *
- * HOW, WITHOUT A LIBRARY CHANGE. `startRelayServiceWorker` reaches the
- * registered client only as `scope.clients.get(id)` and only posts it
- * `{ type, params }` with the reply port first in the transfer list
- * (`callChannel`'s documented wire). So the scope handed to the library is
- * this module's view of `self`, whose clients put their own port in front of
- * every CONNECT's reply port:
+ * HOW, WITHOUT A LIBRARY CHANGE. The library is handed this module's view of
+ * `self`, which differs from `self` in two places:
  *
- *   - an answer in time is passed on unchanged, ports included;
- *   - no answer in time is answered FOR the client, with an error, on the
- *     library's own reply port. `serve()` then settles the way it settles any
- *     failed CONNECT -- its own catch, its own envelope, `decorateResponse` --
- *     and nothing is left waiting on a port that will never speak.
+ *   1. `clients.get` hands out clients that put their own port in front of
+ *      the reply port of every HTTP CONNECT. An answer in time is passed on
+ *      unchanged, ports included. No answer in time is answered FOR the
+ *      client, with an error carrying `connectTimeoutMessage(ms)`, on the
+ *      library's own reply port -- so `serve()` settles the way it settles any
+ *      failed CONNECT, through its own catch, and nothing is left waiting on a
+ *      port that will never speak.
+ *   2. `addEventListener("fetch")` hands the library's listener a view of each
+ *      event whose `respondWith` sees the answer before the browser does.
+ *      `serve()` makes every foreign failure the same 500 envelope, with the
+ *      error's message in its body; an envelope whose message is exactly the
+ *      timeout's is the timed-out request's own, and `finish` turns it into
+ *      the 504. Deterministic: the body says which request it is, so no other
+ *      request's failure can be taken for it.
  *
  * Only the CONNECT is bounded, never the request that follows it: once the
  * client has answered, a slow handler is the ghost app's to bound.
  *
- * THE 504, AND WHY IT IS A TOKEN. `serve()` turns every failure that is not
- * its own `HttpError` into the same 500 envelope, and `decorateResponse` is
- * synchronous, so it can neither read the envelope's message nor learn which
- * request a timed-out CONNECT belonged to. What it can know is that a CONNECT
- * timed out a moment ago: each timeout leaves one short-lived token, and the
- * first 500 envelope after it takes the token and becomes the 504. The
- * library delivers that envelope within a task of the timeout, so a token
- * that is not claimed within `TOKEN_TTL_MS` belonged to a CONNECT that had no
- * envelope (a page's own CONNECT, a socket) and simply lapses. The residual is
- * stated in `takeTimeout`.
+ * ONLY HTTP CONNECTS. A socket's CONNECT (`type: "ws"`) is answered once the
+ * app has accepted the upgrade, which is the app's to take its time over, so
+ * it is left as the library has it. A page's own HTTP CONNECT, forwarded by
+ * the worker, is bounded too and its caller gets the error; it never passes
+ * through `respondWith`, so it cannot be mistaken for a fetch's.
  *
  * WHAT IT CANNOT CLEAN UP. The data port the CONNECT carried has already been
  * transferred to the client; it is not this worker's to close. If the client
@@ -45,48 +45,74 @@
  * closed) and the library's end of the data channel, unreferenced once
  * `serve()` has settled, goes with the garbage. A ghost that wakes up and
  * starts serving on its end of it finds nobody there.
+ *
+ * COUPLED TO THE LIBRARY'S INTERNALS -- re-run the browser test
+ * (`scripts/browser-test.mjs`) on ANY `@statewalker/webrun-http-browser` bump.
+ * This relies on: the relay reaching clients only through `scope.clients.get`;
+ * `callChannel`'s wire, `postMessage({ type: "CONNECT", params }, [replyPort,
+ * ...])`, with `params.type === "http"` for a fetch and a reply of
+ * `{ result }` or `{ error: { message } }`; `serve()` registering its fetch
+ * listener on the scope it was given and answering with `event.respondWith`;
+ * and its catch putting the error's `message` in a JSON body with status 500.
+ * All of that holds in 0.7.1 and in 0.12.5.
+ *
+ * THE CHANGE THAT WOULD RETIRE THIS MODULE belongs in webrun-wire's
+ * `startRelayServiceWorker`: a `connectTimeout` option that bounds
+ * `serve()`'s CONNECT (and the forwarded one) and fails it as an `HttpError`
+ * 504, closing the data channel's port and the reply port and dropping a late
+ * reply. The shell would then pass the option, keep `connectTimeoutResponse`
+ * for the page, and delete this file.
  */
+
+import { isRelayEnvelope } from "./errors.js";
 
 /** The bound, as the hand-rolled worker had it. */
 export const CONNECT_TIMEOUT_MS = 15_000;
 
-/** How long a timeout's token waits for the envelope it explains. */
-export const TOKEN_TTL_MS = 2_000;
-
-/** The error a timed-out CONNECT answers with -- what a caller of a page's own CONNECT reads. */
+/**
+ * The error a timed-out CONNECT answers with. It is also how a 500 envelope
+ * is recognised as a timeout, so it names the shell and the condition in
+ * words no app's error would carry by accident.
+ */
 export function connectTimeoutMessage(ms: number): string {
-  return `the session's app did not accept the connection within ${ms} ms`;
+  return `httpeers session shell: CONNECT not answered by the session's app within ${ms} ms`;
 }
 
 /** What the library posts a client: `callChannel`'s wire. */
 interface ChannelCall {
   type?: unknown;
-  params?: unknown;
+  params?: { type?: unknown } | null;
 }
+
+type TransferArg = Transferable[] | { transfer?: Transferable[] } | undefined;
 
 /** The part of a ServiceWorker `Client` this module touches. */
 interface ClientLike {
-  postMessage(message: unknown, transfer?: Transferable[]): void;
+  postMessage(message: unknown, transfer?: TransferArg): void;
 }
 
 /** The part of a ServiceWorker scope this module touches. */
 interface ScopeLike {
   clients: { get(id: string): Promise<unknown> };
+  addEventListener(type: string, listener: never, options?: never): void;
+  removeEventListener(type: string, listener: never, options?: never): void;
 }
 
-export interface ConnectDeadline<S> {
-  /** `scope`, with every client it hands out bounding its CONNECTs. Give this to the library. */
-  scope: S;
+/** The part of a FetchEvent this module touches. */
+interface FetchEventLike {
+  request: Request;
+  respondWith(response: Response | PromiseLike<Response>): void;
+}
+
+export interface ConnectDeadlineOptions {
+  /** Default `CONNECT_TIMEOUT_MS`. */
+  timeoutMs?: number;
   /**
-   * Does a timed-out CONNECT explain the envelope at hand? Takes the oldest
-   * live token if there is one.
-   *
-   * THE RESIDUAL. A token is not tied to a request, so a different request's
-   * own 500 envelope, landing in the same instant, could take it: that
-   * request reads 504 and the timed-out one reads 500. Both are failures
-   * during a wedge, and a request that hung for good is what this replaces.
+   * The answer to a request whose relay answer is a 500 envelope: `timedOut`
+   * says whether its CONNECT was the one that timed out. Every other answer
+   * reaches the browser as the library made it.
    */
-  takeTimeout(): boolean;
+  finish(response: Response, request: Request, timedOut: boolean): Response;
 }
 
 /** A MessagePort, duck-typed: the unit tests run where `MessagePort` is Node's. */
@@ -109,27 +135,79 @@ function view<T extends object>(target: T, overrides: Record<PropertyKey, unknow
   });
 }
 
-export function boundConnects<S extends ScopeLike>(
-  scope: S,
-  options: { timeoutMs?: number; tokenTtlMs?: number; now?: () => number } = {},
-): ConnectDeadline<S> {
-  const timeoutMs = options.timeoutMs ?? CONNECT_TIMEOUT_MS;
-  const tokenTtlMs = options.tokenTtlMs ?? TOKEN_TTL_MS;
-  const now = options.now ?? (() => Date.now());
-  const tokens: number[] = [];
+/**
+ * The transfer list, in either form `postMessage` takes. Both library
+ * versions pass the array; the options form is accepted so a library that
+ * switches to it is still bounded rather than silently not.
+ */
+function transferOf(arg: TransferArg): Transferable[] | undefined {
+  return Array.isArray(arg) ? arg : arg?.transfer;
+}
 
-  function postBounded(client: ClientLike, message: ChannelCall, transfer: Transferable[]): void {
+/**
+ * The most of a 500 envelope's body that is read. The relay's own envelope is
+ * a few hundred bytes; an app's JSON 500 can be anything, and reading all of
+ * it would hold its answer back until it ended.
+ */
+const ENVELOPE_READ_LIMIT = 8 * 1024;
+
+/**
+ * The envelope's message, read from a clone -- the original body is the
+ * browser's -- and only if the body ends within `ENVELOPE_READ_LIMIT`.
+ */
+async function envelopeMessage(response: Response): Promise<unknown> {
+  const reader = response.clone().body?.getReader();
+  if (reader == null) return undefined;
+  const chunks: Uint8Array[] = [];
+  let size = 0;
+  try {
+    for (;;) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      size += value.byteLength;
+      if (size > ENVELOPE_READ_LIMIT) {
+        void reader.cancel().catch(() => {});
+        return undefined;
+      }
+      chunks.push(value);
+    }
+    const bytes = new Uint8Array(size);
+    let at = 0;
+    for (const chunk of chunks) {
+      bytes.set(chunk, at);
+      at += chunk.byteLength;
+    }
+    const body = JSON.parse(new TextDecoder().decode(bytes)) as { message?: unknown } | null;
+    return body?.message;
+  } catch {
+    return undefined;
+  }
+}
+
+export function boundConnects<S extends ScopeLike>(scope: S, options: ConnectDeadlineOptions): S {
+  const timeoutMs = options.timeoutMs ?? CONNECT_TIMEOUT_MS;
+  const message = connectTimeoutMessage(timeoutMs);
+
+  function postBounded(client: ClientLike, call: ChannelCall, transfer: Transferable[]): void {
     const [reply, ...rest] = transfer;
     if (!isPort(reply)) {
-      client.postMessage(message, transfer);
+      client.postMessage(call, transfer);
       return;
     }
     const watch = new MessageChannel();
+    try {
+      client.postMessage(call, [watch.port2, ...rest]);
+    } catch (error) {
+      // Nothing was sent, so nothing will answer: leave the library's reply
+      // port to the library, which sees this throw from its own call.
+      watch.port1.close();
+      watch.port2.close();
+      throw error;
+    }
     const timer = setTimeout(() => {
       // The client's answer, should it come now, has nowhere to go.
       watch.port1.close();
-      tokens.push(now());
-      reply.postMessage({ error: { message: connectTimeoutMessage(timeoutMs) } });
+      reply.postMessage({ error: { message } });
       reply.close();
     }, timeoutMs);
     watch.port1.onmessage = (event) => {
@@ -138,16 +216,17 @@ export function boundConnects<S extends ScopeLike>(
       reply.postMessage(event.data, [...event.ports]);
       reply.close();
     };
-    client.postMessage(message, [watch.port2, ...rest]);
   }
 
   function boundClient(client: ClientLike & object): ClientLike {
     return view(client, {
-      postMessage(message: unknown, transfer?: Transferable[]) {
-        if ((message as ChannelCall | null)?.type === "CONNECT" && transfer?.length) {
-          postBounded(client, message as ChannelCall, transfer);
+      postMessage(data: unknown, arg?: TransferArg) {
+        const call = data as ChannelCall | null;
+        const transfer = transferOf(arg);
+        if (call?.type === "CONNECT" && call.params?.type === "http" && transfer?.length) {
+          postBounded(client, call, transfer);
         } else {
-          client.postMessage(message, transfer);
+          client.postMessage(data, arg);
         }
       },
     });
@@ -160,14 +239,48 @@ export function boundConnects<S extends ScopeLike>(
     },
   });
 
-  return {
-    scope: view(scope, { clients }),
-    takeTimeout() {
-      const at = now();
-      while (tokens.length > 0 && at - (tokens[0] as number) > tokenTtlMs) tokens.shift();
-      if (tokens.length === 0) return false;
-      tokens.shift();
-      return true;
-    },
+  async function settle(response: Response, request: Request): Promise<Response> {
+    if (response.status !== 500 || !isRelayEnvelope(response)) return response;
+    const timedOut = (await envelopeMessage(response)) === message;
+    return options.finish(response, request, timedOut);
+  }
+
+  /** The library's fetch listeners, by what it registered -- so its removal finds ours. */
+  const fetchListeners = new WeakMap<object, (event: FetchEventLike) => void>();
+
+  function fetchListenerFor(listener: (event: FetchEventLike) => void) {
+    let wrapped = fetchListeners.get(listener);
+    if (wrapped == null) {
+      wrapped = (event) => {
+        const respondWith = (answer: Response | PromiseLike<Response>) =>
+          event.respondWith(Promise.resolve(answer).then((r) => settle(r, event.request)));
+        listener(view(event as FetchEventLike & object, { respondWith }));
+      };
+      fetchListeners.set(listener, wrapped);
+    }
+    return wrapped;
+  }
+
+  const target = scope as unknown as {
+    addEventListener(type: string, listener: unknown, options?: unknown): void;
+    removeEventListener(type: string, listener: unknown, options?: unknown): void;
   };
+
+  return view(scope, {
+    clients,
+    addEventListener(type: string, listener: unknown, opts?: unknown) {
+      if (type === "fetch" && typeof listener === "function") {
+        target.addEventListener(type, fetchListenerFor(listener as never), opts);
+      } else {
+        target.addEventListener(type, listener, opts);
+      }
+    },
+    removeEventListener(type: string, listener: unknown, opts?: unknown) {
+      const wrapped =
+        type === "fetch" && typeof listener === "function"
+          ? fetchListeners.get(listener)
+          : undefined;
+      target.removeEventListener(type, wrapped ?? listener, opts);
+    },
+  });
 }

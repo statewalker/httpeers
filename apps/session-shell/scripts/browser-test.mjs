@@ -504,6 +504,16 @@ for (const browserName of wanted) {
         `${healthy.status} ${healthy.ms}ms`,
       );
 
+      const appFailure = await timedFetch("/api/fail", WEDGE_BOUND_MS * 4);
+      check(
+        browserName,
+        "an app's own JSON 500 passes through untouched",
+        appFailure.status === 500 &&
+          appFailure.shell == null &&
+          appFailure.body === JSON.stringify({ message: "the app's own failure" }),
+        `${appFailure.status} ${appFailure.shell} ${appFailure.body}`,
+      );
+
       await page.evaluate(() => window.wedgeTestSession(true));
       const stuck = await timedFetch("/api/echo", WEDGE_BOUND_MS + 5_000);
       check(

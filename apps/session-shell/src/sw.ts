@@ -18,7 +18,7 @@
  */
 
 import { startRelayServiceWorker } from "@statewalker/webrun-http-browser/relay-worker";
-import { boundConnects, CONNECT_TIMEOUT_MS } from "./connect-deadline.js";
+import { boundConnects, CONNECT_TIMEOUT_MS, connectTimeoutMessage } from "./connect-deadline.js";
 import { connectTimeoutResponse, isRelayEnvelope, sessionErrorPage } from "./errors.js";
 import {
   canRegisterService,
@@ -79,9 +79,22 @@ self.addEventListener("fetch", (event) => {
 // THE LIBRARY SEES `self` THROUGH `boundConnects`, so a CONNECT the relay
 // page does not answer fails after `CONNECT_TIMEOUT` instead of hanging the
 // fetch -- see `connect-deadline.ts` for how, and for what it cannot reach.
-const connects = boundConnects(self, { timeoutMs: CONNECT_TIMEOUT });
+//
+// A 500 ENVELOPE IS FINISHED HERE, NOT IN `decorateResponse`: whether it is a
+// timeout is in its body, which only an async step can read, and turning it
+// into a page first would throw that body away.
+const scope = boundConnects(self, {
+  timeoutMs: CONNECT_TIMEOUT,
+  finish: (response, request, timedOut) =>
+    withFrameAncestors(
+      timedOut
+        ? connectTimeoutResponse(request, connectTimeoutMessage(CONNECT_TIMEOUT))
+        : (sessionErrorPage(response, request) ?? response),
+      FRAME_ANCESTORS,
+    ),
+});
 
-startRelayServiceWorker(connects.scope, {
+startRelayServiceWorker(scope, {
   // A root mount claims every path, so the shell's own files must be reserved
   // from it or the session cannot bootstrap at all.
   exclude: (url) => isShellPath(url.pathname),
@@ -93,13 +106,9 @@ startRelayServiceWorker(connects.scope, {
   canRegister: (client, key) => canRegisterService(client.url, key),
   // A live app keeps its session; a second relay page cannot take it over.
   takeover: "first-wins",
-  decorateResponse: (response, request) => {
-    // A 500 ENVELOPE IS WHAT A TIMED-OUT CONNECT BECOMES in `serve()`, which
-    // has no status of its own for it; the token says whether this one is.
-    const timedOut = response.status === 500 && isRelayEnvelope(response) && connects.takeTimeout();
-    const answer = timedOut
-      ? connectTimeoutResponse(request, CONNECT_TIMEOUT)
-      : (sessionErrorPage(response, request) ?? response);
-    return withFrameAncestors(answer, FRAME_ANCESTORS);
-  },
+  decorateResponse: (response, request) =>
+    // Left for `finish` above, frame-ancestors and all.
+    response.status === 500 && isRelayEnvelope(response)
+      ? response
+      : withFrameAncestors(sessionErrorPage(response, request) ?? response, FRAME_ANCESTORS),
 });

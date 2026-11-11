@@ -225,12 +225,17 @@ too. What `src/sw.ts` adds is what the library cannot know:
   #20). The library's `serve()` awaits the CONNECT with no bound, and the ghost's deadline
   covers only its handler, so a relay page that is alive but not answering -- or a ghost
   whose keyed listener is gone -- would leave every fetch in the session pending for good.
-  The library is handed a view of `self` whose clients answer an overdue CONNECT for the
-  relay page, with an error, so `serve()` settles through its own catch; the 500 it makes
-  of that becomes the 504 (a page for a navigation). Only the CONNECT is bounded, never the
-  handler after it. The bound is a build-time constant (`__HTTPEERS_CONNECT_TIMEOUT_MS__`),
+  The library is handed a view of `self` whose clients answer an overdue HTTP CONNECT for
+  the relay page, with an error, so `serve()` settles through its own catch. The same view
+  hands the library's fetch listener events whose `respondWith` sees the answer first: a
+  500 envelope whose body carries exactly the timeout's message is that request's, and
+  becomes the 504 (a page for a navigation). An app's own JSON 500 is passed through as
+  the app made it. Only the CONNECT is bounded, never the handler after it, and a socket's
+  CONNECT not at all. The bound is a build-time constant (`__HTTPEERS_CONNECT_TIMEOUT_MS__`),
   not a URL parameter: a parameter on the worker's URL would let any page that frames the
-  relay re-install the worker with a bound of its choosing. The right home for it is an
+  relay re-install the worker with a bound of its choosing. It leans on the library's
+  CONNECT wire and `serve()`'s error envelope, so **re-run `browser-test` on any
+  `webrun-http-browser` bump**. The right home for the bound is a `connectTimeout`
   option on the library's `serve()`; until it has one, this is the shell's.
 
 ## What will surprise you

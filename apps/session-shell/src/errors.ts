@@ -19,8 +19,6 @@
  * decides how it reads.
  */
 
-import { connectTimeoutMessage } from "./connect-deadline.js";
-
 /** Statuses a viewer can do something about, and what to tell them. */
 const EXPLAINED: Record<number, { title: string; text: string }> = {
   403: {
@@ -120,7 +118,7 @@ export function sessionErrorPage(response: Response, request: Request): Response
  * no way to say "timed out" (`serve()` makes every foreign failure a 500), so
  * the shell says it.
  */
-export function connectTimeoutResponse(request: Request, timeoutMs: number): Response {
+export function connectTimeoutResponse(request: Request, message: string): Response {
   const status = 504;
   const statusText = "Gateway Timeout";
   if (wantsHtml(request)) {
@@ -133,7 +131,7 @@ export function connectTimeoutResponse(request: Request, timeoutMs: number): Res
   const body = JSON.stringify({
     status,
     statusText,
-    message: connectTimeoutMessage(timeoutMs),
+    message,
   });
   return new Response(body, {
     status,
