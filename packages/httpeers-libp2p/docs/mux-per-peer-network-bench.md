@@ -16,19 +16,25 @@ maintainer to decide.
 
 ## Summary
 
-| Profile (TCP) | Bulk Mbit/s: per-exchange / mux 256K / mux 4M | Ping p50 under bulk, ms: per-exchange / mux 256K / mux 4M | 256 B exchanges/s at K=100: per-exchange / mux 256K |
+| Profile (TCP) | Bulk Mbit/s: per-exchange / mux 256K / mux 4M | Ping p50 under bulk, ms: per-exchange / mux 256K / mux 4M | 256 B exchanges/s at K=100: per-exchange / mux 256K, before → after the round-trip fixes |
 |---|---|---|---|
-| LAN, 1 Gbit, 1 ms | 956 / 688 / 953 | 43 / **6** / 47 | 1104 / 1153 |
-| Broadband, 50 Mbit, 30 ms, no loss | 48 / 47 / 48 | 958 / **79** / 862 | 805 / 519 |
-| Broadband, 50 Mbit, 30 ms, 0.1% loss | 14 / 12 / 14 | 346 / **222** / 455 | 743 / 379 |
-| Mobile, 10 Mbit, 80±10 ms, no loss | 9.8 / 9.4 / 9.6 | 4845 / **394** / 1968 | 452 / 228 |
-| Mobile, 10 Mbit, 80±10 ms, 1% loss | 1.3 / 1.4 / 1.5 | 1915 / 2447 / 3087 | 169 / 58 |
-| Long fat pipe, 100 Mbit, 100 ms, no loss | 96 / **18** / 96 | 485 / **205** / 516 | 439 / 305 |
-| Bad, 2 Mbit, 200 ms, 3% loss | every run fails on both paths with the defaults (see "The connection dies"); with the monitor not aborting (all three columns): 0.4 / 0.3 / 0.4 | 7687 / 9117 / 10621 (n = 3–7 samples) | 38 / 16 |
+| LAN, 1 Gbit, 1 ms | 956 / 688 / 953 | 43 / **6** / 47 | 1016 / 1153 → **1690** |
+| Broadband, 50 Mbit, 30 ms, no loss | 48 / 47 / 48 | 958 / **79 → 40** / 862 | 801 / 519 → **1186** |
+| Broadband, 50 Mbit, 30 ms, 0.1% loss | 14 / 12 / 14 | 346 / **222** / 455 | 704 / 379 → **893** |
+| Mobile, 10 Mbit, 80±10 ms, no loss | 9.8 / 9.4 / 9.6 | 4845 / **394 → 198** / 1968 | 449 / 228 → **604** |
+| Mobile, 10 Mbit, 80±10 ms, 1% loss | 1.3 / 1.4 / 1.5 | 1915 / 2447 / 3087 | **158** / 58 → 85 |
+| Long fat pipe, 100 Mbit, 100 ms, no loss | 96 / **18** / 96 | 485 / **205 → 104** / 516 | 435 / 305 → **693** |
+| Bad, 2 Mbit, 200 ms, 3% loss | every run fails on both paths with the defaults (see "The connection dies"); with the monitor not aborting (all three columns): 0.4 / 0.3 / 0.4 | 7687 / 9117 / 10621 (n = 3–7 samples) | **36** / 16 → 20 |
 
-Exchange rates are from the corrected rerun (see Method). Ping samples under
-bulk vary widely, from 3 to 200 per cell (3–7 on bad); each profile's table
-gives them in its "Samples under bulk" row.
+"Before → after" is the mux before and after the two fixes in "One round
+trip, and no lock-step" below; the per-exchange rates in that column are
+from the same session as "after" (the per-exchange path did not change; the
+earlier rerun gave 1104, 805, 743, 452, 169, 439 and 38). Pings under bulk
+were measured again after the fixes on the three profiles without loss only;
+every other cell is from before them. Exchange rates are completed exchanges
+over the elapsed time (see Method). Ping samples under bulk vary widely, from
+3 to 200 per cell (3–7 on bad); each profile's table gives them in its
+"Samples under bulk" row.
 
 What the numbers say:
 
@@ -53,30 +59,29 @@ What the numbers say:
    loss caps a 30 ms path near 14 Mbit/s and 1% caps an 80 ms path near
    1.4 Mbit/s, whichever path carries the bytes (both ride one TCP
    connection). Neither path can do anything about it.
-4. **Each exchange costs two round trips on both paths**, so small-exchange
-   rate at K=1 is about 1/(2 RTT) on both. A diagnostic on a 100 ms RTT link
-   without loss: on the mux the response head arrives after 104 ms and the
-   body after 208 ms (the window handshake: until the caller has answered it,
-   the serving side sends each piece as a call the caller must confirm). On
-   the per-exchange path the head itself arrives after 207 ms; libp2p's
+4. **An exchange on the mux now takes one round trip; on the per-exchange
+   path it takes two.** Measured first: two on both paths, so the rate at
+   K=1 was about 1/(2 RTT) on both. On a 100 ms link the mux's response
+   head came after 104 ms and its body after 208 ms: the window handshake.
+   Fixed in httpeers (see "One round trip, and no lock-step"): a ping on
+   that link now takes 104 ms on the mux, head and body together, and a
+   256 B POST as long; the K=1 rate doubled on every profile. On the
+   per-exchange path the head itself arrives after 207 ms; libp2p's
    multistream negotiation is the likely second round trip, but passing
    `negotiateFully: false` through `dialProtocol` did not change it, so that
-   is not established. A 1-RTT exchange looks available to the mux if the
-   caller's window travels with the port open. Not changed here.
-5. **At high concurrency on a long path the mux is slower for small
-   exchanges**: at K=100 it does 34–69% of the per-exchange rate on every
-   profile with RTT ≥ 30 ms, i.e. the per-exchange path is 1.4–2.9× faster
-   (worst on the lossy links: 2.9× on lossy mobile, 2.4× on bad). On LAN
-   the two are within noise. At K=1 and K=10 they are about equal. A lead,
-   not a root cause: the mux completes the K=100 exchanges in lock-step
-   rounds. In a diagnostic on a 100 ms link (100 exchanges started at once,
-   3 rounds), the heads arrived over 290–322 ms but every body arrived
-   together at 335–336 ms, after the last head; on the per-exchange path
-   heads and bodies arrived together, spread over 224–297 ms. So on the mux
-   a round is as slow as its slowest exchange plus a further step, which
-   fits the per-exchange window handshake (point 4) or serialised delivery
-   on the serving side, and a loss that stalls one exchange holds back the
-   whole round.
+   is not established.
+5. **At high concurrency the mux is now ahead on links without loss, and
+   still behind on lossy ones.** Measured first: at K=100 the mux did
+   34–69% of the per-exchange rate on every profile with RTT ≥ 30 ms. Two
+   causes, both fixed (see the section below): the handshake's extra round
+   trip, and frames gathered until the end of a task, which sent a whole
+   burst of answers as one write after the last of them and kept the K
+   exchanges in lock-step rounds (the diagnostic's heads over 290–322 ms
+   and every body at 335–336 ms). After the fixes the mux does 1.3–1.7× the
+   per-exchange rate at K=100 on LAN, broadband (with and without 0.1%
+   loss), mobile without loss and the long fat pipe. On the 1% and 3% loss
+   links it still does only 54% and 56% of it (85 vs 158, 20 vs 36),
+   up from 34% and 42%; not root-caused (see the section below).
 6. **On a slow, lossy link the connection dies under a bulk download, on both
    paths**: libp2p's connection monitor pings every 10 s with a 5 s minimum
    timeout and aborts the whole connection when the ping is stuck behind the
@@ -84,6 +89,111 @@ What the numbers say:
 7. **WebRTC**: the mux works over a Node↔Node data channel on every profile at
    256 KiB; the per-exchange path, which opens a data channel per exchange,
    failed in most runs. See the WebRTC section.
+
+## One round trip, and no lock-step (after the measurements above)
+
+Two mux costs from points 4 and 5, root-caused and fixed in httpeers. Both
+were measured again with the same emulated link and script (`--cases
+ping,small,blob`, all seven profiles, 3 runs each; and `--cases bulk` on the
+three profiles without loss, 1 run, mux 256 KiB only).
+
+**1. The window handshake cost a round trip in each direction.**
+webrun-rpc's `multiplexPort` (0.10) agrees each port's window in three
+steps: the caller's `open` (window, exact sizing, capabilities), the serving
+side's zero-byte `credit` ack, and the caller's zero-byte `credit` answer to
+the ack. Until an end has seen the other's step, `duplexOverPort` sends each
+chunk as a call that the peer confirms only once its consumer has read past
+it, and only then as plain ("pipelined") messages held back by the window.
+So the serving side pipelined only 1.5 round trips after the port opened: a
+GET's head went as a call and its body waited for the head's confirmation
+(head at 1 RTT, body at 2). And the caller pipelined only once the ack came
+back, one round trip in: a POST's end (`done`) waited for its first chunk's
+confirmation, so a handler that reads the body to its end answered after
+two round trips.
+
+Fix (`src/mux-presumed-ack.ts`): when the caller posts an `open`, it hands
+its own mux, in the same turn, the ack the serving side will send. The mux
+then answers at once, right behind the `open`, and pipelines its own chunks
+from the start; the serving side receives the answer before the request, so
+it pipelines its response from the start too. Nothing new goes on the wire:
+the answer is the same envelope, sent earlier, and a serving peer of either
+version reads it as before, so old and new peers interoperate in both
+directions. What the caller presumes (exact sizing; the `pipeline` and
+`end` capabilities) is what every build that has served
+`/httpeers/1.0.0/mux` acks, since all of them run webrun-rpc 0.10 with the
+msgpack codec. It is checked: if the real ack says otherwise, the caller
+closes the mux (its exchanges fail with `PeerStreamResetError`, the next
+call opens a new one). Because the mux's keepalive counts anything it reads
+as a sign of life, the presumed acks would keep it content with a frozen
+peer as long as calls keep opening ports; the module runs the same check on
+what really arrives and closes the mux after three silent intervals.
+
+The clean fix belongs in webrun-rpc, and needs no presumption: a responder
+may enforce the window as soon as an `open` lists `caps` (only a version
+that reads credit lists them), which saves the serving side's round trip on
+the wire alone; and an opener may pipeline before the ack where the
+protocol is known to be windowed (an option of `multiplexPort`), which
+saves the caller's. With both upstream, `mux-presumed-ack.ts` can go.
+
+**2. A burst of answers left as one write after the last of them.**
+`mux-target.ts` gathers the frames posted in one task into one
+`stream.send()` (one yamux frame, one Noise message, one socket write; #85).
+But a burst of exchanges whose requests arrive in one read is served in one
+task, its handlers running in microtasks, so all their answers left in one
+write after the last one was produced. The caller's next requests then came
+back as one burst too, and the burst never broke up: K exchanges in
+lock-step rounds, each a round trip plus the whole burst's CPU on both
+sides, where the per-exchange path writes each stream as it goes and its
+exchanges drift apart. Fix: a gathered frame waits at most 1 ms within a
+task; the next frame posted after that sends it. Back-to-back posts (bulk,
+the pump) are still gathered.
+
+Each fix alone, on the mux at 256 KiB (1 run each, K = 100): with only the
+handshake fixed, 474/s on the long fat pipe, 730/s on broadband without
+loss, 319/s on mobile without loss and 1244/s on LAN; with both, 687, 1330,
+644 and 1870 in the same session. A 0.25 ms bound gave the same as 1 ms
+within noise.
+
+| Profile | Ping p50 idle (ms): per-exchange / mux before / mux after | 256 B exchanges/s K = 1 / 10 / 100: per-exchange / mux before / mux after | 64 KiB GET idle, whole p50 (ms): per-exchange / mux before / mux after |
+|---|---|---|---|
+| LAN | 6.2 / 6.5 / **3.9** | 170/694/1016 · 157/693/1153 · **256/1008/1690** | 5.9 / 6.3 / **4.5** |
+| Broadband, 0.1% loss | 66.1 / 65.9 / **33.7** | 11/63/704 · 15/120/379 · **28/188/893** | 98.4 / 97.0 / **93.1** |
+| Broadband, no loss | 65.8 / 65.9 / **33.7** | 15/151/801 · 15/125/519 · **29/259/1186** | 75.7 / 76.6 / **44.1** |
+| Mobile, 1% loss | 275.3 / 259.2 / **95.8** | 2/21/**158** · 3/22/58 · **6/38**/85 | 586.7 / 574.3 / 597.8 |
+| Mobile, no loss | 166.0 / 169.5 / **84.7** | 6/54/449 · 6/49/228 · **12/100/604** | 214.6 / 232.2 / **139.0** |
+| Long fat pipe | 206.7 / 206.8 / **104.1** | 5/47/435 · 5/45/305 · **9/90/693** | 211.3 / 213.1 / **109.4** |
+| Bad (3% loss) | 1012.4 / 1070.7 / **609.7** | 1/8/**36** · 1/6/16 · **2/14**/20 | 2597.0 / 3139.8 / **2290.8** |
+
+"Per-exchange" and "mux after" are from the same session, 3 runs each;
+"mux before" is the mux 256 KiB column of the profile tables below (the bad
+profile's idle ping from its `--keep-on-ping-failure` run). The mux at
+4 MiB moved the same way (in the raw data).
+
+Beside a bulk download on the mux at 256 KiB (1 run): ping p50 39.5 ms on
+broadband without loss (was 78.5), 198 ms on mobile without loss (was 394)
+and 104 ms on the long fat pipe (was 205), and a 64 KiB GET whole p50 50.7,
+255 and 110 ms (was 91.7, 456 and 210): one round trip where there were
+two. Bulk throughput did not change (47.0, 9.4 and 18.4 Mbit/s). On
+loopback (`scripts/bench-mux.mjs`, 3 runs), the mux's idle ping went from
+2.79 to 2.07 ms and its small exchanges from 385/997/1333 to 506/1343/1906
+per second at K = 1/10/100; its bulk throughput stayed within run-to-run
+noise (139 vs 131 MB/s, while the unchanged per-exchange path read 237 vs
+226).
+
+**What remains: the lossy links at K=100.** With 1% and 3% loss the mux
+still does about half the per-exchange rate at K=100 (85 vs 158, 20 vs 36),
+though it is ahead at K=1 and K=10 there. Both paths ride one TCP
+connection, so a loss stalls both alike; the difference is not the
+gathering (no gathering at all gave 103/s on lossy mobile, within the noise
+of 85). Not root-caused. A lead: the mux's exchanges still move more
+together than the per-exchange path's, so a stall holds back more of them
+at once, and a burst that ends a flight leaves TCP fewer packets behind a
+loss to detect it by (a tail loss waits for a probe or a timeout rather
+than a fast retransmit).
+
+The per-profile tables below are from before the fixes: their mux idle
+pings, 256 B exchange rates and 64 KiB GET times are superseded by the
+table above.
 
 ## Method
 
@@ -480,7 +590,7 @@ also removes most of the cause (less data queued ahead of the ping).
 | Traffic class | Recommended path | Why |
 |---|---|---|
 | Sockets and tunnels (duplex, long-lived, often interactive beside other traffic) | mux, once the window adapts; until then mux at 256 KiB where the link's BDP is at most about 256 KiB (bulk is capped at about 2.1 Mbit ÷ RTT in seconds) | The isolation is the point: a request beside a download stays within a few round trips of idle on the mux (79 ms on broadband, 394 ms on mobile, no loss) and waits 1–5 s on the per-exchange path. (Measured with HTTP exchanges; duplex tunnels were not measured separately.) One stream per peer also removes the per-protocol stream caps a tunnel-heavy peer runs into. |
-| Small HTTP (API calls, tokens, presence) | either; mux preferred when the same peer also moves large bodies | Equal at K=1 and about equal at K=10 (2 RTT each on both paths). The per-exchange path is 1.4–2.9× faster at K=100 on links with RTT ≥ 30 ms (worst with loss; a mux issue worth fixing); on LAN the two are within noise, and on WebRTC the mux is ahead except on the bad link. What decides it in practice is the 2nd point: small requests beside a large body. |
+| Small HTTP (API calls, tokens, presence) | mux | Since the round-trip fixes the mux answers in one round trip, the per-exchange path in two, so the mux is 1.5–3× as fast at K=1 and K=10 on every profile (about 2× on most), and 1.3–1.7× at K=100 except with 1% or 3% loss, where the per-exchange path is still about twice as fast at K=100 (see "One round trip, and no lock-step"). WebRTC was not measured again after the fixes. |
 | Large bodies (downloads, uploads, media) | per-exchange today; mux only with an adaptive window | A fixed 256 KiB window caps bulk on LAN and fat pipes (72% and 19%); 4 MiB removes the cap but also most of the isolation, so no fixed window serves both. |
 | WebRTC links | mux at 256 KiB | The per-exchange path failed in most WebRTC runs (a data channel per exchange); the mux at 256 KiB ran on every profile, while at 4 MiB it failed beside a download on the lossy mobile and bad links. |
 
@@ -488,11 +598,14 @@ Changes this suggests, independent of the decision:
 
 1. Make the mux's per-port window adaptive (target about one BDP; see "Window
    sizing").
-2. Send the caller's window with the port open, so the serving side can
-   pipeline at once and an exchange takes one round trip instead of two on
-   the mux.
-3. Find why the mux falls behind at K=100 on long paths (start from the
-   lock-step rounds in summary point 5).
+2. ~~Send the caller's window with the port open, so an exchange takes one
+   round trip on the mux.~~ Done in httpeers by presuming the ack (see "One
+   round trip, and no lock-step"); the clean fix, which would let that
+   module go, is in webrun-rpc.
+3. ~~Find why the mux falls behind at K=100 on long paths.~~ Done for links
+   without loss (lock-step rounds from end-of-task gathering, plus the
+   handshake); with 1% or 3% loss it is still behind at K=100, not
+   root-caused.
 4. Configure libp2p's connection monitor in `createNode` (see above): today a
    single large download over a slow, lossy link kills the connection on
    both paths.
@@ -509,13 +622,15 @@ The `--out` JSON of the runs the tables come from is in [`bench-results/`](bench
 | `tcp-bad-keep-on-ping-failure.json` | bad with `--keep-on-ping-failure` |
 | `webrtc.json` | WebRTC, all four profiles |
 | `tcp-exchange-rates-rerun.json`, `webrtc-exchange-rates-rerun.json` | the exchange-rate rows (rerun) |
+| `tcp-one-round-trip.json` | after the round-trip fixes: idle pings, exchange rates, idle 64 KiB GETs, all seven profiles (per-run values under `raw`) |
+| `tcp-one-round-trip-bulk.json` | after the fixes: bulk and what runs beside it, mux 256 KiB, the three profiles without loss |
 
 The first four hold per-profile medians only (per-run values were not kept
 then; the rerun files have them under `raw`), and their exchange rates are
 the overstated first-run ones the tables no longer use. The per-exchange
 WebRTC follow-up (LAN and broadband without loss), the `DEBUG` confirmation
-run and the round-trip diagnostics were not saved as JSON; their numbers are
-only in this document.
+run, the round-trip diagnostics, the single-fix comparison and the loopback
+runs were not saved as JSON; their numbers are only in this document.
 
 ## What still needs a real network
 
