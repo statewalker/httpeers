@@ -25,7 +25,10 @@ pnpm add @statewalker/httpeers-libp2p
 libp2p and its transports are regular dependencies. Under Node,
 `@libp2p/webrtc` needs the native `node-datachannel` module; with pnpm 10 it
 must be listed in `onlyBuiltDependencies`, or pnpm skips its build script and
-the import fails at runtime (see the repository root README).
+the import fails at runtime (see the repository root README). Take
+`node-datachannel` 0.33.6 or newer (libdatachannel 0.24.6, a pnpm override if
+your lockfile holds an older one): WebRTC dials are made once, and older
+releases lose a DTLS startup race on the offerer under CPU load.
 
 | Import | Gives | Runs in |
 |---|---|---|
