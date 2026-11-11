@@ -18,7 +18,8 @@
  */
 
 import { startRelayServiceWorker } from "@statewalker/webrun-http-browser/relay-worker";
-import { sessionErrorPage } from "./errors.js";
+import { boundConnects, CONNECT_TIMEOUT_MS, connectTimeoutMessage } from "./connect-deadline.js";
+import { connectTimeoutResponse, isRelayEnvelope, sessionErrorPage } from "./errors.js";
 import {
   canRegisterService,
   frameAncestorsFor,
@@ -28,6 +29,19 @@ import {
 } from "./policy.js";
 
 declare const self: ServiceWorkerGlobalScope;
+
+/**
+ * How long a CONNECT may go unanswered (#20). A build-time constant: the
+ * worker is one static file shared by every session, so there is no caller to
+ * configure it at run time -- and a query parameter on the worker's URL would
+ * let any page that frames the relay re-install the worker with a bound of
+ * its choosing. The browser test builds its own copy with a short one.
+ */
+declare const __HTTPEERS_CONNECT_TIMEOUT_MS__: number | undefined;
+const CONNECT_TIMEOUT =
+  typeof __HTTPEERS_CONNECT_TIMEOUT_MS__ === "number"
+    ? __HTTPEERS_CONNECT_TIMEOUT_MS__
+    : CONNECT_TIMEOUT_MS;
 
 const FRAME_ANCESTORS = frameAncestorsFor(self.location.hostname);
 
@@ -62,7 +76,25 @@ self.addEventListener("fetch", (event) => {
   event.respondWith(refuseNavigation());
 });
 
-startRelayServiceWorker(self, {
+// THE LIBRARY SEES `self` THROUGH `boundConnects`, so a CONNECT the relay
+// page does not answer fails after `CONNECT_TIMEOUT` instead of hanging the
+// fetch -- see `connect-deadline.ts` for how, and for what it cannot reach.
+//
+// A 500 ENVELOPE IS FINISHED HERE, NOT IN `decorateResponse`: whether it is a
+// timeout is in its body, which only an async step can read, and turning it
+// into a page first would throw that body away.
+const scope = boundConnects(self, {
+  timeoutMs: CONNECT_TIMEOUT,
+  finish: (response, request, timedOut) =>
+    withFrameAncestors(
+      timedOut
+        ? connectTimeoutResponse(request, connectTimeoutMessage(CONNECT_TIMEOUT))
+        : (sessionErrorPage(response, request) ?? response),
+      FRAME_ANCESTORS,
+    ),
+});
+
+startRelayServiceWorker(scope, {
   // A root mount claims every path, so the shell's own files must be reserved
   // from it or the session cannot bootstrap at all.
   exclude: (url) => isShellPath(url.pathname),
@@ -75,5 +107,8 @@ startRelayServiceWorker(self, {
   // A live app keeps its session; a second relay page cannot take it over.
   takeover: "first-wins",
   decorateResponse: (response, request) =>
-    withFrameAncestors(sessionErrorPage(response, request) ?? response, FRAME_ANCESTORS),
+    // Left for `finish` above, frame-ancestors and all.
+    response.status === 500 && isRelayEnvelope(response)
+      ? response
+      : withFrameAncestors(sessionErrorPage(response, request) ?? response, FRAME_ANCESTORS),
 });
