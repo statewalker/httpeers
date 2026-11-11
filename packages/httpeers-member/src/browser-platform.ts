@@ -13,6 +13,7 @@
  */
 
 import type { Ed25519PrivateKey } from "@libp2p/interface";
+import type { IceServer } from "@statewalker/httpeers-libp2p";
 import { createBrowserNode } from "./browser-profile.js";
 import { mountEdge } from "./edge.js";
 import { watchPageWake } from "./page-wake.js";
@@ -31,12 +32,21 @@ export interface BrowserPlatformInit {
    * refuses it silently. Off in production, where refusing is right.
    */
   dev?: boolean;
+  /**
+   * WebRTC's STUN/TURN servers; unset keeps `@libp2p/webrtc`'s default. See
+   * `CreateBrowserNodeInit.iceServers`.
+   */
+  iceServers?: readonly IceServer[];
 }
 
 export function browserPlatform(init: BrowserPlatformInit = {}): MemberPlatform {
   return {
     createNode: async ({ privateKey }: { privateKey: Ed25519PrivateKey }) =>
-      createBrowserNode({ privateKey, dev: init.dev ?? false }),
+      createBrowserNode({
+        privateKey,
+        dev: init.dev ?? false,
+        ...(init.iceServers != null ? { iceServers: init.iceServers } : {}),
+      }),
 
     // A PAGE ONLY. `MemberHandle.fetch` is the edge on both platforms; what a
     // page additionally gets is a same-origin URL a plain `fetch()` reaches it

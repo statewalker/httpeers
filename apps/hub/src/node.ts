@@ -27,11 +27,13 @@ import { webSockets } from "@libp2p/websockets";
 import {
   dialRelay,
   hubRelayService,
+  type IceServer,
   type IsMember,
   membershipGater,
   type RelaySupervisor,
   superviseRelay,
   waitForCircuitReservation,
+  webRTCInitOf,
 } from "@statewalker/httpeers-libp2p";
 import { createLibp2p } from "libp2p";
 
@@ -47,6 +49,11 @@ export interface CreateHubNodeInit {
    * `hubRelayService`'s own, sized for a mesh rather than libp2p's 15.
    */
   maxReservations?: number;
+  /**
+   * The WebRTC transport's STUN/TURN servers (`HUB_ICE_SERVERS`). Unset keeps
+   * `@libp2p/webrtc`'s default.
+   */
+  iceServers?: readonly IceServer[];
 }
 
 /** The hub node's services: `relay` is what `releaseReservation` acts on. */
@@ -59,7 +66,11 @@ export async function createHubNode(init: CreateHubNodeInit): Promise<Libp2p<Hub
   return createLibp2p({
     privateKey: init.privateKey,
     addresses: { listen: ["/p2p-circuit", "/webrtc"] },
-    transports: [webSockets(), circuitRelayTransport(), webRTC()],
+    transports: [
+      webSockets(),
+      circuitRelayTransport(),
+      webRTC(webRTCInitOf(init.iceServers) as Parameters<typeof webRTC>[0]),
+    ],
     connectionEncrypters: [noise()],
     streamMuxers: [yamux()],
     connectionGater: membershipGater(init.isMember),

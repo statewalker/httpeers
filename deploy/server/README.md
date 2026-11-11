@@ -38,7 +38,7 @@ Once, on the server, as the deploy user (the one in `DEPLOY_USER`, a member of t
    then on the server:
    ```sh
    cd <DEPLOY_PATH>
-   diff docker-compose.yml docker-compose.yml.new   # only the relay and sites image lines differ
+   diff docker-compose.yml docker-compose.yml.new   # the relay and sites image lines, and any new service
    mv docker-compose.yml.new docker-compose.yml
    install -m 755 -D deploy.sh bin/deploy.sh && rm deploy.sh
    ```
@@ -81,7 +81,50 @@ Once, on the server, as the deploy user (the one in `DEPLOY_USER`, a member of t
   address; sites must answer HTTP. The script prints status lines only: the Actions log of this
   repository is public.
 - **Caddy and rustfs are not deployed from here.** Restarting the TLS terminator or the storage is
-  left to a person.
+  left to a person. Nor is `stun`, nor the compose file itself: CI never copies
+  `deploy/docker-compose.yml` to the server, so merging a change to it changes nothing in
+  production until someone follows the section below.
+
+## Adding a service to the edge stack
+
+`deploy.sh` runs `docker compose up -d <service>` against `<DEPLOY_PATH>/docker-compose.yml`, the
+copy on the server. A service added to `deploy/docker-compose.yml` in this repository is
+therefore not running anywhere until a person copies the file and starts it. The STUN server
+(`stun`, see `deploy/README.md`, "The STUN server") is the example; for another service the
+firewall and checks differ, the steps do not.
+
+1. **Firewall**, before anything listens. On the host (and in the provider's firewall, if any):
+   ```sh
+   sudo ufw allow 3478/udp
+   sudo ufw allow 3478/tcp
+   ```
+2. **DNS.** `stun.httpeers.net` is answered by the `*` A record; confirm, from anywhere:
+   ```sh
+   dig +short stun.httpeers.net    # must equal: dig +short relay.httpeers.net
+   ```
+3. **The compose file**, as in step 1 of "How to install it":
+   ```sh
+   scp deploy/docker-compose.yml <user>@<host>:<DEPLOY_PATH>/docker-compose.yml.new
+   ```
+   then on the server:
+   ```sh
+   cd <DEPLOY_PATH>
+   diff docker-compose.yml docker-compose.yml.new   # expect the new service, nothing else
+   mv docker-compose.yml.new docker-compose.yml
+   docker compose up -d stun                        # starts stun only; nothing else restarts
+   docker compose ps stun                           # "(healthy)" within about a minute
+   ```
+   `up -d stun` touches no other container. A bare `docker compose up -d` would also recreate any
+   service whose definition changed since it last started — Caddy included — so name the service.
+4. **Check it from outside the server** (from the server, `127.0.0.1` answers with Docker's
+   bridge address, which proves less):
+   ```sh
+   turnutils_stunclient stun.httpeers.net    # "UDP reflexive addr: <your public ip>:<port>"
+   ```
+   and the browser `srflx` check in `deploy/README.md`. No answer: the firewall (step 1) first,
+   then `docker compose logs stun`.
+
+To undo: `docker compose stop stun && docker compose rm -f stun`, and close the ports.
 
 ## What will surprise you
 
@@ -91,6 +134,7 @@ Once, on the server, as the deploy user (the one in `DEPLOY_USER`, a member of t
 | `DEPLOY FAILED: cannot pull ghcr.io/statewalker/httpeers-relay:sha-…` | the image for that commit was not published (the publish job failed or was skipped) |
 | `ROLLBACK ALSO FAILED -- relay needs a human` | the previous image does not verify either; look at `docker compose logs relay` on the server |
 | `DEPLOY FAILED: another deploy holds the lock` | a deploy has run for 10 minutes; the lock is `<DEPLOY_PATH>/.deploy.lock` |
+| `turnutils_stunclient stun.httpeers.net` times out, `docker compose ps stun` says healthy | `3478/udp` is closed in a firewall in front of the container: the healthcheck runs inside it |
 | `Permission denied (publickey)` in the deploy job | `EDGE_DEPLOY_FORCED` is `true` but the key is missing from `authorized_keys`, or the secret holds a different key |
 
 ## Reference

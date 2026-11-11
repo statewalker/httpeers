@@ -52,12 +52,14 @@ describe("loadConfig", () => {
       HUB_DOOR_SECRET: "  ",
       HUB_DOOR_ALLOWED_HOSTS: " , ",
       HUB_MAX_RESERVATIONS: "",
+      HUB_ICE_SERVERS: "",
     });
     expect(config.dataDir).toBe("/data");
     expect(config.services).toEqual([]);
     expect("litellmMasterKey" in config).toBe(false);
     expect("doorSecret" in config).toBe(false);
     expect("maxReservations" in config).toBe(false);
+    expect("iceServers" in config).toBe(false);
     expect(config.doorAllowedHosts).toEqual(["127.0.0.1:8080", "localhost:8080"]);
   });
 
@@ -70,5 +72,17 @@ describe("loadConfig", () => {
     for (const bad of ["0", "-5", "1.5", "lots", "1e3"]) {
       expect(() => loadConfig({ HUB_MAX_RESERVATIONS: bad })).toThrow(/HUB_MAX_RESERVATIONS/);
     }
+  });
+
+  it("reads HUB_ICE_SERVERS as a list of ICE server URLs", () => {
+    expect(
+      loadConfig({ HUB_ICE_SERVERS: "stun:stun.example.test:3478, stun:stun2.example.test" })
+        .iceServers,
+    ).toEqual([{ urls: "stun:stun.example.test:3478" }, { urls: "stun:stun2.example.test" }]);
+    // `none`: host candidates only -- not the same as unset, which keeps libp2p's default.
+    expect(loadConfig({ HUB_ICE_SERVERS: "none" }).iceServers).toEqual([]);
+    expect(() => loadConfig({ HUB_ICE_SERVERS: "stun.example.test:3478" })).toThrow(
+      /HUB_ICE_SERVERS.*stun\.example\.test:3478/,
+    );
   });
 });

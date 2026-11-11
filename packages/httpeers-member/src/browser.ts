@@ -16,7 +16,7 @@
  */
 
 import { del, get, set } from "idb-keyval";
-import { browserPlatform } from "./browser-platform.js";
+import { type BrowserPlatformInit, browserPlatform } from "./browser-platform.js";
 import type { AsyncBytesBackend, AsyncKeyValueBackend } from "./kv.js";
 import { createMeshMemory } from "./mesh-memory.js";
 import type { PeerSession, PeerSessionInit } from "./session.js";
@@ -86,6 +86,12 @@ export interface CreateSessionInit
   serviceWorkerUrl?: string;
   /** Relax libp2p's dial gater for loopback and private addresses. Off in production. */
   dev?: boolean;
+  /**
+   * WebRTC's STUN/TURN servers; unset keeps `@libp2p/webrtc`'s default. Pass
+   * `HTTPEERS_ICE_SERVERS` (from `@statewalker/httpeers-libp2p`) to use
+   * `stun:stun.httpeers.net:3478` first.
+   */
+  iceServers?: BrowserPlatformInit["iceServers"];
 }
 
 export function createSession(init: CreateSessionInit): PeerSession {
@@ -94,7 +100,11 @@ export function createSession(init: CreateSessionInit): PeerSession {
     search: init.search ?? location.search,
     platform:
       init.platform ??
-      browserPlatform({ serviceWorkerUrl: init.serviceWorkerUrl, dev: init.dev ?? false }),
+      browserPlatform({
+        serviceWorkerUrl: init.serviceWorkerUrl,
+        dev: init.dev ?? false,
+        ...(init.iceServers != null ? { iceServers: init.iceServers } : {}),
+      }),
     identity: init.identity ?? createIdentityStore({ backend: idbBytesBackend() }),
     meshMemory: init.meshMemory ?? createMeshMemory({ backend: idbBackend() }),
     reload: init.reload ?? ((): void => location.reload()),

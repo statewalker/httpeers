@@ -132,3 +132,53 @@ services:
       - rustfs
     networks:
       - edge
+
+  stun:
+    # STUN only, for stun:stun.httpeers.net:3478 (the `*` A record resolves it;
+    # no DNS change). A WebRTC peer asks it "what address do you see me as?"
+    # and offers the answer as its server-reflexive (srflx) candidate. That is
+    # all it does: no TURN, no relaying, no credentials -- so there is nothing
+    # here to abuse as a bandwidth relay and nothing to secure.
+    #
+    # Pinned to a release AND its digest, never `latest`. Bump deliberately.
+    image: coturn/coturn:4.18.0-alpine@sha256:c29135c08565810d37053f384584392b7c24b69570fc81a721b878d6fe63e04e
+    container_name: httpeers_stun
+    restart: unless-stopped
+    # THE SECOND SERVICE WITH PUBLISHED PORTS, and the exception to this
+    # file's rule: Caddy cannot proxy UDP, and a STUN answer is only useful
+    # if it comes from the address the client sent to. Open 3478/udp and
+    # 3478/tcp in the host firewall (deploy/README.md).
+    ports:
+      - "3478:3478/udp"
+      - "3478:3478/tcp"
+    # Replaces the image's default command, which shells out to
+    # `detect-external-ip` -- an outbound lookup at every start that only a
+    # TURN relay needs (it advertises relay addresses; STUN reports the
+    # client's, never its own).
+    command:
+      - --stun-only # TURN requests (Allocate, ...) are ignored, not answered
+      - --no-auth # no realm, no users: a Binding request needs none
+      # Belt and braces: with --stun-only no relay exists, and if that flag
+      # were ever dropped, every peer address is still denied. (Not
+      # --no-udp-relay plus --no-tcp-relay: coturn refuses to start with both.)
+      - --denied-peer-ip=0.0.0.0-255.255.255.255
+      - --denied-peer-ip=::-ffff:ffff:ffff:ffff:ffff:ffff:ffff:ffff
+      # TLS (5349) needs a certificate; not for now. DTLS, and the telnet admin
+      # console (5766), are off unless `--dtls` / `--cli` is given: no flag.
+      - --no-tls
+      - --fingerprint
+      - --listening-port=3478
+      - --log-file=stdout
+      - --simple-log
+      # One process, a handful of threads: a Binding answer is one packet.
+      - --relay-threads=1
+    # The image's own client, against the server's own listener. A Binding
+    # request answered is the only thing "healthy" can mean for this service.
+    healthcheck:
+      test: ["CMD", "turnutils_stunclient", "-t", "2000", "127.0.0.1"]
+      interval: 60s
+      timeout: 10s
+      retries: 3
+    # No `networks:` on purpose: nothing talks to it over `edge`, and it talks
+    # to nothing. It gets the project's default network, used for the port
+    # mapping alone.

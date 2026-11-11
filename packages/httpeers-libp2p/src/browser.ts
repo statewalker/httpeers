@@ -18,6 +18,7 @@
 import { circuitRelayTransport } from "@libp2p/circuit-relay-v2";
 import { webRTC } from "@libp2p/webrtc";
 import { webSockets } from "@libp2p/websockets";
+import { type IceServer, webRTCInitOf } from "./ice-servers.js";
 import type { BytesStore } from "./identity.js";
 import type { TransportFactory } from "./transport.js";
 
@@ -53,12 +54,21 @@ type IdbDatabase = {
 };
 declare const indexedDB: { open(name: string, version: number): IdbRequest<IdbDatabase> };
 
-/** Transports for a page. Fresh instances per call — libp2p's are not reusable. */
-export function browserTransports(): TransportFactory[] {
+/**
+ * Transports for a page. Fresh instances per call — libp2p's are not reusable.
+ *
+ * `iceServers` is the WebRTC transport's STUN/TURN list; unset keeps `@libp2p/webrtc`'s default
+ * (see `./ice-servers.ts`, and `HTTPEERS_ICE_SERVERS` to opt into the mesh's own server).
+ */
+export function browserTransports(
+  init: { iceServers?: readonly IceServer[] } = {},
+): TransportFactory[] {
   return [
     webSockets() as unknown as TransportFactory,
     circuitRelayTransport() as unknown as TransportFactory,
-    webRTC() as unknown as TransportFactory,
+    webRTC(
+      webRTCInitOf(init.iceServers) as Parameters<typeof webRTC>[0],
+    ) as unknown as TransportFactory,
   ];
 }
 

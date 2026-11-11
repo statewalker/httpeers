@@ -60,6 +60,14 @@ export {
   releaseReservation,
 } from "./hub-relay.js";
 export {
+  HTTPEERS_ICE_SERVERS,
+  HTTPEERS_STUN_URL,
+  type IceServer,
+  PUBLIC_STUN_FALLBACK_URL,
+  parseIceServers,
+  webRTCInitOf,
+} from "./ice-servers.js";
+export {
   type BytesStore,
   decodeKey,
   encodeKey,

@@ -11,6 +11,8 @@
  * empty door secret.
  */
 
+import { type IceServer, parseIceServers } from "@statewalker/httpeers-libp2p";
+
 export interface HubConfig {
   /** The data root; the hub owns `<dataDir>/hub`. */
   dataDir: string;
@@ -53,6 +55,15 @@ export interface HubConfig {
    * through the hub may carry.
    */
   maxReservations?: number;
+  /**
+   * `HUB_ICE_SERVERS` (comma-separated `stun:`/`turn:` URLs, or `none`): the
+   * STUN/TURN servers the hub's WebRTC transport gathers candidates from when
+   * a member upgrades to a direct connection. Unset keeps `@libp2p/webrtc`'s
+   * public default. `stun:stun.httpeers.net:3478,stun:stun.l.google.com:19302`
+   * is the mesh's own server with one public fallback (deploy/README.md, "The
+   * STUN server").
+   */
+  iceServers?: IceServer[];
   llmUpstream?: string;
   litellmMasterKey?: string;
 }
@@ -99,11 +110,20 @@ function positiveInteger(env: NodeJS.ProcessEnv, name: string): number | undefin
   return value;
 }
 
+function iceServerList(env: NodeJS.ProcessEnv, name: string): IceServer[] | undefined {
+  try {
+    return parseIceServers(setting(env, name));
+  } catch (error) {
+    throw new Error(`config: ${name}: ${(error as Error).message}`);
+  }
+}
+
 export function loadConfig(env: NodeJS.ProcessEnv): HubConfig {
   const llmUpstream = setting(env, "HUB_LLM_UPSTREAM");
   const litellmMasterKey = setting(env, "LITELLM_MASTER_KEY");
   const doorSecret = setting(env, "HUB_DOOR_SECRET");
   const maxReservations = positiveInteger(env, "HUB_MAX_RESERVATIONS");
+  const iceServers = iceServerList(env, "HUB_ICE_SERVERS");
   return {
     dataDir: setting(env, "HUB_DATA_DIR") ?? DEFAULT_DATA_DIR,
     relayDoc: setting(env, "HUB_RELAY_DOC") ?? DEFAULT_RELAY_DOC,
@@ -114,6 +134,7 @@ export function loadConfig(env: NodeJS.ProcessEnv): HubConfig {
     doorAllowedHosts: list(env, "HUB_DOOR_ALLOWED_HOSTS") ?? [...DEFAULT_DOOR_ALLOWED_HOSTS],
     ...(doorSecret != null ? { doorSecret } : {}),
     ...(maxReservations != null ? { maxReservations } : {}),
+    ...(iceServers != null ? { iceServers } : {}),
     ...(llmUpstream != null ? { llmUpstream } : {}),
     ...(litellmMasterKey != null ? { litellmMasterKey } : {}),
   };
