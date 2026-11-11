@@ -132,7 +132,11 @@ describe("muxTargetOverStream", () => {
     target.postMessage(bytesOf(10, 1));
     // The first leaves at once: a lone message waits for nothing.
     expect(s.sent).toHaveLength(1);
-    for (let i = 0; i < 20; i++) target.postMessage(bytesOf(10_000, i));
+    // Built first: posted back to back, as the mux's pump posts them (a frame
+    // posted a millisecond after the one gathered before it sends that one;
+    // see the next test).
+    const frames = Array.from({ length: 20 }, (_, i) => bytesOf(10_000, i));
+    for (const frame of frames) target.postMessage(frame);
     expect(target.bufferedAmount).toBeGreaterThan(0);
     await nextTask();
     // 20 frames of ~10 KB: gathered into a handful of sends, each within one
@@ -144,11 +148,33 @@ describe("muxTargetOverStream", () => {
 
     // A frame past that size goes out on its own, after what was gathered before it.
     s.sent.length = 0;
-    target.postMessage(bytesOf(10, 2));
-    target.postMessage(bytesOf(10, 3));
-    target.postMessage(bytesOf(100_000, 4));
+    const [small2, small3, large] = [bytesOf(10, 2), bytesOf(10, 3), bytesOf(100_000, 4)];
+    target.postMessage(small2);
+    target.postMessage(small3);
+    target.postMessage(large);
     await nextTask();
     expect(s.sent.map((b) => b.byteLength)).toEqual([11, 11, 100_003]);
+  });
+
+  it("does not hold a gathered frame for a long task: it leaves with the next frame posted a millisecond later", async () => {
+    // A burst of exchanges served in one task (all their requests arrived in
+    // one read) must not leave as one write at the end of it: the first
+    // answers would wait for the last, and the next round of requests would
+    // come back as one burst again (#56: the mux's lock-step rounds).
+    const s = fakeStream();
+    const { target } = muxTargetOverStream(s.stream, { maxMessageBytes: 1 << 20 });
+    const busy = (ms: number) => {
+      const until = performance.now() + ms;
+      while (performance.now() < until) {}
+    };
+    target.postMessage(bytesOf(10, 1)); // leaves at once
+    target.postMessage(bytesOf(10, 2)); // gathered
+    busy(2);
+    target.postMessage(bytesOf(10, 3)); // sends what waited, and is gathered
+    expect(s.sent.map((b) => b[0])).toEqual([10, 10]);
+    expect(s.sent.map((b) => b[1])).toEqual([1, 2]);
+    await nextTask();
+    expect(s.sent.map((b) => b[1])).toEqual([1, 2, 3]);
   });
 
   it("delivers messages whole and in order from any split of the bytes", async () => {

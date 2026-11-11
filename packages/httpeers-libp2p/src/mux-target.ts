@@ -183,6 +183,8 @@ export function muxTargetOverStream(
   let pendingBytes = 0;
   /** A frame left since the last flush: the frames after it are gathered, and sent at the next flush (next task). */
   let gathering = false;
+  /** When the first frame now in `pending` was gathered. */
+  let gatheringSince = 0;
   const send = (bytes: Uint8Array): void => {
     try {
       stream.send(bytes);
@@ -246,11 +248,17 @@ export function muxTargetOverStream(
           send(frame);
           return;
         }
-        if (pendingBytes + frame.byteLength > COALESCE_BYTES) sendPending();
+        if (
+          pendingBytes + frame.byteLength > COALESCE_BYTES ||
+          (pending.length > 0 && performance.now() - gatheringSince >= GATHER_MS)
+        ) {
+          sendPending();
+        }
         if (frame.byteLength >= COALESCE_BYTES) {
           send(frame);
           return;
         }
+        if (pending.length === 0) gatheringSince = performance.now();
         pending.push(frame);
         pendingBytes += frame.byteLength;
       },
@@ -283,9 +291,27 @@ export function muxTargetOverStream(
  * `stream.send()`: just under one Noise message (65519 bytes of payload) less
  * a yamux header, so a batch is one yamux frame, one Noise message and one
  * socket write. A frame this large or larger goes out on its own. Gathering
- * waits for the next task at most, never for more data.
+ * waits for the next task at most, never for more data, and for
+ * {@link GATHER_MS} at most within a long task.
  */
 const COALESCE_BYTES = 65_519 - 12 - 3;
+
+/**
+ * How long a gathered frame may wait within one task: the next frame posted
+ * after that sends it (and what was gathered with it) at once.
+ *
+ * WHY (#56). A burst of exchanges whose requests arrive in one read is served
+ * in one task, its handlers running in microtasks. Gathered until the task
+ * ended, every answer of the burst left in one write after the last was
+ * written, so the first answer waited for the last, the caller's next
+ * requests came back as one burst, and the burst never broke up: K exchanges
+ * in lock-step rounds, each a round trip plus the whole burst's CPU on both
+ * sides. On a 100 ms link 100 concurrent 256 B exchanges ran at 474/s with
+ * unbounded gathering and 687/s with this bound (`scripts/bench-mux-net.mjs`,
+ * `longfat`). Bulk frames fill a batch long before this, and back-to-back
+ * posts (the pump's) are still gathered.
+ */
+const GATHER_MS = 1;
 
 /**
  * Runs `fn` on a later task, never a microtask: the mux's pump posts each

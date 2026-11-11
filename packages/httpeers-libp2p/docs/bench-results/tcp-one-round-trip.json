@@ -1,0 +1,1024 @@
+{
+  "lan": {
+    "link": {
+      "rate": 1000,
+      "delay": 0.5,
+      "jitter": 0,
+      "loss": 0,
+      "queue": 5
+    },
+    "transport": "tcp",
+    "keepOnPingFailure": false,
+    "cases": ["ping", "small", "blob"],
+    "runsRequested": 3,
+    "table": {
+      "per-exchange": {
+        "pingIdleP50": 6.1552019999999175,
+        "pingIdleP99": 11.984828000000107,
+        "pingIdleN": 200,
+        "smallK1": 169.9831028296632,
+        "smallK10": 694.4297384630236,
+        "smallK100": 1015.9976069056198,
+        "blobIdleFirstP50": 5.754979999999705,
+        "blobIdleWholeP50": 5.887708999998722,
+        "runs": 3
+      },
+      "mux 256 KiB": {
+        "pingIdleP50": 3.889985999999908,
+        "pingIdleP99": 6.89960700000006,
+        "pingIdleN": 200,
+        "smallK1": 256.02315743775017,
+        "smallK10": 1008.058449896649,
+        "smallK100": 1690.1635893231844,
+        "blobIdleFirstP50": 4.042510999999649,
+        "blobIdleWholeP50": 4.52991800000018,
+        "runs": 3
+      },
+      "mux 4096 KiB": {
+        "pingIdleP50": 4.008679000000029,
+        "pingIdleP99": 7.97148100000004,
+        "pingIdleN": 200,
+        "smallK1": 249.76554499965368,
+        "smallK10": 998.5246895932265,
+        "smallK100": 1795.2371978468575,
+        "blobIdleFirstP50": 3.7520519999998214,
+        "blobIdleWholeP50": 4.20053899999948,
+        "runs": 3
+      }
+    },
+    "raw": {
+      "per-exchange": [
+        {
+          "pingIdleP50": 6.1552019999999175,
+          "pingIdleP99": 10.762463000000025,
+          "pingIdleN": 200,
+          "smallK1": 172.94201150589,
+          "smallK10": 653.8519603885728,
+          "smallK100": 1082.7512787458065,
+          "blobIdleFirstP50": 6.25682500000039,
+          "blobIdleWholeP50": 6.321751999999833
+        },
+        {
+          "pingIdleP50": 6.19016600000009,
+          "pingIdleP99": 12.649213000000145,
+          "pingIdleN": 200,
+          "smallK1": 165.59342491561773,
+          "smallK10": 717.6654839026954,
+          "smallK100": 1015.9976069056198,
+          "blobIdleFirstP50": 5.754979999999705,
+          "blobIdleWholeP50": 5.887708999998722
+        },
+        {
+          "pingIdleP50": 6.09991100000002,
+          "pingIdleP99": 11.984828000000107,
+          "pingIdleN": 200,
+          "smallK1": 169.9831028296632,
+          "smallK10": 694.4297384630236,
+          "smallK100": 1004.4743518719,
+          "blobIdleFirstP50": 5.439343000000008,
+          "blobIdleWholeP50": 5.613604000000123
+        }
+      ],
+      "mux 256 KiB": [
+        {
+          "pingIdleP50": 3.8747779999998784,
+          "pingIdleP99": 8.046707000000197,
+          "pingIdleN": 200,
+          "smallK1": 256.02315743775017,
+          "smallK10": 1008.058449896649,
+          "smallK100": 1690.1635893231844,
+          "blobIdleFirstP50": 3.7932199999995646,
+          "blobIdleWholeP50": 4.1864260000002105
+        },
+        {
+          "pingIdleP50": 3.91852700000004,
+          "pingIdleP99": 6.89960700000006,
+          "pingIdleN": 200,
+          "smallK1": 246.55736803197541,
+          "smallK10": 986.1051844252509,
+          "smallK100": 1510.7510051011288,
+          "blobIdleFirstP50": 4.042510999999649,
+          "blobIdleWholeP50": 4.60708700000032
+        },
+        {
+          "pingIdleP50": 3.889985999999908,
+          "pingIdleP99": 5.5790199999999,
+          "pingIdleN": 200,
+          "smallK1": 256.8364966020807,
+          "smallK10": 1030.4893568752605,
+          "smallK100": 1808.6393425922615,
+          "blobIdleFirstP50": 4.116363999999521,
+          "blobIdleWholeP50": 4.52991800000018
+        }
+      ],
+      "mux 4096 KiB": [
+        {
+          "pingIdleP50": 4.057332000000088,
+          "pingIdleP99": 9.399640999999974,
+          "pingIdleN": 200,
+          "smallK1": 234.19133180960944,
+          "smallK10": 998.5246895932265,
+          "smallK100": 1795.2371978468575,
+          "blobIdleFirstP50": 3.7520519999998214,
+          "blobIdleWholeP50": 4.20053899999948
+        },
+        {
+          "pingIdleP50": 4.008679000000029,
+          "pingIdleP99": 7.97148100000004,
+          "pingIdleN": 200,
+          "smallK1": 249.76554499965368,
+          "smallK10": 975.7862856955779,
+          "smallK100": 1783.550023255246,
+          "blobIdleFirstP50": 3.843697999998767,
+          "blobIdleWholeP50": 4.2114999999994325
+        },
+        {
+          "pingIdleP50": 3.8723230000000513,
+          "pingIdleP99": 6.803846999999905,
+          "pingIdleN": 200,
+          "smallK1": 260.09701646688796,
+          "smallK10": 1018.5071825101547,
+          "smallK100": 1948.601892259725,
+          "blobIdleFirstP50": 3.7038680000005115,
+          "blobIdleWholeP50": 4.0212179999998625
+        }
+      ]
+    }
+  },
+  "broadband": {
+    "link": {
+      "rate": 50,
+      "delay": 15,
+      "jitter": 0,
+      "loss": 0.001,
+      "queue": 100
+    },
+    "transport": "tcp",
+    "keepOnPingFailure": false,
+    "cases": ["ping", "small", "blob"],
+    "runsRequested": 3,
+    "table": {
+      "per-exchange": {
+        "pingIdleP50": 66.11757500000022,
+        "pingIdleP99": 109.46138100000007,
+        "pingIdleN": 100,
+        "smallK1": 11.387953838469723,
+        "smallK10": 62.82616921334753,
+        "smallK100": 704.0370531777568,
+        "blobIdleFirstP50": 98.27124399999957,
+        "blobIdleWholeP50": 98.37825599999996,
+        "runs": 3
+      },
+      "mux 256 KiB": {
+        "pingIdleP50": 33.74706200000037,
+        "pingIdleP99": 63.73307299999988,
+        "pingIdleN": 100,
+        "smallK1": 28.248282419684035,
+        "smallK10": 188.35243739111016,
+        "smallK100": 893.4125432305425,
+        "blobIdleFirstP50": 68.66374599999835,
+        "blobIdleWholeP50": 93.1232880000025,
+        "runs": 3
+      },
+      "mux 4096 KiB": {
+        "pingIdleP50": 33.731354000000465,
+        "pingIdleP99": 65.50053200000002,
+        "pingIdleN": 100,
+        "smallK1": 27.655727880762914,
+        "smallK10": 192.88435733987,
+        "smallK100": 833.9295661036622,
+        "blobIdleFirstP50": 67.73970799999734,
+        "blobIdleWholeP50": 68.40381499999785,
+        "runs": 3
+      }
+    },
+    "raw": {
+      "per-exchange": [
+        {
+          "pingIdleP50": 66.11757500000022,
+          "pingIdleP99": 109.46138100000007,
+          "pingIdleN": 100,
+          "smallK1": 11.387953838469723,
+          "smallK10": 62.82616921334753,
+          "smallK100": 704.0370531777568,
+          "blobIdleFirstP50": 99.85734800000137,
+          "blobIdleWholeP50": 99.9511050000001
+        },
+        {
+          "pingIdleP50": 66.54491700000017,
+          "pingIdleP99": 330.74121000000014,
+          "pingIdleN": 100,
+          "smallK1": 11.821110438291816,
+          "smallK10": 73.95961651285491,
+          "smallK100": 655.6486586889539,
+          "blobIdleFirstP50": 98.27124399999957,
+          "blobIdleWholeP50": 98.37825599999996
+        },
+        {
+          "pingIdleP50": 65.53700899999967,
+          "pingIdleP99": 96.8842250000007,
+          "pingIdleN": 100,
+          "smallK1": 10.553454614170434,
+          "smallK10": 62.10459112616657,
+          "smallK100": 722.2838649280718,
+          "blobIdleFirstP50": 96.70313399999941,
+          "blobIdleWholeP50": 96.79577900000004
+        }
+      ],
+      "mux 256 KiB": [
+        {
+          "pingIdleP50": 33.804025999999794,
+          "pingIdleP99": 64.32544900000016,
+          "pingIdleN": 100,
+          "smallK1": 28.149059800888715,
+          "smallK10": 188.35243739111016,
+          "smallK100": 893.4125432305425,
+          "blobIdleFirstP50": 93.50815200000216,
+          "blobIdleWholeP50": 94.17470499999763
+        },
+        {
+          "pingIdleP50": 33.74706200000037,
+          "pingIdleP99": 63.73307299999988,
+          "pingIdleN": 100,
+          "smallK1": 28.248282419684035,
+          "smallK10": 182.95660070661432,
+          "smallK100": 694.1031270450587,
+          "blobIdleFirstP50": 68.66374599999835,
+          "blobIdleWholeP50": 93.1232880000025
+        },
+        {
+          "pingIdleP50": 33.650620999999774,
+          "pingIdleP99": 47.165328000000045,
+          "pingIdleN": 100,
+          "smallK1": 28.757130311557898,
+          "smallK10": 211.7125033946203,
+          "smallK100": 1066.491395558772,
+          "blobIdleFirstP50": 66.08194299999741,
+          "blobIdleWholeP50": 66.56911899999977
+        }
+      ],
+      "mux 4096 KiB": [
+        {
+          "pingIdleP50": 33.731354000000465,
+          "pingIdleP99": 66.09358599999996,
+          "pingIdleN": 100,
+          "smallK1": 27.655727880762914,
+          "smallK10": 192.88435733987,
+          "smallK100": 833.9295661036622,
+          "blobIdleFirstP50": 66.78604500000074,
+          "blobIdleWholeP50": 67.36382199999935
+        },
+        {
+          "pingIdleP50": 33.88068299999986,
+          "pingIdleP99": 47.42251699999997,
+          "pingIdleN": 100,
+          "smallK1": 28.68567949213026,
+          "smallK10": 195.3059334988541,
+          "smallK100": 739.7417638854495,
+          "blobIdleFirstP50": 95.56175499999881,
+          "blobIdleWholeP50": 96.16707700000188
+        },
+        {
+          "pingIdleP50": 33.462249999999585,
+          "pingIdleP99": 65.50053200000002,
+          "pingIdleN": 100,
+          "smallK1": 27.38604443031633,
+          "smallK10": 172.48857766368076,
+          "smallK100": 875.3795461227107,
+          "blobIdleFirstP50": 67.73970799999734,
+          "blobIdleWholeP50": 68.40381499999785
+        }
+      ]
+    }
+  },
+  "mobile": {
+    "link": {
+      "rate": 10,
+      "delay": 40,
+      "jitter": 10,
+      "loss": 0.01,
+      "queue": 200
+    },
+    "transport": "tcp",
+    "keepOnPingFailure": false,
+    "cases": ["ping", "small", "blob"],
+    "runsRequested": 3,
+    "table": {
+      "per-exchange": {
+        "pingIdleP50": 275.32018400000015,
+        "pingIdleP99": 686.0633369999996,
+        "pingIdleN": 60,
+        "smallK1": 2.4491473752722315,
+        "smallK10": 20.8607798259385,
+        "smallK100": 157.5623414465198,
+        "blobIdleFirstP50": 586.5607839999939,
+        "blobIdleWholeP50": 586.6690259999959,
+        "runs": 3
+      },
+      "mux 256 KiB": {
+        "pingIdleP50": 95.79668299999958,
+        "pingIdleP99": 290.3389850000003,
+        "pingIdleN": 60,
+        "smallK1": 5.912901353607759,
+        "smallK10": 37.92922699666053,
+        "smallK100": 85.14328963106738,
+        "blobIdleFirstP50": 544.3619859999999,
+        "blobIdleWholeP50": 597.7920479999993,
+        "runs": 3
+      },
+      "mux 4096 KiB": {
+        "pingIdleP50": 142.3259160000007,
+        "pingIdleP99": 248.16269099999954,
+        "pingIdleN": 60,
+        "smallK1": 5.881407202825737,
+        "smallK10": 44.1314891340277,
+        "smallK100": 101.25832055490127,
+        "blobIdleFirstP50": 471.7593589999997,
+        "blobIdleWholeP50": 474.5579340000004,
+        "runs": 3
+      }
+    },
+    "raw": {
+      "per-exchange": [
+        {
+          "pingIdleP50": 271.77035500000056,
+          "pingIdleP99": 686.0633369999996,
+          "pingIdleN": 60,
+          "smallK1": 2.6876106807151205,
+          "smallK10": 20.8607798259385,
+          "smallK100": 179.83884288144714,
+          "blobIdleFirstP50": 583.7346219999963,
+          "blobIdleWholeP50": 583.8271569999997
+        },
+        {
+          "pingIdleP50": 275.32018400000015,
+          "pingIdleP99": 701.9849610000001,
+          "pingIdleN": 60,
+          "smallK1": 2.4491473752722315,
+          "smallK10": 20.22857509773021,
+          "smallK100": 157.5623414465198,
+          "blobIdleFirstP50": 586.5607839999939,
+          "blobIdleWholeP50": 586.6690259999959
+        },
+        {
+          "pingIdleP50": 280.5663079999995,
+          "pingIdleP99": 625.6544410000006,
+          "pingIdleN": 60,
+          "smallK1": 2.337945077353898,
+          "smallK10": 22.742845541861584,
+          "smallK100": 149.18122293876368,
+          "blobIdleFirstP50": 762.1312360000011,
+          "blobIdleWholeP50": 762.2009919999982
+        }
+      ],
+      "mux 256 KiB": [
+        {
+          "pingIdleP50": 162.28963699999986,
+          "pingIdleP99": 583.8550910000013,
+          "pingIdleN": 60,
+          "smallK1": 5.912901353607759,
+          "smallK10": 37.92922699666053,
+          "smallK100": 120.58562036539374,
+          "blobIdleFirstP50": 432.1577709999983,
+          "blobIdleWholeP50": 481.022022000001
+        },
+        {
+          "pingIdleP50": 95.79668299999958,
+          "pingIdleP99": 290.3389850000003,
+          "pingIdleN": 60,
+          "smallK1": 5.298888072868196,
+          "smallK10": 35.90232742869532,
+          "smallK100": 85.14328963106738,
+          "blobIdleFirstP50": 641.4458279999999,
+          "blobIdleWholeP50": 646.8307910000003
+        },
+        {
+          "pingIdleP50": 87.82605899999999,
+          "pingIdleP99": 238.84705099999974,
+          "pingIdleN": 60,
+          "smallK1": 6.650131176781124,
+          "smallK10": 41.00345693584875,
+          "smallK100": 84.00016425682016,
+          "blobIdleFirstP50": 544.3619859999999,
+          "blobIdleWholeP50": 597.7920479999993
+        }
+      ],
+      "mux 4096 KiB": [
+        {
+          "pingIdleP50": 158.15231499999936,
+          "pingIdleP99": 521.7744270000003,
+          "pingIdleN": 60,
+          "smallK1": 6.124956808681588,
+          "smallK10": 44.13269071291381,
+          "smallK100": 101.25832055490127,
+          "blobIdleFirstP50": 471.7593589999997,
+          "blobIdleWholeP50": 474.5579340000004
+        },
+        {
+          "pingIdleP50": 142.3259160000007,
+          "pingIdleP99": 248.16269099999954,
+          "pingIdleN": 60,
+          "smallK1": 5.881407202825737,
+          "smallK10": 36.39192138380404,
+          "smallK100": 90.31273299369931,
+          "blobIdleFirstP50": 445.44244499999695,
+          "blobIdleWholeP50": 448.423523999998
+        },
+        {
+          "pingIdleP50": 91.62996799999928,
+          "pingIdleP99": 207.58977500000037,
+          "pingIdleN": 60,
+          "smallK1": 5.722374736926945,
+          "smallK10": 44.1314891340277,
+          "smallK100": 104.17335416482774,
+          "blobIdleFirstP50": 554.6846040000019,
+          "blobIdleWholeP50": 578.4399830000002
+        }
+      ]
+    }
+  },
+  "bad": {
+    "link": {
+      "rate": 2,
+      "delay": 100,
+      "jitter": 0,
+      "loss": 0.03,
+      "queue": 500
+    },
+    "transport": "tcp",
+    "keepOnPingFailure": false,
+    "cases": ["ping", "small", "blob"],
+    "runsRequested": 3,
+    "table": {
+      "per-exchange": {
+        "pingIdleP50": 1012.4292910000004,
+        "pingIdleP99": 1898.302902000003,
+        "pingIdleN": 30,
+        "smallK1": 0.7934158783219057,
+        "smallK10": 7.643187029382469,
+        "smallK100": 36.2623381102521,
+        "blobIdleFirstP50": 2596.8618700000006,
+        "blobIdleWholeP50": 2596.9985929999966,
+        "runs": 3
+      },
+      "mux 256 KiB": {
+        "pingIdleP50": 609.6750430000011,
+        "pingIdleP99": 861.049619999998,
+        "pingIdleN": 30,
+        "smallK1": 1.792533361394888,
+        "smallK10": 13.867969692223447,
+        "smallK100": 19.885011963408814,
+        "blobIdleFirstP50": 2273.8429500000057,
+        "blobIdleWholeP50": 2290.7675820000004,
+        "runs": 3
+      },
+      "mux 4096 KiB": {
+        "pingIdleP50": 609.4965649999976,
+        "pingIdleP99": 1234.949419999999,
+        "pingIdleN": 30,
+        "smallK1": 1.4467420887321327,
+        "smallK10": 11.46934578329247,
+        "smallK100": 20.453356067070175,
+        "blobIdleFirstP50": 2305.3016480000006,
+        "blobIdleWholeP50": 2511.7765880000006,
+        "runs": 3
+      }
+    },
+    "raw": {
+      "per-exchange": [
+        {
+          "pingIdleP50": 1035.7099820000003,
+          "pingIdleP99": 1652.717155000002,
+          "pingIdleN": 30,
+          "smallK1": 0.7934158783219057,
+          "smallK10": 7.643187029382469,
+          "smallK100": 37.04222533725948,
+          "blobIdleFirstP50": 2163.7202129999932,
+          "blobIdleWholeP50": 2163.876120000001
+        },
+        {
+          "pingIdleP50": 810.8940089999996,
+          "pingIdleP99": 2247.793540999999,
+          "pingIdleN": 30,
+          "smallK1": 0.9328823985881914,
+          "smallK10": 7.825515806951176,
+          "smallK100": 36.2623381102521,
+          "blobIdleFirstP50": 2596.8618700000006,
+          "blobIdleWholeP50": 2596.9985929999966
+        },
+        {
+          "pingIdleP50": 1012.4292910000004,
+          "pingIdleP99": 1898.302902000003,
+          "pingIdleN": 30,
+          "smallK1": 0.7642790373300459,
+          "smallK10": 7.2675973838801236,
+          "smallK100": 34.768715733611806,
+          "blobIdleFirstP50": 3073.1691199999914,
+          "blobIdleWholeP50": 3073.326464999991
+        }
+      ],
+      "mux 256 KiB": [
+        {
+          "pingIdleP50": 609.6750430000011,
+          "pingIdleP99": 1029.9107920000006,
+          "pingIdleN": 30,
+          "smallK1": 1.7062422615340527,
+          "smallK10": 13.867969692223447,
+          "smallK100": 19.885011963408814,
+          "blobIdleFirstP50": 2427.0958580000006,
+          "blobIdleWholeP50": 2583.4640419999996
+        },
+        {
+          "pingIdleP50": 609.7551209999983,
+          "pingIdleP99": 861.049619999998,
+          "pingIdleN": 30,
+          "smallK1": 1.792533361394888,
+          "smallK10": 13.004805618717505,
+          "smallK100": 24.737481257005694,
+          "blobIdleFirstP50": 1543.3158619999958,
+          "blobIdleWholeP50": 1603.7538639999984
+        },
+        {
+          "pingIdleP50": 515.3982689999993,
+          "pingIdleP99": 815.6587289999989,
+          "pingIdleN": 30,
+          "smallK1": 2.187997288023621,
+          "smallK10": 14.637159215492158,
+          "smallK100": 19.767379730786136,
+          "blobIdleFirstP50": 2273.8429500000057,
+          "blobIdleWholeP50": 2290.7675820000004
+        }
+      ],
+      "mux 4096 KiB": [
+        {
+          "pingIdleP50": 609.4965649999976,
+          "pingIdleP99": 1234.949419999999,
+          "pingIdleN": 30,
+          "smallK1": 1.4467420887321327,
+          "smallK10": 11.46934578329247,
+          "smallK100": 17.504649122185032,
+          "blobIdleFirstP50": 2797.969627999999,
+          "blobIdleWholeP50": 2999.1302910000013
+        },
+        {
+          "pingIdleP50": 609.5594190000011,
+          "pingIdleP99": 900.5255950000028,
+          "pingIdleN": 30,
+          "smallK1": 1.5309537556114325,
+          "smallK10": 12.063221981024535,
+          "smallK100": 25.953262775387,
+          "blobIdleFirstP50": 1397.597861000002,
+          "blobIdleWholeP50": 1549.7380669999984
+        },
+        {
+          "pingIdleP50": 464.9558419999994,
+          "pingIdleP99": 1259.3564679999981,
+          "pingIdleN": 30,
+          "smallK1": 1.3811362068930986,
+          "smallK10": 10.100192926254017,
+          "smallK100": 20.453356067070175,
+          "blobIdleFirstP50": 2305.3016480000006,
+          "blobIdleWholeP50": 2511.7765880000006
+        }
+      ]
+    }
+  },
+  "broadband-noloss": {
+    "link": {
+      "rate": 50,
+      "delay": 15,
+      "jitter": 0,
+      "loss": 0,
+      "queue": 100
+    },
+    "transport": "tcp",
+    "keepOnPingFailure": false,
+    "cases": ["ping", "small", "blob"],
+    "runsRequested": 3,
+    "table": {
+      "per-exchange": {
+        "pingIdleP50": 65.83293299999968,
+        "pingIdleP99": 71.41326799999979,
+        "pingIdleN": 100,
+        "smallK1": 15.019458957417969,
+        "smallK10": 151.01134098324033,
+        "smallK100": 800.6205356311358,
+        "blobIdleFirstP50": 75.60605800000121,
+        "blobIdleWholeP50": 75.73366200000237,
+        "runs": 3
+      },
+      "mux 256 KiB": {
+        "pingIdleP50": 33.65246900000011,
+        "pingIdleP99": 36.7550839999999,
+        "pingIdleN": 100,
+        "smallK1": 29.123874634068226,
+        "smallK10": 258.7949219807221,
+        "smallK100": 1186.0465940548168,
+        "blobIdleFirstP50": 43.508568999997806,
+        "blobIdleWholeP50": 44.10196499999802,
+        "runs": 3
+      },
+      "mux 4096 KiB": {
+        "pingIdleP50": 33.72485199999983,
+        "pingIdleP99": 36.71556000000055,
+        "pingIdleN": 100,
+        "smallK1": 29.028359887124374,
+        "smallK10": 261.1970398542459,
+        "smallK100": 1154.272946991724,
+        "blobIdleFirstP50": 43.46925000000192,
+        "blobIdleWholeP50": 43.95727800000168,
+        "runs": 3
+      }
+    },
+    "raw": {
+      "per-exchange": [
+        {
+          "pingIdleP50": 64.9868749999996,
+          "pingIdleP99": 66.78761000000031,
+          "pingIdleN": 100,
+          "smallK1": 15.190734534092531,
+          "smallK10": 151.9718469931749,
+          "smallK100": 845.7749582936084,
+          "blobIdleFirstP50": 75.35194400000182,
+          "blobIdleWholeP50": 75.43320200000016
+        },
+        {
+          "pingIdleP50": 65.8363290000002,
+          "pingIdleP99": 71.41326799999979,
+          "pingIdleN": 100,
+          "smallK1": 15.019458957417969,
+          "smallK10": 150.68761883976902,
+          "smallK100": 800.6205356311358,
+          "blobIdleFirstP50": 75.76865399999951,
+          "blobIdleWholeP50": 76.26278400000228
+        },
+        {
+          "pingIdleP50": 65.83293299999968,
+          "pingIdleP99": 72.36005699999987,
+          "pingIdleN": 100,
+          "smallK1": 14.99602808451941,
+          "smallK10": 151.01134098324033,
+          "smallK100": 780.1478430489959,
+          "blobIdleFirstP50": 75.60605800000121,
+          "blobIdleWholeP50": 75.73366200000237
+        }
+      ],
+      "mux 256 KiB": [
+        {
+          "pingIdleP50": 33.53840100000025,
+          "pingIdleP99": 36.0343170000001,
+          "pingIdleN": 100,
+          "smallK1": 29.065602137713135,
+          "smallK10": 258.7949219807221,
+          "smallK100": 1185.4454698192142,
+          "blobIdleFirstP50": 43.508568999997806,
+          "blobIdleWholeP50": 44.10196499999802
+        },
+        {
+          "pingIdleP50": 33.75737900000013,
+          "pingIdleP99": 37.32030600000007,
+          "pingIdleN": 100,
+          "smallK1": 29.17294383330206,
+          "smallK10": 262.99831552850884,
+          "smallK100": 1351.6597737213103,
+          "blobIdleFirstP50": 43.61975099999836,
+          "blobIdleWholeP50": 44.19670100000076
+        },
+        {
+          "pingIdleP50": 33.65246900000011,
+          "pingIdleP99": 36.7550839999999,
+          "pingIdleN": 100,
+          "smallK1": 29.123874634068226,
+          "smallK10": 255.48380142237878,
+          "smallK100": 1186.0465940548168,
+          "blobIdleFirstP50": 43.412484000000404,
+          "blobIdleWholeP50": 43.97675600000002
+        }
+      ],
+      "mux 4096 KiB": [
+        {
+          "pingIdleP50": 33.72485199999983,
+          "pingIdleP99": 36.59937799999989,
+          "pingIdleN": 100,
+          "smallK1": 29.028359887124374,
+          "smallK10": 257.6632432708215,
+          "smallK100": 1325.1530143471145,
+          "blobIdleFirstP50": 43.13898100000006,
+          "blobIdleWholeP50": 43.66597499999989
+        },
+        {
+          "pingIdleP50": 33.44820299999992,
+          "pingIdleP99": 36.71556000000055,
+          "pingIdleN": 100,
+          "smallK1": 29.054451115948197,
+          "smallK10": 261.27354274355554,
+          "smallK100": 1117.8624563595126,
+          "blobIdleFirstP50": 43.46925000000192,
+          "blobIdleWholeP50": 43.95727800000168
+        },
+        {
+          "pingIdleP50": 33.75641200000018,
+          "pingIdleP99": 40.27396399999998,
+          "pingIdleN": 100,
+          "smallK1": 28.954072254353164,
+          "smallK10": 261.1970398542459,
+          "smallK100": 1154.272946991724,
+          "blobIdleFirstP50": 44.0599919999986,
+          "blobIdleWholeP50": 44.6056439999993
+        }
+      ]
+    }
+  },
+  "mobile-noloss": {
+    "link": {
+      "rate": 10,
+      "delay": 40,
+      "jitter": 10,
+      "loss": 0,
+      "queue": 200
+    },
+    "transport": "tcp",
+    "keepOnPingFailure": false,
+    "cases": ["ping", "small", "blob"],
+    "runsRequested": 3,
+    "table": {
+      "per-exchange": {
+        "pingIdleP50": 165.9655270000003,
+        "pingIdleP99": 193.32925000000068,
+        "pingIdleN": 60,
+        "smallK1": 5.93395727483115,
+        "smallK10": 53.85172543152851,
+        "smallK100": 448.65323409220133,
+        "blobIdleFirstP50": 214.54713300000003,
+        "blobIdleWholeP50": 214.62280800000008,
+        "runs": 3
+      },
+      "mux 256 KiB": {
+        "pingIdleP50": 84.7476859999997,
+        "pingIdleP99": 102.17160899999999,
+        "pingIdleN": 60,
+        "smallK1": 11.5158872478598,
+        "smallK10": 100.45417646791114,
+        "smallK100": 604.474155684857,
+        "blobIdleFirstP50": 135.48777600000176,
+        "blobIdleWholeP50": 138.9727610000009,
+        "runs": 3
+      },
+      "mux 4096 KiB": {
+        "pingIdleP50": 85.85367699999915,
+        "pingIdleP99": 103.29341399999976,
+        "pingIdleN": 60,
+        "smallK1": 11.471273770714175,
+        "smallK10": 101.07073115003114,
+        "smallK100": 660.2909966050438,
+        "blobIdleFirstP50": 134.95153199999913,
+        "blobIdleWholeP50": 138.09297399999923,
+        "runs": 3
+      }
+    },
+    "raw": {
+      "per-exchange": [
+        {
+          "pingIdleP50": 165.9655270000003,
+          "pingIdleP99": 193.32925000000068,
+          "pingIdleN": 60,
+          "smallK1": 5.9882229081126095,
+          "smallK10": 54.34449223378757,
+          "smallK100": 443.5952727416099,
+          "blobIdleFirstP50": 214.54713300000003,
+          "blobIdleWholeP50": 214.62280800000008
+        },
+        {
+          "pingIdleP50": 169.9096880000002,
+          "pingIdleP99": 190.68155299999944,
+          "pingIdleN": 60,
+          "smallK1": 5.841832604230111,
+          "smallK10": 53.85172543152851,
+          "smallK100": 448.65323409220133,
+          "blobIdleFirstP50": 217.6053400000019,
+          "blobIdleWholeP50": 217.67701900000247
+        },
+        {
+          "pingIdleP50": 164.73158899999908,
+          "pingIdleP99": 194.0316130000001,
+          "pingIdleN": 60,
+          "smallK1": 5.93395727483115,
+          "smallK10": 51.8923535606883,
+          "smallK100": 457.97796177269595,
+          "blobIdleFirstP50": 212.89615799999956,
+          "blobIdleWholeP50": 212.99620800000048
+        }
+      ],
+      "mux 256 KiB": [
+        {
+          "pingIdleP50": 84.7476859999997,
+          "pingIdleP99": 102.17160899999999,
+          "pingIdleN": 60,
+          "smallK1": 11.5158872478598,
+          "smallK10": 101.53067695898633,
+          "smallK100": 604.474155684857,
+          "blobIdleFirstP50": 141.72023400000035,
+          "blobIdleWholeP50": 144.76957400000174
+        },
+        {
+          "pingIdleP50": 81.12145200000032,
+          "pingIdleP99": 102.39475399999992,
+          "pingIdleN": 60,
+          "smallK1": 11.310670671134613,
+          "smallK10": 100.45417646791114,
+          "smallK100": 602.4349389163013,
+          "blobIdleFirstP50": 134.9620990000003,
+          "blobIdleWholeP50": 138.29584800000157
+        },
+        {
+          "pingIdleP50": 87.45932599999969,
+          "pingIdleP99": 101.04319299999997,
+          "pingIdleN": 60,
+          "smallK1": 11.542677167569725,
+          "smallK10": 99.83254237315461,
+          "smallK100": 613.0522438072703,
+          "blobIdleFirstP50": 135.48777600000176,
+          "blobIdleWholeP50": 138.9727610000009
+        }
+      ],
+      "mux 4096 KiB": [
+        {
+          "pingIdleP50": 86.72966999999971,
+          "pingIdleP99": 103.29341399999976,
+          "pingIdleN": 60,
+          "smallK1": 11.731073040974684,
+          "smallK10": 95.74345805331225,
+          "smallK100": 675.4564085382115,
+          "blobIdleFirstP50": 134.5050859999974,
+          "blobIdleWholeP50": 138.09297399999923
+        },
+        {
+          "pingIdleP50": 83.92311099999915,
+          "pingIdleP99": 102.02318500000001,
+          "pingIdleN": 60,
+          "smallK1": 11.471273770714175,
+          "smallK10": 102.11856678896477,
+          "smallK100": 660.2909966050438,
+          "blobIdleFirstP50": 134.95153199999913,
+          "blobIdleWholeP50": 138.05209899999682
+        },
+        {
+          "pingIdleP50": 85.85367699999915,
+          "pingIdleP99": 110.50162,
+          "pingIdleN": 60,
+          "smallK1": 11.375208701802201,
+          "smallK10": 101.07073115003114,
+          "smallK100": 631.7021339990521,
+          "blobIdleFirstP50": 137.12059500000032,
+          "blobIdleWholeP50": 140.54647599999953
+        }
+      ]
+    }
+  },
+  "longfat": {
+    "link": {
+      "rate": 100,
+      "delay": 50,
+      "jitter": 0,
+      "loss": 0,
+      "queue": 50
+    },
+    "transport": "tcp",
+    "keepOnPingFailure": false,
+    "cases": ["ping", "small", "blob"],
+    "runsRequested": 3,
+    "table": {
+      "per-exchange": {
+        "pingIdleP50": 206.74779800000033,
+        "pingIdleP99": 213.48779100000138,
+        "pingIdleN": 60,
+        "smallK1": 4.803291155923491,
+        "smallK10": 46.66944967500654,
+        "smallK100": 434.5002304120693,
+        "blobIdleFirstP50": 211.24407300000166,
+        "blobIdleWholeP50": 211.3339769999984,
+        "runs": 3
+      },
+      "mux 256 KiB": {
+        "pingIdleP50": 104.12039900000036,
+        "pingIdleP99": 107.48278199999913,
+        "pingIdleN": 60,
+        "smallK1": 9.477440748273754,
+        "smallK10": 90.48068596801913,
+        "smallK100": 693.0877679144388,
+        "blobIdleFirstP50": 108.8893590000007,
+        "blobIdleWholeP50": 109.43405699999857,
+        "runs": 3
+      },
+      "mux 4096 KiB": {
+        "pingIdleP50": 104.42480899999964,
+        "pingIdleP99": 110.03332300000011,
+        "pingIdleN": 60,
+        "smallK1": 9.456260186709626,
+        "smallK10": 88.98809219643526,
+        "smallK100": 636.3603677195442,
+        "blobIdleFirstP50": 108.84294200000295,
+        "blobIdleWholeP50": 109.37709499999983,
+        "runs": 3
+      }
+    },
+    "raw": {
+      "per-exchange": [
+        {
+          "pingIdleP50": 206.74779800000033,
+          "pingIdleP99": 213.48779100000138,
+          "pingIdleN": 60,
+          "smallK1": 4.802408065713502,
+          "smallK10": 46.679080361742066,
+          "smallK100": 431.0871922493513,
+          "blobIdleFirstP50": 210.70097299999907,
+          "blobIdleWholeP50": 210.83255199999985
+        },
+        {
+          "pingIdleP50": 206.9387340000003,
+          "pingIdleP99": 227.68075899999985,
+          "pingIdleN": 60,
+          "smallK1": 4.814317584070868,
+          "smallK10": 46.66944967500654,
+          "smallK100": 434.5002304120693,
+          "blobIdleFirstP50": 211.28659100000004,
+          "blobIdleWholeP50": 211.361578
+        },
+        {
+          "pingIdleP50": 206.69849299999987,
+          "pingIdleP99": 212.12231500000053,
+          "pingIdleN": 60,
+          "smallK1": 4.803291155923491,
+          "smallK10": 46.634243700724944,
+          "smallK100": 436.19333282167753,
+          "blobIdleFirstP50": 211.24407300000166,
+          "blobIdleWholeP50": 211.3339769999984
+        }
+      ],
+      "mux 256 KiB": [
+        {
+          "pingIdleP50": 104.19022899999982,
+          "pingIdleP99": 107.48278199999913,
+          "pingIdleN": 60,
+          "smallK1": 9.478338475381014,
+          "smallK10": 90.48068596801913,
+          "smallK100": 736.7040358420077,
+          "blobIdleFirstP50": 108.47939699999915,
+          "blobIdleWholeP50": 109.28186099999948
+        },
+        {
+          "pingIdleP50": 104.07905600000049,
+          "pingIdleP99": 106.48525599999994,
+          "pingIdleN": 60,
+          "smallK1": 9.453794785967075,
+          "smallK10": 90.75672334534556,
+          "smallK100": 610.7215437542061,
+          "blobIdleFirstP50": 109.41111499999897,
+          "blobIdleWholeP50": 110.22933199999898
+        },
+        {
+          "pingIdleP50": 104.12039900000036,
+          "pingIdleP99": 107.60749299999998,
+          "pingIdleN": 60,
+          "smallK1": 9.477440748273754,
+          "smallK10": 89.12614708889413,
+          "smallK100": 693.0877679144388,
+          "blobIdleFirstP50": 108.8893590000007,
+          "blobIdleWholeP50": 109.43405699999857
+        }
+      ],
+      "mux 4096 KiB": [
+        {
+          "pingIdleP50": 104.44014800000059,
+          "pingIdleP99": 110.03332300000011,
+          "pingIdleN": 60,
+          "smallK1": 9.470448837617296,
+          "smallK10": 91.02530973061953,
+          "smallK100": 632.6730210762818,
+          "blobIdleFirstP50": 108.84294200000295,
+          "blobIdleWholeP50": 109.37709499999983
+        },
+        {
+          "pingIdleP50": 104.42480899999964,
+          "pingIdleP99": 108.14238300000034,
+          "pingIdleN": 60,
+          "smallK1": 9.359507673384238,
+          "smallK10": 88.98809219643526,
+          "smallK100": 669.5608516810317,
+          "blobIdleFirstP50": 109.11256200000207,
+          "blobIdleWholeP50": 109.574862999998
+        },
+        {
+          "pingIdleP50": 104.24622599999975,
+          "pingIdleP99": 110.47151300000041,
+          "pingIdleN": 60,
+          "smallK1": 9.456260186709626,
+          "smallK10": 88.77829420737254,
+          "smallK100": 636.3603677195442,
+          "blobIdleFirstP50": 108.40845699999772,
+          "blobIdleWholeP50": 108.8778029999994
+        }
+      ]
+    }
+  }
+}
