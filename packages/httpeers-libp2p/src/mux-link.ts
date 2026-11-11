@@ -30,7 +30,7 @@
  *     stream for both directions is possible, the id parity allows it, but it
  *     would couple the serving and calling halves, which today are built
  *     separately; left for later.)
- *   - **The mux dies with its stream.** `messageTargetOverStream`'s signal
+ *   - **The mux dies with its stream.** `muxTargetOverStream`'s signal
  *     closes the mux when the stream or its connection dies, which aborts
  *     every port on it: open calls fail at once with `PeerGoneError` (mapped to
  *     `PeerStreamResetError` by the transport, as for a reset stream). The
@@ -69,7 +69,8 @@ import type { PeerConnection, PeerLink } from "@statewalker/httpeers-bridge";
 import type { PeerIdStr, ProvenPeer } from "@statewalker/httpeers-core";
 import type { MessageTarget, PortMux } from "@statewalker/webrun-rpc";
 import type { Duplex } from "@statewalker/webrun-streams";
-import { messageTargetOverStream, PeerGoneError } from "@statewalker/webrun-streams-libp2p";
+import { PeerGoneError } from "@statewalker/webrun-streams-libp2p";
+import { muxTargetOverStream } from "./mux-target.js";
 
 /** The mux protocol beside a fetch protocol: two meshes on one node keep two muxes apart. */
 export function muxProtocolOf(protocol: string): string {
@@ -87,11 +88,19 @@ export const MUX_PROTOCOL = "/httpeers/1.0.0/mux";
 export const DEFAULT_MUX_WINDOW = 256 * 1024;
 
 /**
- * 16 KiB: the low end of webrun-rpc's suggested range. A small message waits
- * for at most one frame of another port's large one. Stream chunks are split
- * to fit it too, so no message on the stream is much larger.
+ * 31 KiB. A small message waits for at most one frame of another port's large
+ * one (about 0.2 ms at loopback speed). Stream chunks are split to fit it too,
+ * so no message on the stream is much larger.
+ *
+ * WHY THIS SIZE. Each message costs the mux, its codec and libp2p a fixed
+ * amount, so larger frames carry bulk for less CPU: 31 KiB carries about 15%
+ * more than 16 KiB on loopback (`scripts/bench-mux.mjs`, #56). Two such
+ * frames still fit one coalesced write (`mux-target.ts`), one Noise message.
+ * And a frame plus its envelope stays within 32 KiB, the largest message a
+ * build on the earlier (unreleased) 16 KiB default accepts (`frameSize +
+ * MUX_MESSAGE_HEADROOM`), so such a peer still reads what this side sends.
  */
-export const DEFAULT_MUX_FRAME_SIZE = 16 * 1024;
+export const DEFAULT_MUX_FRAME_SIZE = 31 * 1024;
 
 /**
  * Room on top of `frameSize` for one message on the stream: the mux's and the
@@ -250,7 +259,7 @@ export function libp2pMuxLink(init: Libp2pMuxLinkInit): ClosablePeerLink {
     side: "initiator" | "responder",
     onPort?: (port: MessageTarget) => boolean | undefined,
   ): Session => {
-    const { target, signal } = messageTargetOverStream(stream, { maxMessageBytes });
+    const { target, signal } = muxTargetOverStream(stream, { maxMessageBytes });
     const dead = new AbortController();
     const mux = libs.rpc.multiplexPort(target as unknown as MessageTarget, {
       codec: libs.codec,
@@ -281,7 +290,7 @@ export function libp2pMuxLink(init: Libp2pMuxLinkInit): ClosablePeerLink {
     if (signal.aborted) onStreamGone();
     else signal.addEventListener("abort", onStreamGone, { once: true });
     // A stream that died, or that the peer half-closed, before
-    // `messageTargetOverStream` was listening (the peer negotiated the
+    // `muxTargetOverStream` was listening (the peer negotiated the
     // protocol, then refused it -- a limited connection the peer does not
     // serve on) fired its event already, and its signal would never abort:
     // every port on it would wait for the call's timeout.
@@ -550,8 +559,12 @@ export interface StallWatch {
  * and its close keeps the port, counted against `maxInboundStreams`, for as
  * long as the mux lives.
  *
- * Every timer is cleared when the wait ends, when the output ends any way, or
- * when the port closes.
+ * One timer serves every wait: arming notes when the wait began, and the timer
+ * re-checks when it fires, so a piece costs a clock read rather than a timer
+ * set and cleared. A stall is still caught `timeoutMs` (plus up to one timer
+ * slip) after its wait began. The timer is cleared when the output ends any
+ * way, or when the port closes; after a wait that ended, it fires at most
+ * once more, finds nothing to time and stops.
  *
  * @internal Exported for its tests only; not part of the package's API.
  */
@@ -560,15 +573,19 @@ export function droppingStalledWrites(
   { rpc, port, pieceBytes, timeoutMs, onStall }: StallWatch,
 ): AsyncGenerator<Uint8Array> {
   let timer: ReturnType<typeof setTimeout> | undefined;
+  /** When the current wait on the caller began; `undefined` while none runs. */
+  let blockedSince: number | undefined;
   let over = false;
   const portClosed = rpc.getPortCloseSignal(port);
+  /** The wait ended. The timer, if any, stays: it finds no wait and stops. */
   const disarm = () => {
-    if (timer !== undefined) clearTimeout(timer);
-    timer = undefined;
+    blockedSince = undefined;
   };
   const finish = () => {
     over = true;
-    disarm();
+    blockedSince = undefined;
+    if (timer !== undefined) clearTimeout(timer);
+    timer = undefined;
     portClosed?.removeEventListener("abort", finish);
   };
   portClosed?.addEventListener("abort", finish, { once: true });
@@ -605,14 +622,25 @@ export function droppingStalledWrites(
     return post.call(this, message, ...rest);
   };
   const arm = () => {
-    disarm();
     if (over) return;
-    timer = setTimeout(() => {
-      timer = undefined;
-      if (over) return;
-      finish();
-      onStall();
-    }, timeoutMs);
+    blockedSince = Date.now();
+    if (timer === undefined) timer = setTimeout(check, timeoutMs);
+  };
+  /**
+   * One timer for many waits: a wait that ended (`blockedSince` cleared) or
+   * began after the timer was set leaves it to re-check later, rather than
+   * each piece setting and clearing a timer of its own.
+   */
+  const check = (): void => {
+    timer = undefined;
+    if (over || blockedSince === undefined) return;
+    const waited = Date.now() - blockedSince;
+    if (waited < timeoutMs) {
+      timer = setTimeout(check, timeoutMs - waited);
+      return;
+    }
+    finish();
+    onStall();
   };
   /**
    * After the output is over: on a later task (the pump posts the last piece

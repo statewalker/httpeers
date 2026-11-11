@@ -162,4 +162,7 @@ non-zero if the stop takes more than 8 s (Docker's grace period is 10 s).
 | `HUB_MAX_RESERVATIONS` | `4096` | relay reservations the hub grants its members |
 | `HUB_ICE_SERVERS` | `@libp2p/webrtc`'s public STUN list | comma-separated `stun:`/`stuns:` URLs for the WebRTC upgrade, or `none` (TURN URLs are refused: they need credentials); `stun:stun.httpeers.net:3478,stun:stun.l.google.com:19302` uses the mesh's own STUN server first (`deploy/README.md`, "The STUN server") |
 
+| `HUB_MUX_PER_PEER` | off | EXPERIMENTAL (#56): `true` (or `1`/`yes`/`on`) makes the hub serve the one-mux-per-peer protocol (`/httpeers/1.0.0/mux`) beside the per-exchange one, and use it for its own calls; members without the flag are served exactly as before. See `muxPerPeer` in `packages/httpeers-libp2p/README.md` |
+| `HUB_MUX_WINDOW` | `262144` (the library's `DEFAULT_MUX_WINDOW`) | the mux's per-exchange window in bytes, at least `65536`; refused unless `HUB_MUX_PER_PEER` is on. Larger carries bulk faster and delays small exchanges behind it more (on loopback, 4 MiB carries one bulk exchange about 1.6x as fast as 256 KiB, and a small exchange beside it waits about 10x longer: 40 ms rather than 4 ms) |
+
 An empty value counts as unset.

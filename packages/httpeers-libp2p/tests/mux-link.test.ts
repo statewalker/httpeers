@@ -363,7 +363,7 @@ describe("one mux per peer (experimental)", () => {
   it("aborts a mux stream whose peer announces a message past maxMessageBytes", async () => {
     const { clientNode, serverNode } = await pair(async () => new Response("ok"));
     const stream = await clientNode.dialProtocol(serverNode.peerId, MUX_PROTOCOL);
-    // A varint length of 8 MiB (far past a 16 KiB frame plus headroom), then
+    // A varint length of 8 MiB (far past a frame plus headroom), then
     // a little of it: the receiver must refuse rather than buffer it.
     stream.send(Uint8Array.from([...varint(8 * 1024 * 1024), 1, 2, 3, 4]));
     await expect.poll(() => stream.status, { timeout: 5_000 }).not.toBe("open");

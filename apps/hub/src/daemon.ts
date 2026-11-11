@@ -240,6 +240,9 @@ export async function startDaemon(config: HubConfig, modules: ServiceModule[]): 
         revocation: hub.revocations,
       }),
       serveOnLimitedConnection: true,
+      // Off unless HUB_MUX_PER_PEER: members without the flag are served
+      // exactly as before either way (`config.ts`).
+      ...(config.muxPerPeer != null ? { muxPerPeer: config.muxPerPeer } : {}),
     });
     unwind.push(() => peer.stop());
 
