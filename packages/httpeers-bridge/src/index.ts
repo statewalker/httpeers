@@ -101,8 +101,23 @@ export interface CreateRemoteOverLinkInit {
    * bridge that pattern-matched one transport's wording would quietly
    * mis-classify every other one. Return `undefined` to let the original
    * throw through unchanged.
+   *
+   * Applies to failures BEFORE the response head only. An error that ends the body goes to
+   * `mapBodyError`, not here.
    */
   mapError?: (error: unknown, target: PeerIdStr) => Error | undefined;
+  /**
+   * Turn an error that ends the response BODY (the call failed after its head was in) into the
+   * caller's class. Return `undefined` to let the original through; that is also the default.
+   *
+   * Separate from `mapError` because a body can fail for two very different reasons: the
+   * transport cut the call short (the peer died mid-body), or the serving peer's OWN code
+   * failed and sent its error across, rebuilt here with the peer's name and message. Only the
+   * first is the transport's to classify. A mapper written for pre-head failures would read a
+   * handler's `TimeoutError` as this side's request timeout, or an app error as an unknown
+   * transport failure, so map only what the transport itself raises when a stream is cut.
+   */
+  mapBodyError?: (error: unknown, target: PeerIdStr) => Error | undefined;
 }
 
 /** Call another peer: one duplex per call, bounded and cleaned up. */
@@ -112,6 +127,7 @@ export function createRemoteOverLink(init: CreateRemoteOverLinkInit): Remote {
     maxConcurrentOutbound = DEFAULT_MAX_CONCURRENT_OUTBOUND,
     requestTimeoutMs = DEFAULT_REQUEST_TIMEOUT_MS,
     mapError,
+    mapBodyError,
   } = init;
   const permits = new Semaphore(maxConcurrentOutbound);
 
@@ -148,7 +164,9 @@ export function createRemoteOverLink(init: CreateRemoteOverLinkInit): Remote {
             timer.rejection(),
             fetchOverDuplex(opened.call, call),
           ]);
-          return closingOnAbort(response, req.signal, closeSoon);
+          return closingOnAbort(response, req.signal, closeSoon, (error) =>
+            mapBodyError?.(error, target),
+          );
         } finally {
           merged.dispose();
         }
@@ -201,8 +219,18 @@ function eitherSignal(a: AbortSignal, b: AbortSignal): { signal: AbortSignal; di
  * webrun-http-streams sees an abort only when the body's next chunk arrives: a peer that has
  * sent the head and then nothing would keep the call, and its channel, until it sends again.
  * Closing the connection ends the call at once. The listener goes when the body ends, however.
+ *
+ * `mapError` is given an error that ends the body while it streams; `undefined` from it keeps
+ * the original. The caller's own abort reason is never mapped. Neither is anything on the path
+ * where `signal` had already aborted by the time the head arrived: the response is returned as
+ * is and its call closed, so its body fails with whatever the closed call raises.
  */
-function closingOnAbort(response: Response, signal: AbortSignal, close: () => void): Response {
+function closingOnAbort(
+  response: Response,
+  signal: AbortSignal,
+  close: () => void,
+  mapError: (error: unknown) => unknown,
+): Response {
   if (signal.aborted) {
     close();
     return response;
@@ -240,7 +268,7 @@ function closingOnAbort(response: Response, signal: AbortSignal, close: () => vo
         } catch (error) {
           if (ended) return;
           end();
-          c.error(error);
+          c.error(mapError(error) ?? error);
         }
       },
       async cancel(reason) {

@@ -34,7 +34,7 @@ catalog:
   "@statewalker/webrun-http-streams": "^0.3.1"
   "@statewalker/webrun-rpc": "^0.5.1"
   "@statewalker/webrun-streams": "^0.2.3"
-  "@statewalker/webrun-streams-libp2p": "^0.1.6"
+  "@statewalker/webrun-streams-libp2p": "^0.2.0"
   "@tailwindcss/vite": ^4.3.3
   "@testing-library/jest-dom": "^7.0.1"
   "@testing-library/react": "^16.3.3"
