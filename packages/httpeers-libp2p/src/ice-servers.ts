@@ -59,30 +59,40 @@ export function webRTCInitOf(iceServers?: readonly IceServer[]): {
   };
 }
 
-const ICE_URL = /^(stun|stuns|turn|turns):[^\s,]+$/;
+const STUN_URL = /^stuns?:[^\s,]+$/i;
+const TURN_URL = /^turns?:/i;
 
 /**
  * Parse a comma-separated list of ICE server URLs, as an environment variable carries it
  * (`stun:stun.httpeers.net:3478,stun:stun.l.google.com:19302`).
  *
- * `undefined` for an unset or blank value (keep the transport's default). `none` is the empty
- * list (host candidates only). Each URL must start `stun:`, `stuns:`, `turn:` or `turns:`; one
- * that does not is an error naming it, because a mistyped server is otherwise silently a node
- * without one. No credentials: a TURN server that needs them is configured in code.
+ * `undefined` for an unset or blank value (keep the transport's default). `none`, in any case,
+ * is the empty list (host candidates only). Each URL must start `stun:` or `stuns:`; one that
+ * does not is an error naming it, because a mistyped server is otherwise silently a node without
+ * one.
+ *
+ * `turn:`/`turns:` ARE REFUSED, with their own message: a TURN server needs a username and
+ * credential, which a URL list cannot carry, and a TURN entry without them fails every
+ * allocation silently. Configure TURN in code, as an `IceServer` with credentials.
  */
 export function parseIceServers(value: string | undefined): IceServer[] | undefined {
   const text = value?.trim() ?? "";
   if (text === "") return undefined;
-  if (text === "none") return [];
+  if (text.toLowerCase() === "none") return [];
   return text
     .split(",")
     .map((url) => url.trim())
     .filter((url) => url !== "")
     .map((url) => {
-      if (!ICE_URL.test(url)) {
+      if (TURN_URL.test(url)) {
         throw new Error(
-          `ICE server "${url}" is not a stun:, stuns:, turn: or turns: URL ` +
-            `(e.g. ${HTTPEERS_STUN_URL})`,
+          `ICE server "${url}" is a TURN URL; TURN needs credentials, which this list cannot ` +
+            "carry. Configure it in code as { urls, username, credential }",
+        );
+      }
+      if (!STUN_URL.test(url)) {
+        throw new Error(
+          `ICE server "${url}" is not a stun: or stuns: URL (e.g. ${HTTPEERS_STUN_URL})`,
         );
       }
       return { urls: url };

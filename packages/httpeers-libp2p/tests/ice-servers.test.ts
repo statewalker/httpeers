@@ -49,14 +49,16 @@ describe("parseIceServers", () => {
     expect(parseIceServers("  ")).toBeUndefined();
   });
 
-  it("reads `none` as the empty list", () => {
+  it("reads `none`, in any case, as the empty list", () => {
     expect(parseIceServers("none")).toEqual([]);
+    expect(parseIceServers(" NONE ")).toEqual([]);
+    expect(parseIceServers("None")).toEqual([]);
   });
 
   it("splits on commas and trims", () => {
-    expect(parseIceServers(" stun:a.test:3478 ,, turns:b.test:5349?transport=tcp ")).toEqual([
+    expect(parseIceServers(" stun:a.test:3478 ,, stuns:b.test:5349 ")).toEqual([
       { urls: "stun:a.test:3478" },
-      { urls: "turns:b.test:5349?transport=tcp" },
+      { urls: "stuns:b.test:5349" },
     ]);
   });
 
@@ -65,6 +67,13 @@ describe("parseIceServers", () => {
       /"stun\.httpeers\.net:3478"/,
     );
     expect(() => parseIceServers("https://stun.test")).toThrow(/not a stun:/);
+  });
+
+  it("refuses turn:/turns: URLs: a list cannot carry their credentials", () => {
+    expect(() => parseIceServers("stun:a.test,turn:b.test:3478")).toThrow(
+      /"turn:b\.test:3478" is a TURN URL.*credentials/,
+    );
+    expect(() => parseIceServers("TURNS:b.test:5349")).toThrow(/TURN URL/);
   });
 });
 

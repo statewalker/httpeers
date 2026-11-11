@@ -160,6 +160,6 @@ non-zero if the stop takes more than 8 s (Docker's grace period is 10 s).
 | `HUB_DOOR_SECRET` | none — required | the value the proxy sends as `x-hub-door-secret` |
 | `HUB_DOOR_ALLOWED_HOSTS` | `127.0.0.1:8080,localhost:8080` | `Host` values the door answers |
 | `HUB_MAX_RESERVATIONS` | `4096` | relay reservations the hub grants its members |
-| `HUB_ICE_SERVERS` | `@libp2p/webrtc`'s public STUN list | comma-separated `stun:`/`turn:` URLs for the WebRTC upgrade, or `none`; `stun:stun.httpeers.net:3478,stun:stun.l.google.com:19302` uses the mesh's own STUN server first (`deploy/README.md`, "The STUN server") |
+| `HUB_ICE_SERVERS` | `@libp2p/webrtc`'s public STUN list | comma-separated `stun:`/`stuns:` URLs for the WebRTC upgrade, or `none` (TURN URLs are refused: they need credentials); `stun:stun.httpeers.net:3478,stun:stun.l.google.com:19302` uses the mesh's own STUN server first (`deploy/README.md`, "The STUN server") |
 
 An empty value counts as unset.

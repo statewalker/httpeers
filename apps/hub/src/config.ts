@@ -56,7 +56,8 @@ export interface HubConfig {
    */
   maxReservations?: number;
   /**
-   * `HUB_ICE_SERVERS` (comma-separated `stun:`/`turn:` URLs, or `none`): the
+   * `HUB_ICE_SERVERS` (comma-separated `stun:`/`stuns:` URLs, or `none`; TURN
+   * is refused, it needs credentials a URL list cannot carry): the
    * STUN/TURN servers the hub's WebRTC transport gathers candidates from when
    * a member upgrades to a direct connection. Unset keeps `@libp2p/webrtc`'s
    * public default. `stun:stun.httpeers.net:3478,stun:stun.l.google.com:19302`

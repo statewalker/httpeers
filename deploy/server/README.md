@@ -93,11 +93,15 @@ therefore not running anywhere until a person copies the file and starts it. The
 (`stun`, see `deploy/README.md`, "The STUN server") is the example; for another service the
 firewall and checks differ, the steps do not.
 
-1. **Firewall**, before anything listens. On the host (and in the provider's firewall, if any):
+1. **Firewall.** On the host (and in the provider's firewall, if any):
    ```sh
    sudo ufw allow 3478/udp
    sudo ufw allow 3478/tcp
    ```
+   **Docker bypasses `ufw`**: published ports go through Docker's own iptables chain, ahead of
+   `ufw`'s rules, so `3478` is open to the internet as soon as `docker compose up -d stun` runs
+   (step 3), with or without these rules. Only a provider-level firewall in front of the host
+   can still keep it closed. The `ufw` rules document the intent.
 2. **DNS.** `stun.httpeers.net` is answered by the `*` A record; confirm, from anywhere:
    ```sh
    dig +short stun.httpeers.net    # must equal: dig +short relay.httpeers.net
@@ -110,6 +114,7 @@ firewall and checks differ, the steps do not.
    ```sh
    cd <DEPLOY_PATH>
    diff docker-compose.yml docker-compose.yml.new   # expect the new service, nothing else
+   cp -p docker-compose.yml docker-compose.yml.bak  # what "To undo" restores
    mv docker-compose.yml.new docker-compose.yml
    docker compose up -d stun                        # starts stun only; nothing else restarts
    docker compose ps stun                           # "(healthy)" within about a minute
@@ -124,7 +129,15 @@ firewall and checks differ, the steps do not.
    and the browser `srflx` check in `deploy/README.md`. No answer: the firewall (step 1) first,
    then `docker compose logs stun`.
 
-To undo: `docker compose stop stun && docker compose rm -f stun`, and close the ports.
+To undo, on the server:
+```sh
+cd <DEPLOY_PATH>
+docker compose rm -sf stun                    # stop and remove the container
+mv docker-compose.yml.bak docker-compose.yml  # the file as it was before step 3
+sudo ufw delete allow 3478/udp
+sudo ufw delete allow 3478/tcp
+```
+and close `3478` in the provider's firewall if you opened it there.
 
 ## What will surprise you
 

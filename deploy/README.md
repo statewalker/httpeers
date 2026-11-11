@@ -3,7 +3,7 @@
 ## What it is
 
 The production deployment of the mesh's services on one host: **five containers** — four on a
-single `httpeers_edge` network, fronted by Caddy, plus a STUN server on its own published port. Caddy which terminates TLS for `*.httpeers.net` and
+single `httpeers_edge` network, fronted by Caddy, plus a STUN server on its own published port. Caddy terminates TLS for `*.httpeers.net` and
 `*.p.httpeers.net`, plus `cellb.dev` and `*.cellb.dev` (a second domain, served by the same
 `sites` app; `www.cellb.dev` redirects to the apex).
 
@@ -300,8 +300,11 @@ sudo ufw allow 3478/udp
 sudo ufw allow 3478/tcp
 ```
 
-Docker publishes ports through its own iptables chain, which can bypass `ufw` on the host
-itself — so check from **outside** (below), not by reading the rule list.
+**Docker bypasses `ufw`.** It publishes ports through its own iptables chain (`DOCKER`), ahead of
+`ufw`'s rules, so `3478` is open to the internet the moment `docker compose up -d stun` runs,
+whatever `ufw status` says. The `ufw` rules record intent and matter if Docker's iptables
+handling is ever turned off; the provider-level firewall is the one that actually gates it. Check
+from **outside** (below), not by reading the rule list.
 
 #### DNS
 
@@ -309,8 +312,15 @@ The `*` A record covers it. From any machine:
 
 ```sh
 dig +short stun.httpeers.net A        # the server's address -- the same as relay.httpeers.net
-dig +short stun.httpeers.net AAAA     # empty unless the zone has a wildcard AAAA
+dig +short stun.httpeers.net AAAA     # must be empty -- see below
 ```
+
+**No AAAA for `stun` until Docker IPv6 is configured.** The service binds `0.0.0.0` (IPv4
+only), because Docker publishes IPv6 ports only with IPv6 enabled in the daemon and on the
+network. A client that resolves an AAAA record would send its IPv6 Binding requests into
+nothing — harmless for ICE (that server just yields no IPv6 `srflx` candidate) but a confusing
+half-failure. Add a wildcard or `stun` AAAA only together with Docker IPv6 and a
+`[::]:3478:3478` port binding.
 
 If the `A` answer differs from `dig +short relay.httpeers.net`, someone added an explicit
 `stun` record; it wins over the wildcard.

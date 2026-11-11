@@ -81,6 +81,9 @@ describe("loadConfig", () => {
     ).toEqual([{ urls: "stun:stun.example.test:3478" }, { urls: "stun:stun2.example.test" }]);
     // `none`: host candidates only -- not the same as unset, which keeps libp2p's default.
     expect(loadConfig({ HUB_ICE_SERVERS: "none" }).iceServers).toEqual([]);
+    expect(() => loadConfig({ HUB_ICE_SERVERS: "turn:turn.example.test:3478" })).toThrow(
+      /HUB_ICE_SERVERS.*TURN URL/,
+    );
     expect(() => loadConfig({ HUB_ICE_SERVERS: "stun.example.test:3478" })).toThrow(
       /HUB_ICE_SERVERS.*stun\.example\.test:3478/,
     );

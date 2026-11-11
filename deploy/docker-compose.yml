@@ -147,10 +147,15 @@ services:
     # THE SECOND SERVICE WITH PUBLISHED PORTS, and the exception to this
     # file's rule: Caddy cannot proxy UDP, and a STUN answer is only useful
     # if it comes from the address the client sent to. Open 3478/udp and
-    # 3478/tcp in the host firewall (deploy/README.md).
+    # 3478/tcp in the host firewall (deploy/README.md) -- though Docker's
+    # iptables rules bypass ufw, so these are open once the container runs.
+    #
+    # IPv4 ONLY, explicitly. Docker publishes IPv6 only with IPv6 enabled in
+    # the daemon and the network, which this host does not have; so there must
+    # be no AAAA record for stun.httpeers.net until it does (deploy/README.md).
     ports:
-      - "3478:3478/udp"
-      - "3478:3478/tcp"
+      - "0.0.0.0:3478:3478/udp"
+      - "0.0.0.0:3478:3478/tcp"
     # Replaces the image's default command, which shells out to
     # `detect-external-ip` -- an outbound lookup at every start that only a
     # TURN relay needs (it advertises relay addresses; STUN reports the
@@ -174,6 +179,9 @@ services:
       - --relay-threads=1
     # The image's own client, against the server's own listener. A Binding
     # request answered is the only thing "healthy" can mean for this service.
+    # UDP only: turnutils_stunclient has no TCP mode, and the image has no
+    # other STUN client. TCP shares the listener and the process, so a TCP-only
+    # failure is unlikely; the external check (deploy/README.md) covers both.
     healthcheck:
       test: ["CMD", "turnutils_stunclient", "-t", "2000", "127.0.0.1"]
       interval: 60s
