@@ -721,15 +721,36 @@ importers:
       '@biomejs/biome':
         specifier: 'catalog:'
         version: 2.5.15
+      '@libp2p/circuit-relay-v2':
+        specifier: 'catalog:'
+        version: 4.2.17
+      '@libp2p/tcp':
+        specifier: 'catalog:'
+        version: 11.0.32
+      '@libp2p/webrtc':
+        specifier: 'catalog:'
+        version: 7.0.2(react-native-webrtc@124.0.8(react-native@0.87.1(@babel/core@7.29.7)(@types/react@19.3.0)(react@19.3.0)))
+      '@libp2p/websockets':
+        specifier: 'catalog:'
+        version: 10.1.25
       '@statewalker/httpeers-access':
         specifier: workspace:^
         version: link:../httpeers-access
       '@statewalker/httpeers-core':
         specifier: workspace:^
         version: link:../httpeers-core
+      '@statewalker/httpeers-hub':
+        specifier: workspace:^
+        version: link:../httpeers-hub
+      '@statewalker/httpeers-libp2p':
+        specifier: workspace:^
+        version: link:../httpeers-libp2p
       '@statewalker/httpeers-member':
         specifier: workspace:^
         version: link:../httpeers-member
+      '@statewalker/httpeers-relay':
+        specifier: workspace:^
+        version: link:../../apps/relay
       '@statewalker/webrun-http-browser':
         specifier: 'catalog:'
         version: 0.7.1
@@ -745,6 +766,9 @@ importers:
       typescript:
         specifier: 'catalog:'
         version: 7.0.2
+      vite:
+        specifier: 'catalog:'
+        version: 8.3.2(@types/node@26.6.4)(esbuild@0.28.2)(jiti@2.7.0)(terser@5.51.2)(tsx@4.23.15)(yaml@2.9.1)
       vitest:
         specifier: 'catalog:'
         version: 5.1.0(@types/node@26.6.4)(@vitest/browser-playwright@5.1.0)(@vitest/ui@5.1.0)(happy-dom@21.0.4)(jsdom@31.0.0(@noble/hashes@2.4.0))(vite@8.3.2(@types/node@26.6.4)(esbuild@0.28.2)(jiti@2.7.0)(terser@5.51.2)(tsx@4.23.15)(yaml@2.9.1))

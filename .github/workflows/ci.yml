@@ -9,6 +9,44 @@ jobs:
   ci:
     uses: statewalker/.github/.github/workflows/ci.yml@main
 
+  # A POST, with its body, through the REAL forwarders (createGateway -> the member edge ->
+  # libp2p) in Chromium and Firefox, against a loopback relay and hub. The shared CI above runs
+  # no browser, and every other browser check serves the mesh with a stand-in, which is how a
+  # Firefox-only lost body reached five sites unseen (#22). Loopback only: no secrets, no network
+  # beyond the installs.
+  forwarded-body:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: pnpm/action-setup@v6
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: "24"
+          cache: pnpm
+
+      - name: Install
+        run: pnpm install --frozen-lockfile
+
+      # Only what the check imports from dist/ (the Node-side relay and hub); the page itself is
+      # bundled from sources by the script.
+      - name: Build
+        run: pnpm --filter "@statewalker/httpeers-browser-conformance..." run build
+
+      # The check launches headless, which in Playwright is Chromium's headless shell: the full
+      # browser would be downloaded and never run.
+      - name: Browsers
+        run: |
+          pnpm --filter @statewalker/httpeers-browser-conformance exec playwright install --with-deps --only-shell chromium
+          pnpm --filter @statewalker/httpeers-browser-conformance exec playwright install --with-deps firefox
+
+      - name: Forwarded bodies in Chromium and Firefox
+        run: pnpm --filter @statewalker/httpeers-browser-conformance run test:forwarded-body
+
   # Releases to npm in three jobs: `version` opens the version pull request, `pack` packs what
   # npm lacks once it is merged, `publish` uploads the tarballs after a maintainer approves.
   #
