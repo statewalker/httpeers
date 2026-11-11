@@ -234,11 +234,16 @@ export function frameAncestorsFor(hostname: string): string {
  * and gains this one. Rewriting the app's header instead would mean parsing
  * it, and a parser here is one more way to weaken it.
  *
- * APPENDED IN PLACE when the headers allow it, so the app's header list is
- * never rebuilt: a rebuild is where repeated headers get lost, and an app's
- * several `Set-Cookie`s are exactly that (#21). Headers a `fetch()` returns
- * are immutable and throw on `append`; only then is the response copied, and
- * the copy carries each cookie separately (see `copyHeaders`).
+ * APPENDED IN PLACE, and the same response returned: the relay builds its
+ * responses with `new Response`, whose headers are writable, so nothing needs
+ * copying. Only headers that refuse the write (a `fetch()` response's are
+ * immutable) fall back to a copy.
+ *
+ * NOT A WAY FOR AN APP TO SET COOKIES. `Set-Cookie` is a forbidden response
+ * header name: a browser drops it from a `Response` built in script, and never
+ * applies one from a worker-made response, so an app's cookies cannot cross the
+ * relay whatever this function does (#21; see the README's "What will
+ * surprise you").
  */
 export function withFrameAncestors(response: Response, sources: string): Response {
   const policy = `frame-ancestors ${sources}`;
@@ -246,9 +251,9 @@ export function withFrameAncestors(response: Response, sources: string): Respons
     response.headers.append("content-security-policy", policy);
     return response;
   } catch {
-    // Immutable headers: fall through to a copy.
+    // Immutable headers: copy below.
   }
-  const headers = copyHeaders(response.headers);
+  const headers = new Headers(response.headers);
   headers.append("content-security-policy", policy);
   // A null-body status must be constructed with a null body, or `new
   // Response` throws -- and a 304 or 204 from the app is ordinary.
@@ -258,24 +263,4 @@ export function withFrameAncestors(response: Response, sources: string): Respons
     statusText: response.statusText,
     headers,
   });
-}
-
-/**
- * A copy of `source` that keeps every `Set-Cookie` its own header.
- *
- * `Set-Cookie` is the one header that cannot be comma-joined (a cookie's
- * `Expires` has a comma in it), and a runtime that predates `getSetCookie()`
- * iterates a `Headers` with all its cookies joined into one value. So the
- * cookies are taken from `getSetCookie()` when it exists and appended one by
- * one; every other header is copied as iterated.
- */
-export function copyHeaders(source: Headers): Headers {
-  const cookies = typeof source.getSetCookie === "function" ? source.getSetCookie() : undefined;
-  const headers = new Headers();
-  for (const [name, value] of source) {
-    if (cookies !== undefined && name.toLowerCase() === "set-cookie") continue;
-    headers.append(name, value);
-  }
-  for (const cookie of cookies ?? []) headers.append("set-cookie", cookie);
-  return headers;
 }
