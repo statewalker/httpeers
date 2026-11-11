@@ -43,6 +43,7 @@ import {
   MUX_MAX_STREAMS_PER_CONNECTION,
   MUX_MESSAGE_HEADROOM,
   MUX_PROTOCOL,
+  type MuxPerPeer,
 } from "../src/mux-link.js";
 import { servePeer } from "../src/serve-peer.js";
 import { createNode, createRemote, PROTOCOL, serveTransport } from "../src/transport.js";
@@ -69,7 +70,7 @@ async function node(listen: string[] = []): Promise<Libp2p> {
 /** A served node and a client node already connected to it. */
 async function pair(
   dispatch: FetchHandler,
-  serveMux: boolean | undefined = true,
+  serveMux: MuxPerPeer | undefined = true,
   serving: Partial<Parameters<typeof serveTransport>[0]> = {},
 ) {
   const serverNode = await node(["/ip4/127.0.0.1/tcp/0"]);
@@ -363,11 +364,56 @@ describe("one mux per peer (experimental)", () => {
   it("aborts a mux stream whose peer announces a message past maxMessageBytes", async () => {
     const { clientNode, serverNode } = await pair(async () => new Response("ok"));
     const stream = await clientNode.dialProtocol(serverNode.peerId, MUX_PROTOCOL);
-    // A varint length of 8 MiB (far past a 16 KiB frame plus headroom), then
+    // A varint length of 8 MiB (far past a frame plus headroom), then
     // a little of it: the receiver must refuse rather than buffer it.
     stream.send(Uint8Array.from([...varint(8 * 1024 * 1024), 1, 2, 3, 4]));
     await expect.poll(() => stream.status, { timeout: 5_000 }).not.toBe("open");
     expect(DEFAULT_MUX_FRAME_SIZE + MUX_MESSAGE_HEADROOM).toBeLessThan(8 * 1024 * 1024);
+  }, 30_000);
+
+  it("a peer on the old 16 KiB frame size and one on the default read each other, both directions", async () => {
+    // A request body and a response body of 1 MiB each, in uneven blocks,
+    // carried between frame sizes on either side: every message one side
+    // sends must fit what the other accepts (`frameSize + MUX_MESSAGE_HEADROOM`).
+    const pattern = (n: number) => Uint8Array.from({ length: n }, (_, i) => (i * 7 + 3) & 0xff);
+    const SIZE = 1024 * 1024;
+    const mounts = createMounts();
+    mounts.provide("/echo", async (req) => {
+      const body = new Uint8Array(await req.arrayBuffer());
+      return new Response(body);
+    });
+    const blocks = (bytes: Uint8Array) =>
+      new ReadableStream<Uint8Array>({
+        start(controller) {
+          for (let at = 0, n = 1; at < bytes.byteLength; at += n, n = (n * 3 + 1) % 70_000) {
+            controller.enqueue(bytes.slice(at, at + n));
+          }
+          controller.close();
+        },
+      });
+    const OLD = { frameSize: 16 * 1024 };
+    for (const [serving, calling] of [
+      [OLD, true],
+      [true, OLD],
+    ] as const) {
+      const { clientNode, serverNode, target } = await pair(route(mounts), serving);
+      const remote = createRemote({ node: clientNode, muxPerPeer: calling });
+      const sent = pattern(SIZE);
+      const response = await remote(
+        target,
+        new Request("http://peer.local/echo", {
+          method: "POST",
+          body: blocks(sent),
+          duplex: "half",
+        } as RequestInit),
+      );
+      expect(response.status).toBe(200);
+      const got = new Uint8Array(await response.arrayBuffer());
+      expect(got.byteLength).toBe(SIZE);
+      expect(got).toEqual(sent);
+      // Over the mux, not a fallback.
+      expect(streamsOn(clientNode, serverNode, MUX_PROTOCOL)).toBe(1);
+    }
   }, 30_000);
 
   it("a link that finds every mux stream on the connection taken uses a stream per exchange", async () => {

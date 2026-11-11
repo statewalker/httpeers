@@ -2,15 +2,22 @@
 // the experimental one windowed mux per peer (#56). Not run in CI.
 //
 //   pnpm --filter @statewalker/httpeers-libp2p build
-//   node packages/httpeers-libp2p/scripts/bench-mux.mjs [--runs 3] [--seconds 3] [--window 262144] [--frame-size 16384]
+//   node packages/httpeers-libp2p/scripts/bench-mux.mjs [--runs 3] [--seconds 3] [--window 262144] [--frame-size 31744]
+//     [--path stream|mux] [--cases ping,small,echo,bulk] [--bulk-pings 300]
+//
+// `--path` and `--cases` run a part only, e.g. under `node --cpu-prof` (which
+// the forked serving child inherits) to profile one path and one case.
 //
 // Two processes on 127.0.0.1 over TCP (Noise, yamux), as httpeers runs them:
 // this one calls, a forked child serves. Each path gets a fresh pair of
 // processes. Reported per path, as the median of `--runs` runs:
 //
 //   - ping p50/p99 (ms), idle: sequential 64 B GETs;
-//   - ping p50/p99 (ms) while another exchange on the same peer streams a
-//     response as fast as the caller reads it, and that bulk's MB/s;
+//   - bulk MB/s alone: one exchange streaming a response as fast as the
+//     caller reads it, nothing else on the connection;
+//   - ping p50/p99 (ms) while that bulk exchange runs, and its MB/s
+//     meanwhile (the faster a path's pings come back, the more of the CPU
+//     they take from the bulk: read it with the pings/s beside it);
 //   - small exchanges/s: K concurrent callers doing 256 B POST -> 256 B
 //     answer, one HTTP exchange each (K = 1, 10, 100);
 //   - 256 B messages/s over K long-lived echo exchanges (a request body
@@ -24,7 +31,14 @@ import { fork } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import { tcp } from "@libp2p/tcp";
 import { multiaddr } from "@multiformats/multiaddr";
-import { createNode, createRemote, generateKey, serveTransport } from "../dist/index.js";
+import {
+  createNode,
+  createRemote,
+  DEFAULT_MUX_FRAME_SIZE,
+  DEFAULT_MUX_WINDOW,
+  generateKey,
+  serveTransport,
+} from "../dist/index.js";
 
 const args = process.argv.slice(2);
 const opt = (name, fallback) => {
@@ -35,6 +49,11 @@ const RUNS = Number(opt("--runs", "3"));
 const SECONDS = Number(opt("--seconds", "3"));
 const WINDOW = opt("--window", undefined);
 const FRAME = opt("--frame-size", undefined);
+/** `--path stream|mux` runs one path only; `--cases ping,small,echo,bulk` a subset (for profiling). */
+const ONLY_PATH = opt("--path", undefined);
+const CASES = new Set(opt("--cases", "ping,small,echo,bulk").split(","));
+/** Pings sent while the bulk exchange runs, which is how long it runs. */
+const BULK_PINGS = Number(opt("--bulk-pings", "300"));
 /** The mux's tuning from the command line; the defaults where not given. */
 const muxOptions = {
   ...(WINDOW ? { window: Number(WINDOW) } : {}),
@@ -137,12 +156,12 @@ async function oneRun(mux) {
   const result = {};
   try {
     await pings(remote, target, 50); // warm up
-    const idle = await pings(remote, target, 300);
+    const idle = CASES.has("ping") ? await pings(remote, target, 300) : [Number.NaN];
     result.pingIdleP50 = median(idle);
     result.pingIdleP99 = quantile(idle, 0.99);
 
     const payload = new Uint8Array(SMALL);
-    for (const k of [1, 10, 100]) {
+    for (const k of CASES.has("small") ? [1, 10, 100] : []) {
       result[`exchangesPerSecK${k}`] = await forSeconds(
         SECONDS,
         async () => {
@@ -157,17 +176,17 @@ async function oneRun(mux) {
       );
     }
 
-    for (const k of [1, 10, 100]) {
+    for (const k of CASES.has("echo") ? [1, 10, 100] : []) {
       result[`messagesPerSecK${k}`] = await echoMessages(remote, target, k);
     }
     // Bulk LAST: a cancelled endless body may keep the connection busy for a
     // while after the caller lets go, and would slow whatever ran after it.
     // Bulk: read as fast as possible while pinging.
+    if (!CASES.has("bulk")) return result;
     const bulk = await remote(target, new Request("http://peer.local/bulk"));
     const reader = bulk.body.getReader();
     let bytes = 0;
     let reading = true;
-    const startedAt = performance.now();
     const pump = (async () => {
       while (reading) {
         const { value, done } = await reader.read();
@@ -176,12 +195,19 @@ async function oneRun(mux) {
       }
     })();
     await new Promise((r) => setTimeout(r, 300));
-    const loaded = await pings(remote, target, 300);
+    // Alone first: nothing else on the connection. Then while pinging, which
+    // costs each path CPU in proportion to how fast its pings come back.
+    let [bytesAt, startedAt] = [bytes, performance.now()];
+    await new Promise((r) => setTimeout(r, SECONDS * 1000));
+    result.bulkAloneMBps = (bytes - bytesAt) / 1e6 / ((performance.now() - startedAt) / 1000);
+    [bytesAt, startedAt] = [bytes, performance.now()];
+    const loaded = await pings(remote, target, BULK_PINGS);
     const elapsed = (performance.now() - startedAt) / 1000;
     reading = false;
     result.pingBulkP50 = median(loaded);
     result.pingBulkP99 = quantile(loaded, 0.99);
-    result.bulkMBps = bytes / 1e6 / elapsed;
+    result.bulkMBps = (bytes - bytesAt) / 1e6 / elapsed;
+    result.pingsPerSecBulk = loaded.length / elapsed;
     await reader.cancel().catch(() => {});
     await Promise.race([pump.catch(() => {}), new Promise((r) => setTimeout(r, 500))]);
   } finally {
@@ -229,7 +255,11 @@ async function echoMessages(remote, target, k) {
   return count / SECONDS;
 }
 
-const paths = { "stream per exchange": false, "mux per peer": true };
+const paths = Object.fromEntries(
+  Object.entries({ "stream per exchange": false, "mux per peer": true }).filter(
+    ([, mux]) => ONLY_PATH == null || (ONLY_PATH === "mux") === mux,
+  ),
+);
 const table = {};
 for (const [label, mux] of Object.entries(paths)) {
   const runs = [];
@@ -242,27 +272,30 @@ for (const [label, mux] of Object.entries(paths)) {
   );
 }
 
+/** A cell value, or "—" for a case `--cases` skipped. */
+const f = (x) => (Number.isFinite(x) ? `${x}` : "—");
+const n = (x) => (Number.isFinite(x) ? `${Math.round(x)}` : "—");
 const rows = [
-  ["Ping p50 / p99, idle (ms)", (r) => `${r.pingIdleP50} / ${r.pingIdleP99}`],
+  ["Ping p50 / p99, idle (ms)", (r) => `${f(r.pingIdleP50)} / ${f(r.pingIdleP99)}`],
   [
     "Ping p50 / p99 while another exchange streams bulk (ms)",
-    (r) => `${r.pingBulkP50} / ${r.pingBulkP99}`,
+    (r) => `${f(r.pingBulkP50)} / ${f(r.pingBulkP99)}`,
   ],
-  ["Bulk throughput meanwhile (MB/s)", (r) => `${r.bulkMBps}`],
+  ["Bulk throughput meanwhile (MB/s)", (r) => f(r.bulkMBps)],
+  ["Pings/s meanwhile", (r) => n(r.pingsPerSecBulk)],
+  ["Bulk throughput alone (MB/s)", (r) => f(r.bulkAloneMBps)],
   [
     "256 B exchanges/s, K = 1 / 10 / 100",
-    (r) =>
-      `${Math.round(r.exchangesPerSecK1)} / ${Math.round(r.exchangesPerSecK10)} / ${Math.round(r.exchangesPerSecK100)}`,
+    (r) => `${n(r.exchangesPerSecK1)} / ${n(r.exchangesPerSecK10)} / ${n(r.exchangesPerSecK100)}`,
   ],
   [
     "256 B messages/s on K echo exchanges, K = 1 / 10 / 100",
-    (r) =>
-      `${Math.round(r.messagesPerSecK1)} / ${Math.round(r.messagesPerSecK10)} / ${Math.round(r.messagesPerSecK100)}`,
+    (r) => `${n(r.messagesPerSecK1)} / ${n(r.messagesPerSecK10)} / ${n(r.messagesPerSecK100)}`,
   ],
 ];
 const labels = Object.keys(table);
 console.log(
-  `\nLOOPBACK ONLY. Median of ${RUNS} runs, ${SECONDS} s per throughput case; mux window ${WINDOW ?? "262144 (default)"} B, frame size ${FRAME ?? "16384 (default)"} B.\n`,
+  `\nLOOPBACK ONLY. Median of ${RUNS} runs, ${SECONDS} s per throughput case; mux window ${WINDOW ?? `${DEFAULT_MUX_WINDOW} (default)`} B, frame size ${FRAME ?? `${DEFAULT_MUX_FRAME_SIZE} (default)`} B.\n`,
 );
 console.log(`| | ${labels.join(" | ")} |`);
 console.log(`|---|${labels.map(() => "---").join("|")}|`);

@@ -223,7 +223,7 @@ them instead as virtual ports of one `multiplexPort` (`@statewalker/webrun-rpc`)
 over ONE libp2p stream per peer, on its own protocol, `/httpeers/1.0.0/mux`
 (`muxProtocolOf(protocol)` for another fetch protocol). Each port has a window
 (`window`, default 256 KiB) and large messages are framed (`frameSize`, default
-16 KiB), so:
+31 KiB), so:
 
 - a reader that stops reading holds its own port's window and nothing else:
   the producer stops instead of the receiving peer buffering without limit,
@@ -234,11 +234,20 @@ over ONE libp2p stream per peer, on its own protocol, `/httpeers/1.0.0/mux`
 - one stream per peer, so libp2p's per-protocol and per-connection stream
   caps no longer limit how many exchanges a peer may have open.
 
-The cost: more CPU per small message, so small-message throughput is lower.
-#56 measured 65–82% of the per-exchange path on loopback; `scripts/bench-mux.mjs`
-compares the two paths here (`pnpm build` first; loopback only, not run in CI).
-Measurement on real networks, and the decision per kind of traffic, are still
-open.
+The cost is bulk throughput, which the window bounds: with the default
+256 KiB window, one exchange streams about 55% of what it does on its own
+stream (loopback), while pings beside it answer in 4 ms rather than 140 ms; a
+4 MiB window carries about 90%, with pings beside it at 40 ms. Small exchanges
+match or beat the per-exchange path; 256 B messages on long-lived exchanges
+run at 60–97% of it (fewer the more exchanges share the mux).
+`scripts/bench-mux.mjs` compares the two paths (`pnpm build` first; loopback
+only, not run in CI; `--path`/`--cases` to profile a part). Measurement on
+real networks, and the decision per kind of traffic, are still open.
+
+Frames posted in the same task leave as one write (up to one Noise message),
+so a burst of small messages, or a run of bulk frames, costs one yamux frame,
+one encryption and one socket write rather than one each. The first frame
+since the last flush is never held back.
 
 **Compatibility.** A peer with the flag SERVES both protocols, so callers
 without it are unaffected. A caller with the flag whose peer does not speak

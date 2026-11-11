@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { loadConfig } from "../src/config.js";
+import { loadConfig, MIN_MUX_WINDOW } from "../src/config.js";
 
 describe("loadConfig", () => {
   it("has the appliance's defaults when nothing is set", () => {
@@ -26,6 +26,8 @@ describe("loadConfig", () => {
         HUB_DOOR_SECRET: "door-secret",
         HUB_DOOR_ALLOWED_HOSTS: " 127.0.0.1:8080, hub.local:9000 ,",
         HUB_MAX_RESERVATIONS: "500",
+        HUB_MUX_PER_PEER: "true",
+        HUB_MUX_WINDOW: "4194304",
         HUB_LLM_UPSTREAM: "http://litellm:4000",
         LITELLM_MASTER_KEY: "sk-master",
       }),
@@ -39,6 +41,7 @@ describe("loadConfig", () => {
       doorSecret: "door-secret",
       doorAllowedHosts: ["127.0.0.1:8080", "hub.local:9000"],
       maxReservations: 500,
+      muxPerPeer: { window: 4194304 },
       llmUpstream: "http://litellm:4000",
       litellmMasterKey: "sk-master",
     });
@@ -53,6 +56,8 @@ describe("loadConfig", () => {
       HUB_DOOR_ALLOWED_HOSTS: " , ",
       HUB_MAX_RESERVATIONS: "",
       HUB_ICE_SERVERS: "",
+      HUB_MUX_PER_PEER: " ",
+      HUB_MUX_WINDOW: "",
     });
     expect(config.dataDir).toBe("/data");
     expect(config.services).toEqual([]);
@@ -60,6 +65,7 @@ describe("loadConfig", () => {
     expect("doorSecret" in config).toBe(false);
     expect("maxReservations" in config).toBe(false);
     expect("iceServers" in config).toBe(false);
+    expect("muxPerPeer" in config).toBe(false);
     expect(config.doorAllowedHosts).toEqual(["127.0.0.1:8080", "localhost:8080"]);
   });
 
@@ -87,5 +93,37 @@ describe("loadConfig", () => {
     expect(() => loadConfig({ HUB_ICE_SERVERS: "stun.example.test:3478" })).toThrow(
       /HUB_ICE_SERVERS.*stun\.example\.test:3478/,
     );
+  });
+
+  it("reads HUB_MUX_PER_PEER as an opt-in flag, off by default", () => {
+    expect("muxPerPeer" in loadConfig({})).toBe(false);
+    for (const on of ["true", "TRUE", "1", "yes", "on", " On "]) {
+      expect(loadConfig({ HUB_MUX_PER_PEER: on }).muxPerPeer).toEqual({});
+    }
+    for (const off of ["false", "0", "no", "off"]) {
+      expect("muxPerPeer" in loadConfig({ HUB_MUX_PER_PEER: off })).toBe(false);
+    }
+    expect(() => loadConfig({ HUB_MUX_PER_PEER: "maybe" })).toThrow(/HUB_MUX_PER_PEER/);
+  });
+
+  it("reads HUB_MUX_WINDOW only with the flag on, and at least MIN_MUX_WINDOW bytes", () => {
+    expect(loadConfig({ HUB_MUX_PER_PEER: "1", HUB_MUX_WINDOW: "1048576" }).muxPerPeer).toEqual({
+      window: 1048576,
+    });
+    expect(
+      loadConfig({ HUB_MUX_PER_PEER: "1", HUB_MUX_WINDOW: String(MIN_MUX_WINDOW) }).muxPerPeer,
+    ).toEqual({ window: MIN_MUX_WINDOW });
+    // A window for a path that is off would be silently ignored: refused instead.
+    expect(() => loadConfig({ HUB_MUX_WINDOW: "1048576" })).toThrow(
+      /HUB_MUX_WINDOW.*HUB_MUX_PER_PEER/,
+    );
+    expect(() => loadConfig({ HUB_MUX_PER_PEER: "off", HUB_MUX_WINDOW: "1048576" })).toThrow(
+      /HUB_MUX_WINDOW/,
+    );
+    for (const bad of ["0", "-1", "1.5", "big", String(MIN_MUX_WINDOW - 1)]) {
+      expect(() => loadConfig({ HUB_MUX_PER_PEER: "1", HUB_MUX_WINDOW: bad })).toThrow(
+        /HUB_MUX_WINDOW/,
+      );
+    }
   });
 });

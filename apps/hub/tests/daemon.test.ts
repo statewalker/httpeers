@@ -28,6 +28,7 @@ import type { Ed25519PrivateKey } from "@libp2p/interface";
 import { webRTC } from "@libp2p/webrtc";
 import { webSockets } from "@libp2p/websockets";
 import { createMounts } from "@statewalker/httpeers-core";
+import { MUX_PROTOCOL } from "@statewalker/httpeers-libp2p";
 import { decodeJoinBlob, type MemberHandle, startMember } from "@statewalker/httpeers-member";
 import { type Relay, startRelay } from "@statewalker/httpeers-relay";
 import { createLibp2p } from "libp2p";
@@ -175,9 +176,11 @@ async function joinMember(
   daemon: Daemon,
   createNode: (init: { privateKey?: Ed25519PrivateKey }) => ReturnType<typeof webRTCNode>,
   keepaliveIntervalMs?: number,
+  muxPerPeer?: boolean,
 ): Promise<MemberHandle> {
   const { id } = await daemon.hub.invitations.create(["member"], 60_000);
   const member = await startMember({
+    ...(muxPerPeer != null ? { muxPerPeer } : {}),
     key: "peers",
     mounts: createMounts(),
     rules: daemon.hub.rules,
@@ -306,6 +309,29 @@ describe("startDaemon", () => {
         .meshView()
         .advertisements.some((a) => a.id === "echo" && a.kind === "test-service"),
     ).toBe(true);
+  }, 90_000);
+
+  it("with HUB_MUX_PER_PEER, serves a mux member over the mux and a member without it per exchange", async () => {
+    const daemon = await start({ ...(await configFor()), muxPerPeer: { window: 128 * 1024 } });
+    const muxStreams = (member: MemberHandle) =>
+      member.node
+        .getConnections()
+        .filter((c) => c.remotePeer.toString() === daemon.hubPeerId)
+        .flatMap((c) => c.streams)
+        .filter((s) => s.protocol === MUX_PROTOCOL);
+
+    const withMux = await joinMember(daemon, webRTCNode, undefined, true);
+    const res = await withMux.fetch(new Request(`http://local/peers/${daemon.hubPeerId}/echo/x`));
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({ path: "/echo/x", caller: "mesh" });
+    // The member's calls to the hub ride the mux the hub now serves.
+    expect(muxStreams(withMux)).toHaveLength(1);
+
+    const without = await joinMember(daemon, webRTCNode);
+    const plain = await without.fetch(new Request(`http://local/peers/${daemon.hubPeerId}/echo/x`));
+    expect(plain.status).toBe(200);
+    expect(await plain.json()).toEqual({ path: "/echo/x", caller: "mesh" });
+    expect(muxStreams(without)).toHaveLength(0);
   }, 90_000);
 
   it("serves a member that can reach it only over the relay, and the members API says relay", async () => {

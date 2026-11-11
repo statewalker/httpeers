@@ -11,7 +11,11 @@
  * empty door secret.
  */
 
-import { type IceServer, parseIceServers } from "@statewalker/httpeers-libp2p";
+import {
+  type IceServer,
+  type MuxPerPeerOptions,
+  parseIceServers,
+} from "@statewalker/httpeers-libp2p";
 
 export interface HubConfig {
   /** The data root; the hub owns `<dataDir>/hub`. */
@@ -65,6 +69,17 @@ export interface HubConfig {
    * STUN server").
    */
   iceServers?: IceServer[];
+  /**
+   * `HUB_MUX_PER_PEER` (`true`/`false`, also `1`/`0`, `yes`/`no`, `on`/`off`;
+   * default off): EXPERIMENTAL (#56). The hub's `servePeer` serves the
+   * one-mux-per-peer protocol beside the per-exchange one, and its own calls
+   * (forwarding) use it. Members without the flag are unaffected: they keep
+   * one stream per exchange. `HUB_MUX_WINDOW` (bytes, at least
+   * {@link MIN_MUX_WINDOW}) sets the per-exchange window, else the library's
+   * default (`DEFAULT_MUX_WINDOW`, 256 KiB); it is refused without the flag.
+   * Absent when off.
+   */
+  muxPerPeer?: MuxPerPeerOptions;
   llmUpstream?: string;
   litellmMasterKey?: string;
 }
@@ -75,6 +90,13 @@ export const DEFAULT_JOIN_PAGE_URL = "https://llm-chat.httpeers.net/mesh.html";
 export const DEFAULT_LOCAL_DOOR_PORT = 8787;
 export const DEFAULT_LOCAL_DOOR_HOST = "0.0.0.0";
 export const DEFAULT_DOOR_ALLOWED_HOSTS = ["127.0.0.1:8080", "localhost:8080"];
+/**
+ * The smallest `HUB_MUX_WINDOW`: 64 KiB, two of the mux's default frames. A
+ * window much smaller than a frame still works, one message at a time, but
+ * only by stalling every exchange on each round trip; it is never what an
+ * operator means.
+ */
+export const MIN_MUX_WINDOW = 64 * 1024;
 
 function setting(env: NodeJS.ProcessEnv, name: string): string | undefined {
   const value = env[name]?.trim();
@@ -111,6 +133,31 @@ function positiveInteger(env: NodeJS.ProcessEnv, name: string): number | undefin
   return value;
 }
 
+function flag(env: NodeJS.ProcessEnv, name: string): boolean | undefined {
+  const raw = setting(env, name);
+  if (raw == null) return undefined;
+  const value = raw.toLowerCase();
+  if (["true", "1", "yes", "on"].includes(value)) return true;
+  if (["false", "0", "no", "off"].includes(value)) return false;
+  throw new Error(`config: ${name} must be true or false, got "${raw}"`);
+}
+
+function muxPerPeerOf(env: NodeJS.ProcessEnv): MuxPerPeerOptions | undefined {
+  const on = flag(env, "HUB_MUX_PER_PEER") ?? false;
+  const window = positiveInteger(env, "HUB_MUX_WINDOW");
+  if (window != null && !on) {
+    // A window for a path that is off would be silently ignored.
+    throw new Error("config: HUB_MUX_WINDOW is set but HUB_MUX_PER_PEER is not on");
+  }
+  if (window != null && window < MIN_MUX_WINDOW) {
+    throw new Error(
+      `config: HUB_MUX_WINDOW must be at least ${MIN_MUX_WINDOW} bytes, got "${window}"`,
+    );
+  }
+  if (!on) return undefined;
+  return window != null ? { window } : {};
+}
+
 function iceServerList(env: NodeJS.ProcessEnv, name: string): IceServer[] | undefined {
   try {
     return parseIceServers(setting(env, name));
@@ -125,6 +172,7 @@ export function loadConfig(env: NodeJS.ProcessEnv): HubConfig {
   const doorSecret = setting(env, "HUB_DOOR_SECRET");
   const maxReservations = positiveInteger(env, "HUB_MAX_RESERVATIONS");
   const iceServers = iceServerList(env, "HUB_ICE_SERVERS");
+  const muxPerPeer = muxPerPeerOf(env);
   return {
     dataDir: setting(env, "HUB_DATA_DIR") ?? DEFAULT_DATA_DIR,
     relayDoc: setting(env, "HUB_RELAY_DOC") ?? DEFAULT_RELAY_DOC,
@@ -136,6 +184,7 @@ export function loadConfig(env: NodeJS.ProcessEnv): HubConfig {
     ...(doorSecret != null ? { doorSecret } : {}),
     ...(maxReservations != null ? { maxReservations } : {}),
     ...(iceServers != null ? { iceServers } : {}),
+    ...(muxPerPeer != null ? { muxPerPeer } : {}),
     ...(llmUpstream != null ? { llmUpstream } : {}),
     ...(litellmMasterKey != null ? { litellmMasterKey } : {}),
   };
