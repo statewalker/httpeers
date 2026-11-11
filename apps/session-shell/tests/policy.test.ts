@@ -131,6 +131,40 @@ describe("frame-ancestors", () => {
     expect(out.status).toBe(304);
   });
 
+  it("appends in place and returns the same response", () => {
+    const own = new Response("ok", { headers: { "content-type": "text/plain" } });
+    const out = withFrameAncestors(own, FRAME_ANCESTORS);
+    expect(out).toBe(own);
+    expect(out.headers.get("content-security-policy")).toBe(`frame-ancestors ${FRAME_ANCESTORS}`);
+  });
+
+  /** A response whose headers throw on write, as a `fetch()` response's do. */
+  function immutable(response: Response): Response {
+    const headers = new Headers(response.headers);
+    headers.append = () => {
+      throw new TypeError("immutable");
+    };
+    Object.defineProperty(response, "headers", { value: headers });
+    return response;
+  }
+
+  it("copies a response whose headers are immutable, keeping status and body", async () => {
+    const own = immutable(new Response("gone", { status: 404, statusText: "Not Found" }));
+    const out = withFrameAncestors(own, FRAME_ANCESTORS);
+    expect(out).not.toBe(own);
+    expect(out.status).toBe(404);
+    expect(out.statusText).toBe("Not Found");
+    expect(out.headers.get("content-security-policy")).toBe(`frame-ancestors ${FRAME_ANCESTORS}`);
+    expect(await out.text()).toBe("gone");
+  });
+
+  it("copies an immutable 304 with a null body", () => {
+    const out = withFrameAncestors(immutable(new Response(null, { status: 304 })), FRAME_ANCESTORS);
+    expect(out.status).toBe(304);
+    expect(out.body).toBeNull();
+    expect(out.headers.get("content-security-policy")).toBe(`frame-ancestors ${FRAME_ANCESTORS}`);
+  });
+
   it("includes localhost only for a localhost shell", () => {
     expect(frameAncestorsFor("abc.p.httpeers.net")).toBe(FRAME_ANCESTORS);
     expect(frameAncestorsFor("localhost")).toContain("http://localhost:*");

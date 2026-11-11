@@ -79,6 +79,27 @@ describe("the CSP", () => {
 });
 
 describe("the sandbox mode, kept as a recorded dead end", () => {
+  it("keeps a non-HTML response's status, including a body-less 304", async () => {
+    const answers = [
+      new Response("missing", { status: 404, statusText: "Not Found" }),
+      new Response(null, { status: 304 }),
+    ];
+    const guarded = contain(async () => answers.shift() as Response, {
+      baseUrl: BASE,
+      mode: "sandbox",
+    });
+
+    const missing = await guarded(new Request(`${BASE}a.txt`));
+    expect(missing.status).toBe(404);
+    expect(missing.statusText).toBe("Not Found");
+    expect(missing.headers.get("access-control-allow-origin")).toBe("*");
+    expect(await missing.text()).toBe("missing");
+
+    const unchanged = await guarded(new Request(`${BASE}b.txt`));
+    expect(unchanged.status).toBe(304);
+    expect(unchanged.body).toBeNull();
+  });
+
   it("asks for no `allow-same-origin`, which is what disqualified it", () => {
     // Rung 16 measured this: the opaque origin that would contain the page is
     // the same thing that removes it from the ServiceWorker's control, so the

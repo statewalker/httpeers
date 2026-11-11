@@ -51,7 +51,7 @@ export function contain(handler: FetchHandler, options: ContainOptions): FetchHa
       if (options.mode === "sandbox") {
         const headers = new Headers(response.headers);
         headers.set("access-control-allow-origin", "*");
-        return new Response(response.body, { ...response, headers });
+        return rebuilt(response, headers);
       }
       return response;
     }
@@ -59,12 +59,25 @@ export function contain(handler: FetchHandler, options: ContainOptions): FetchHa
     const headers = new Headers(response.headers);
     if (options.mode === "sandbox") headers.set("access-control-allow-origin", "*");
     headers.set("content-security-policy", policyFor(options));
-    return new Response(response.body, {
-      status: response.status,
-      statusText: response.statusText,
-      headers,
-    });
+    return rebuilt(response, headers);
   };
+}
+
+/**
+ * `response` again, with `headers`.
+ *
+ * Status and statusText are named, because they are prototype getters: a
+ * spread (`{ ...response }`) copies none of them, and the copy becomes a 200.
+ * A null-body status must be constructed with a null body, or `new Response`
+ * throws.
+ */
+function rebuilt(response: Response, headers: Headers): Response {
+  const nullBody = [101, 204, 205, 304].includes(response.status);
+  return new Response(nullBody ? null : response.body, {
+    status: response.status,
+    statusText: response.statusText,
+    headers,
+  });
 }
 
 /**

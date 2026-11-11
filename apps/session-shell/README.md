@@ -220,6 +220,13 @@ too. What `src/sw.ts` adds is what the library cannot know:
 
 ## What will surprise you
 
+- **An app cannot set cookies through the relay.** `Set-Cookie` is a forbidden response
+  header name: a browser drops it from a `Response` built in script, and never applies one
+  from a response a ServiceWorker made. Every answer in a session is worker-made, so an
+  app's `Set-Cookie` never reaches the browser's cookie jar. An app that needs state keeps
+  it another way (the origin's own `localStorage` or IndexedDB, or a token it carries
+  itself); `document.cookie` written by the page still works, since it never crosses the
+  relay.
 - **The relay page talks to `registration.active`, not `navigator.serviceWorker.controller`.**
   Measured in Firefox 155: the first relay page on an origin is claimed and controlled,
   but a later one — a second tab, or the same ghost reloaded — loads with the worker

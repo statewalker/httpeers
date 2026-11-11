@@ -233,10 +233,28 @@ export function frameAncestorsFor(hostname: string): string {
  * enforces every policy it is given, so the app keeps whatever CSP it chose
  * and gains this one. Rewriting the app's header instead would mean parsing
  * it, and a parser here is one more way to weaken it.
+ *
+ * APPENDED IN PLACE, and the same response returned: the relay builds its
+ * responses with `new Response`, whose headers are writable, so nothing needs
+ * copying. Only headers that refuse the write (a `fetch()` response's are
+ * immutable) fall back to a copy.
+ *
+ * NOT A WAY FOR AN APP TO SET COOKIES. `Set-Cookie` is a forbidden response
+ * header name: a browser drops it from a `Response` built in script, and never
+ * applies one from a worker-made response, so an app's cookies cannot cross the
+ * relay whatever this function does (#21; see the README's "What will
+ * surprise you").
  */
 export function withFrameAncestors(response: Response, sources: string): Response {
+  const policy = `frame-ancestors ${sources}`;
+  try {
+    response.headers.append("content-security-policy", policy);
+    return response;
+  } catch {
+    // Immutable headers: copy below.
+  }
   const headers = new Headers(response.headers);
-  headers.append("content-security-policy", `frame-ancestors ${sources}`);
+  headers.append("content-security-policy", policy);
   // A null-body status must be constructed with a null body, or `new
   // Response` throws -- and a 304 or 204 from the app is ordinary.
   const nullBody = [204, 205, 304].includes(response.status);
