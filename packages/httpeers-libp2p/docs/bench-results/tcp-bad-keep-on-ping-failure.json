@@ -1,0 +1,72 @@
+{
+  "bad": {
+    "link": {
+      "rate": 2,
+      "delay": 100,
+      "jitter": 0,
+      "loss": 0.03,
+      "queue": 500
+    },
+    "transport": "tcp",
+    "keepOnPingFailure": true,
+    "table": {
+      "per-exchange": {
+        "pingIdleP50": 1216.0621150000006,
+        "pingIdleP99": 2204.3681830000005,
+        "smallK1": 1,
+        "smallK10": 8.333333333333334,
+        "smallK100": 53.833333333333336,
+        "blobIdleFirstP50": 3164.6898410000067,
+        "blobIdleWholeP50": 3164.8028819999963,
+        "bulkAloneMbit": 0.3844700367805795,
+        "pingBulkP50": 7686.594693999999,
+        "pingBulkP99": 10699.719218999991,
+        "pingBulkN": 7,
+        "blobBulkFirstP50": 6493.430684000021,
+        "blobBulkFirstP99": 10909.698673000006,
+        "blobBulkWholeP50": 13253.034507000018,
+        "blobBulkWholeP99": 14568.549079999997,
+        "blobBulkN": 3,
+        "runs": 2
+      },
+      "mux 256 KiB": {
+        "pingIdleP50": 1070.7477589999999,
+        "pingIdleP99": 1627.0338080000001,
+        "smallK1": 1,
+        "smallK10": 6.666666666666667,
+        "smallK100": 16.666666666666668,
+        "blobIdleFirstP50": 2759.147960000002,
+        "blobIdleWholeP50": 3139.8471960000024,
+        "bulkAloneMbit": 0.3145588760513515,
+        "pingBulkP50": 9117.03618000001,
+        "pingBulkP99": 10197.110231999992,
+        "pingBulkN": 4,
+        "blobBulkFirstP50": 8016.879883000016,
+        "blobBulkFirstP99": 9419.960837999999,
+        "blobBulkWholeP50": 11329.906791999994,
+        "blobBulkWholeP99": 12876.320535999985,
+        "blobBulkN": 3,
+        "runs": 3
+      },
+      "mux 4096 KiB": {
+        "pingIdleP50": 1065.7714339999984,
+        "pingIdleP99": 1903.180188000002,
+        "smallK1": 0.8333333333333334,
+        "smallK10": 8.333333333333334,
+        "smallK100": 16.666666666666668,
+        "blobIdleFirstP50": 2994.877779000002,
+        "blobIdleWholeP50": 3146.2933619999967,
+        "bulkAloneMbit": 0.40087125886646385,
+        "pingBulkP50": 10620.808300999997,
+        "pingBulkP99": 11274.036615000005,
+        "pingBulkN": 3,
+        "blobBulkFirstP50": 8334.693021000014,
+        "blobBulkFirstP99": 10018.421736000018,
+        "blobBulkWholeP50": 10152.06934300001,
+        "blobBulkWholeP99": 12935.322863999987,
+        "blobBulkN": 3,
+        "runs": 3
+      }
+    }
+  }
+}

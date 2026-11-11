@@ -241,8 +241,11 @@ stream (loopback), while pings beside it answer in 4 ms rather than 140 ms; a
 match or beat the per-exchange path; 256 B messages on long-lived exchanges
 run at 60–97% of it (fewer the more exchanges share the mux).
 `scripts/bench-mux.mjs` compares the two paths (`pnpm build` first; loopback
-only, not run in CI; `--path`/`--cases` to profile a part). Measurement on
-real networks, and the decision per kind of traffic, are still open.
+only, not run in CI; `--path`/`--cases` to profile a part).
+[`docs/mux-per-peer-network-bench.md`](docs/mux-per-peer-network-bench.md)
+measures both paths on an emulated network (latency, rate limits, loss; TCP
+and WebRTC; `scripts/bench-mux-net.mjs`). Measurement on real networks, and
+the decision per kind of traffic, are still open.
 
 Frames posted in the same task leave as one write (up to one Noise message),
 so a burst of small messages, or a run of bulk frames, costs one yamux frame,

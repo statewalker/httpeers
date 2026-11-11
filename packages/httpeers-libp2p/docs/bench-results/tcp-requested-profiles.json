@@ -1,0 +1,230 @@
+{
+  "lan": {
+    "link": {
+      "rate": 1000,
+      "delay": 0.5,
+      "jitter": 0,
+      "loss": 0,
+      "queue": 5
+    },
+    "transport": "tcp",
+    "table": {
+      "per-exchange": {
+        "pingIdleP50": 6.214485000000195,
+        "pingIdleP99": 10.764631000000008,
+        "smallK1": 167.33333333333334,
+        "smallK10": 646.6666666666666,
+        "smallK100": 961,
+        "blobIdleFirstP50": 6.193456999999398,
+        "blobIdleWholeP50": 6.244611000000077,
+        "bulkAloneMbit": 956.1671441698293,
+        "pingBulkP50": 42.993406000001414,
+        "pingBulkP99": 58.92500900000232,
+        "pingBulkN": 186,
+        "blobBulkFirstP50": 42.5152820000003,
+        "blobBulkFirstP99": 53.00054299999829,
+        "blobBulkWholeP50": 42.86047899999903,
+        "blobBulkWholeP99": 53.674322999999276,
+        "blobBulkN": 40,
+        "runs": 3
+      },
+      "mux 256 KiB": {
+        "pingIdleP50": 6.482152999999926,
+        "pingIdleP99": 14.450317000000268,
+        "smallK1": 163.33333333333334,
+        "smallK10": 646.6666666666666,
+        "smallK100": 1100,
+        "blobIdleFirstP50": 5.93563499999982,
+        "blobIdleWholeP50": 6.286127999999735,
+        "bulkAloneMbit": 687.9981337105073,
+        "pingBulkP50": 6.067832999997336,
+        "pingBulkP99": 10.714350000002014,
+        "pingBulkN": 200,
+        "blobBulkFirstP50": 6.039342000000033,
+        "blobBulkFirstP99": 10.499332999999751,
+        "blobBulkWholeP50": 6.215242999998736,
+        "blobBulkWholeP99": 11.252542999998695,
+        "blobBulkN": 40,
+        "runs": 3
+      },
+      "mux 4096 KiB": {
+        "pingIdleP50": 5.918226999999661,
+        "pingIdleP99": 12.614043000000038,
+        "smallK1": 167.33333333333334,
+        "smallK10": 656.6666666666666,
+        "smallK100": 1133.3333333333333,
+        "blobIdleFirstP50": 5.686697999999524,
+        "blobIdleWholeP50": 6.216226000000461,
+        "bulkAloneMbit": 953.3933454742075,
+        "pingBulkP50": 46.49613600000157,
+        "pingBulkP99": 68.12922099999923,
+        "pingBulkN": 174,
+        "blobBulkFirstP50": 44.79285700000037,
+        "blobBulkFirstP99": 58.41354599999977,
+        "blobBulkWholeP50": 45.76321199999802,
+        "blobBulkWholeP99": 59.33216100000209,
+        "blobBulkN": 40,
+        "runs": 3
+      }
+    }
+  },
+  "broadband": {
+    "link": {
+      "rate": 50,
+      "delay": 15,
+      "jitter": 0,
+      "loss": 0.001,
+      "queue": 100
+    },
+    "transport": "tcp",
+    "table": {
+      "per-exchange": {
+        "pingIdleP50": 66.4368029999996,
+        "pingIdleP99": 139.20127299999876,
+        "smallK1": 12.25,
+        "smallK10": 79.75,
+        "smallK100": 746.25,
+        "blobIdleFirstP50": 125.83598599999823,
+        "blobIdleWholeP50": 125.90474299999914,
+        "bulkAloneMbit": 13.78760185821765,
+        "pingBulkP50": 345.65738099999726,
+        "pingBulkP99": 674.7087530000063,
+        "pingBulkN": 55,
+        "blobBulkFirstP50": 282.62526400000206,
+        "blobBulkFirstP99": 555.3168650000007,
+        "blobBulkWholeP50": 322.58381299999746,
+        "blobBulkWholeP99": 592.398921,
+        "blobBulkN": 20,
+        "runs": 3
+      },
+      "mux 256 KiB": {
+        "pingIdleP50": 65.9251589999999,
+        "pingIdleP99": 97.3625079999997,
+        "smallK1": 14,
+        "smallK10": 115,
+        "smallK100": 400,
+        "blobIdleFirstP50": 96.07018199999948,
+        "blobIdleWholeP50": 96.99675600000046,
+        "bulkAloneMbit": 11.901509989801749,
+        "pingBulkP50": 222.1779619999943,
+        "pingBulkP99": 522.1972810000007,
+        "pingBulkN": 82,
+        "blobBulkFirstP50": 311.8001509999958,
+        "blobBulkFirstP99": 462.3551290000032,
+        "blobBulkWholeP50": 325.679452999997,
+        "blobBulkWholeP99": 475.6466139999975,
+        "blobBulkN": 20,
+        "runs": 3
+      },
+      "mux 4096 KiB": {
+        "pingIdleP50": 66.00790099999995,
+        "pingIdleP99": 124.96763499999997,
+        "smallK1": 14.5,
+        "smallK10": 110,
+        "smallK100": 375,
+        "blobIdleFirstP50": 98.59307100000296,
+        "blobIdleWholeP50": 99.34958800000095,
+        "bulkAloneMbit": 13.576367696218298,
+        "pingBulkP50": 454.6613440000001,
+        "pingBulkP99": 1009.675175999997,
+        "pingBulkN": 42,
+        "blobBulkFirstP50": 484.7485919999963,
+        "blobBulkFirstP99": 1000.8237080000035,
+        "blobBulkWholeP50": 527.0343070000017,
+        "blobBulkWholeP99": 1095.1981710000036,
+        "blobBulkN": 20,
+        "runs": 3
+      }
+    }
+  },
+  "mobile": {
+    "link": {
+      "rate": 10,
+      "delay": 40,
+      "jitter": 10,
+      "loss": 0.01,
+      "queue": 200
+    },
+    "transport": "tcp",
+    "table": {
+      "per-exchange": {
+        "pingIdleP50": 272.7154620000001,
+        "pingIdleP99": 680.472686000001,
+        "smallK1": 2.6,
+        "smallK10": 21.4,
+        "smallK100": 174,
+        "blobIdleFirstP50": 769.7603889999955,
+        "blobIdleWholeP50": 769.8432079999984,
+        "bulkAloneMbit": 1.2670057671316484,
+        "pingBulkP50": 1914.594517999998,
+        "pingBulkP99": 3282.644675000003,
+        "pingBulkN": 13,
+        "blobBulkFirstP50": 1735.6753330000065,
+        "blobBulkFirstP99": 3338.9566810000106,
+        "blobBulkWholeP50": 2421.831879999998,
+        "blobBulkWholeP99": 4085.256718000004,
+        "blobBulkN": 11,
+        "runs": 3
+      },
+      "mux 256 KiB": {
+        "pingIdleP50": 259.1563539999988,
+        "pingIdleP99": 496.3630069999999,
+        "smallK1": 3.2,
+        "smallK10": 22,
+        "smallK100": 80,
+        "blobIdleFirstP50": 573.9022069999992,
+        "blobIdleWholeP50": 574.2512730000017,
+        "bulkAloneMbit": 1.4212588417214873,
+        "pingBulkP50": 2447.103826999999,
+        "pingBulkP99": 3727.414195999998,
+        "pingBulkN": 11,
+        "blobBulkFirstP50": 2389.87503000001,
+        "blobBulkFirstP99": 3500.2602739999857,
+        "blobBulkWholeP50": 2745.598523000008,
+        "blobBulkWholeP99": 3829.6009420000046,
+        "blobBulkN": 9,
+        "runs": 3
+      },
+      "mux 4096 KiB": {
+        "pingIdleP50": 248.47677899999962,
+        "pingIdleP99": 634.9503409999998,
+        "smallK1": 3.6,
+        "smallK10": 24,
+        "smallK100": 80,
+        "blobIdleFirstP50": 396.0709829999978,
+        "blobIdleWholeP50": 399.50292899999477,
+        "bulkAloneMbit": 1.464898713669623,
+        "pingBulkP50": 3086.9321710000004,
+        "pingBulkP99": 4472.366550999999,
+        "pingBulkN": 8,
+        "blobBulkFirstP50": 2767.441255999991,
+        "blobBulkFirstP99": 3890.55110099999,
+        "blobBulkWholeP50": 3150.3997700000036,
+        "blobBulkWholeP99": 4293.443753,
+        "blobBulkN": 8,
+        "runs": 3
+      }
+    }
+  },
+  "bad": {
+    "link": {
+      "rate": 2,
+      "delay": 100,
+      "jitter": 0,
+      "loss": 0.03,
+      "queue": 500
+    },
+    "transport": "tcp",
+    "table": {
+      "per-exchange": {
+        "runs": 0
+      },
+      "mux 256 KiB": {
+        "runs": 0
+      },
+      "mux 4096 KiB": {
+        "runs": 0
+      }
+    }
+  }
+}
