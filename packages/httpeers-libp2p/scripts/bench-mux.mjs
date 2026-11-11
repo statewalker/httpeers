@@ -272,24 +272,25 @@ for (const [label, mux] of Object.entries(paths)) {
   );
 }
 
+/** A cell value, or "—" for a case `--cases` skipped. */
+const f = (x) => (Number.isFinite(x) ? `${x}` : "—");
+const n = (x) => (Number.isFinite(x) ? `${Math.round(x)}` : "—");
 const rows = [
-  ["Ping p50 / p99, idle (ms)", (r) => `${r.pingIdleP50} / ${r.pingIdleP99}`],
+  ["Ping p50 / p99, idle (ms)", (r) => `${f(r.pingIdleP50)} / ${f(r.pingIdleP99)}`],
   [
     "Ping p50 / p99 while another exchange streams bulk (ms)",
-    (r) => `${r.pingBulkP50} / ${r.pingBulkP99}`,
+    (r) => `${f(r.pingBulkP50)} / ${f(r.pingBulkP99)}`,
   ],
-  ["Bulk throughput meanwhile (MB/s)", (r) => `${r.bulkMBps}`],
-  ["Pings/s meanwhile", (r) => `${Math.round(r.pingsPerSecBulk)}`],
-  ["Bulk throughput alone (MB/s)", (r) => `${r.bulkAloneMBps}`],
+  ["Bulk throughput meanwhile (MB/s)", (r) => f(r.bulkMBps)],
+  ["Pings/s meanwhile", (r) => n(r.pingsPerSecBulk)],
+  ["Bulk throughput alone (MB/s)", (r) => f(r.bulkAloneMBps)],
   [
     "256 B exchanges/s, K = 1 / 10 / 100",
-    (r) =>
-      `${Math.round(r.exchangesPerSecK1)} / ${Math.round(r.exchangesPerSecK10)} / ${Math.round(r.exchangesPerSecK100)}`,
+    (r) => `${n(r.exchangesPerSecK1)} / ${n(r.exchangesPerSecK10)} / ${n(r.exchangesPerSecK100)}`,
   ],
   [
     "256 B messages/s on K echo exchanges, K = 1 / 10 / 100",
-    (r) =>
-      `${Math.round(r.messagesPerSecK1)} / ${Math.round(r.messagesPerSecK10)} / ${Math.round(r.messagesPerSecK100)}`,
+    (r) => `${n(r.messagesPerSecK1)} / ${n(r.messagesPerSecK10)} / ${n(r.messagesPerSecK100)}`,
   ],
 ];
 const labels = Object.keys(table);

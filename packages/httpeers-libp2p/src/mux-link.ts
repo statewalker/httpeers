@@ -451,7 +451,15 @@ export function libp2pMuxLink(init: Libp2pMuxLinkInit): ClosablePeerLink {
                   pieceBytes: maxChunkBytes,
                   timeoutMs: init.drainTimeoutMs,
                   onStall: () => {
-                    closePort();
+                    // Close the port FIRST, synchronously, and only then end
+                    // the output. Ended first, the output looks finished: the
+                    // serving pump would post a clean end of stream before a
+                    // deferred close, and the caller would read a truncated
+                    // body as complete (an `HttpParseError` mid-chunk) rather
+                    // than see the exchange reset. Closed first, the pump is
+                    // aborted, posts nothing more, and the caller gets the
+                    // close: `MuxPortClosedError`, mapped to `PeerStreamResetError`.
+                    (port as { close?: () => void }).close?.();
                     void output.return(undefined).catch(() => {});
                   },
                 }),
@@ -623,7 +631,7 @@ export function droppingStalledWrites(
   };
   const arm = () => {
     if (over) return;
-    blockedSince = Date.now();
+    blockedSince = performance.now();
     if (timer === undefined) timer = setTimeout(check, timeoutMs);
   };
   /**
@@ -634,7 +642,7 @@ export function droppingStalledWrites(
   const check = (): void => {
     timer = undefined;
     if (over || blockedSince === undefined) return;
-    const waited = Date.now() - blockedSince;
+    const waited = performance.now() - blockedSince;
     if (waited < timeoutMs) {
       timer = setTimeout(check, timeoutMs - waited);
       return;

@@ -223,6 +223,25 @@ describe("muxTargetOverStream", () => {
       await expect.poll(() => signal.aborted).toBe(true);
       expect(s.aborted()?.message).toMatch(/malformed message length/);
     }
+    {
+      // A 5-byte varint whose last byte sets bit 32: 2^32, which 32-bit
+      // arithmetic would wrap to a length of 0 and accept.
+      const s = fakeStream();
+      const { target, signal } = muxTargetOverStream(s.stream, { maxMessageBytes: 1024 });
+      const got = collect(target);
+      s.push(Uint8Array.from([0x80, 0x80, 0x80, 0x80, 0x10, 1, 2, 3]));
+      await expect.poll(() => signal.aborted).toBe(true);
+      expect(s.aborted()?.message).toMatch(/malformed message length/);
+      expect(got).toEqual([]);
+    }
+    {
+      // The largest 5-byte length (bits 28-31 set) is read, and refused by size.
+      const s = fakeStream();
+      const { signal } = muxTargetOverStream(s.stream, { maxMessageBytes: 1024 });
+      s.push(Uint8Array.from([0xff, 0xff, 0xff, 0xff, 0x0f]));
+      await expect.poll(() => signal.aborted).toBe(true);
+      expect(s.aborted()?.message).toMatch(/exceeds maxMessageBytes/);
+    }
   });
 
   it("sends what it gathered before closing the stream", async () => {

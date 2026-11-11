@@ -149,6 +149,10 @@ export function muxTargetOverStream(
       let complete = false;
       while (i < to) {
         const b = bytes[i++] as number;
+        // A 5th byte carries bits 28-31 only: more than that is past 32 bits.
+        if (shift === 28 && b > 0x0f) {
+          throw new Error("webrun-streams-libp2p: a malformed message length");
+        }
         value |= (b & 0x7f) << shift;
         if ((b & 0x80) === 0) {
           complete = true;
@@ -177,7 +181,7 @@ export function muxTargetOverStream(
   // instead of one of each per frame (see `COALESCE_BYTES`).
   let pending: Uint8Array[] = [];
   let pendingBytes = 0;
-  /** A frame left in this task: the rest of the task's frames are gathered, and sent on the next. */
+  /** A frame left since the last flush: the frames after it are gathered, and sent at the next flush (next task). */
   let gathering = false;
   const send = (bytes: Uint8Array): void => {
     try {
@@ -233,9 +237,10 @@ export function muxTargetOverStream(
         frame[i] = v;
         frame.set(payload, headerBytes);
         if (!gathering) {
-          // The first frame of a task leaves at once, so a lone message (a
-          // ping, a request in a quiet moment) waits for nothing; the ones
-          // that follow it in the same task are gathered.
+          // The first frame since the last flush leaves at once, so a lone
+          // message (a ping, a request in a quiet moment) waits for nothing;
+          // the ones that follow it before the next flush (on the next task)
+          // are gathered.
           gathering = true;
           nextTask(flush);
           send(frame);

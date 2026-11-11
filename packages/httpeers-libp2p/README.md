@@ -246,8 +246,8 @@ real networks, and the decision per kind of traffic, are still open.
 
 Frames posted in the same task leave as one write (up to one Noise message),
 so a burst of small messages, or a run of bulk frames, costs one yamux frame,
-one encryption and one socket write rather than one each. The first frame of
-a task is never held back.
+one encryption and one socket write rather than one each. The first frame
+since the last flush is never held back.
 
 **Compatibility.** A peer with the flag SERVES both protocols, so callers
 without it are unaffected. A caller with the flag whose peer does not speak
