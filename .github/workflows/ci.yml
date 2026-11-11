@@ -39,10 +39,19 @@ jobs:
 
       # The check launches headless, which in Playwright is Chromium's headless shell: the full
       # browser would be downloaded and never run.
+      #
+      # The system libraries come from apt, which can be unreachable from a runner for hours (the
+      # mirrors fail to resolve). The runner image already ships most of what the browsers need,
+      # so when apt fails the browsers are installed without them and the check runs anyway: a
+      # library that is really missing then fails the check itself, with its own error.
       - name: Browsers
         run: |
-          pnpm --filter @statewalker/httpeers-browser-conformance exec playwright install --with-deps --only-shell chromium
-          pnpm --filter @statewalker/httpeers-browser-conformance exec playwright install --with-deps firefox
+          pw() { pnpm --filter @statewalker/httpeers-browser-conformance exec playwright "$@"; }
+          if ! pw install-deps chromium firefox; then
+            echo "::warning::playwright install-deps failed (apt unreachable?); installing the browsers without system libraries"
+          fi
+          pw install --only-shell chromium
+          pw install firefox
 
       - name: Forwarded bodies in Chromium and Firefox
         run: pnpm --filter @statewalker/httpeers-browser-conformance run test:forwarded-body
