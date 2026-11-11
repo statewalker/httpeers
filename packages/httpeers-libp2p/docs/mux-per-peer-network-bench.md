@@ -27,7 +27,8 @@ maintainer to decide.
 | Bad, 2 Mbit, 200 ms, 3% loss | every run fails on both paths with the defaults (see "The connection dies"); with the monitor not aborting (all three columns): 0.4 / 0.3 / 0.4 | 7687 / 9117 / 10621 (n = 3–7 samples) | 38 / 16 |
 
 Exchange rates are from the corrected rerun (see Method). Ping samples under
-bulk: 42–200 per cell on the faster profiles, 5–13 on mobile, 3–7 on bad.
+bulk vary widely, from 3 to 200 per cell (3–7 on bad); each profile's table
+gives them in its "Samples under bulk" row.
 
 What the numbers say:
 
