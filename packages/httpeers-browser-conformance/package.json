@@ -21,18 +21,27 @@
     "test:reload": "node scripts/edge-reload.mjs",
     "typecheck": "tsc --noEmit",
     "lint": "biome check tests scripts",
-    "lint:check": "biome check tests scripts"
+    "lint:check": "biome check tests scripts",
+    "test:forwarded-body": "node scripts/forwarded-body.mjs"
   },
   "devDependencies": {
     "@biomejs/biome": "catalog:",
+    "@libp2p/circuit-relay-v2": "catalog:",
+    "@libp2p/tcp": "catalog:",
+    "@libp2p/webrtc": "catalog:",
+    "@libp2p/websockets": "catalog:",
     "@statewalker/httpeers-access": "workspace:^",
     "@statewalker/httpeers-core": "workspace:^",
+    "@statewalker/httpeers-hub": "workspace:^",
+    "@statewalker/httpeers-libp2p": "workspace:^",
     "@statewalker/httpeers-member": "workspace:^",
+    "@statewalker/httpeers-relay": "workspace:^",
     "@statewalker/webrun-http-browser": "catalog:",
     "@types/node": "catalog:",
     "@vitest/browser-playwright": "catalog:",
     "playwright": "catalog:",
     "typescript": "catalog:",
+    "vite": "catalog:",
     "vitest": "catalog:"
   }
 }

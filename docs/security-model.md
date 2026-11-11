@@ -324,7 +324,23 @@ carried it: `httpeers-member/src/edge-dispatch.ts`, both
 `urlUpstream` in `@statewalker/webrun-http-proxy` (fixed in 0.2.1). None of them
 was caught by a local suite: the browser harness serves the mesh with a
 stand-in, so a POST there never crosses the gateway-and-edge chain where this
-breaks. Treat a green local run as saying nothing about this path.
+breaks. Treat a green `browser-test.mjs` run as saying nothing about this path.
+
+**Now checked locally and in CI (2026-11-11, Chromium and Firefox 155,
+loopback only; `packages/httpeers-browser-conformance/scripts/forwarded-body.mjs`,
+`ci.yml`'s `forwarded-body` job):** a real browser member joins a loopback mesh
+— the deployed relay and a hub whose one extra mount, `/echo`, reports the byte
+count and SHA-256 of the body that arrived — and POSTs 76 B and 1 MiB through
+`fetch()` → ServiceWorker → `createGateway` → the member edge → the peer
+router → libp2p, plus a 512 KiB `ReadableStream` body handed to the gateway
+in-page where the engine can build one (Chromium; Firefox has no request
+streams). Only the far peer is a stub; every forwarder is the production one.
+Reverting the `edge-dispatch.ts` fix, or the `router.ts` one, or making
+`gateway.ts` read `request.body`, each turns Firefox red with
+`0 bytes of 76 arrived` while Chromium stays green — the production symptom,
+reproduced without production. It does not cover the session shell's own relay
+hop or `urlUpstream` (the proxy page); `session-smoke.mjs` remains the check for
+those.
 
 **Not yet verified (each a distinct future probe):** CSP relaxation across a
 redirect; whether a hostile ghost app can reach the viewer's *own* edge when both

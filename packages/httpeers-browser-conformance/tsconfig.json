@@ -19,5 +19,5 @@
   // every other package -- so this package's typecheck was reporting errors in
   // ANOTHER REPO's test files (`webrun-streams/tests/readme-examples.test.ts`),
   // which is both wrong and not this package's business to fail on.
-  "include": ["tests/**/*.ts", "tests/**/*.d.ts", "vitest.browser.config.ts"]
+  "include": ["tests/**/*.ts", "tests/**/*.d.ts", "scripts/**/*.ts", "vitest.browser.config.ts"]
 }
