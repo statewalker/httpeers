@@ -4,6 +4,7 @@ import { describe, expect, it } from "vitest";
 import {
   APP_SERVICE_KEY,
   canRegisterService,
+  copyHeaders,
   DEFAULT_SERVICE_KEY,
   FRAME_ANCESTORS,
   frameAncestorsFor,
@@ -129,6 +130,85 @@ describe("frame-ancestors", () => {
   it("keeps status and body-less responses intact", () => {
     const out = withFrameAncestors(new Response(null, { status: 304 }), FRAME_ANCESTORS);
     expect(out.status).toBe(304);
+  });
+
+  // #21. An app that sets several cookies must still set several cookies:
+  // joined into one header they stop being separate cookies.
+  const twoCookies = (): Response =>
+    new Response("ok", {
+      headers: [
+        ["content-type", "text/plain"],
+        ["set-cookie", "a=1; Path=/; Expires=Wed, 21 Oct 2037 07:28:00 GMT"],
+        ["set-cookie", "b=2; Path=/; HttpOnly"],
+      ],
+    });
+
+  it("keeps several Set-Cookie headers separate", async () => {
+    const own = twoCookies();
+    const out = withFrameAncestors(own, FRAME_ANCESTORS);
+    expect(out).toBe(own); // appended in place: the header list is never rebuilt
+    expect(out.headers.getSetCookie()).toEqual([
+      "a=1; Path=/; Expires=Wed, 21 Oct 2037 07:28:00 GMT",
+      "b=2; Path=/; HttpOnly",
+    ]);
+    expect(out.headers.get("content-security-policy")).toBe(`frame-ancestors ${FRAME_ANCESTORS}`);
+    expect(await out.text()).toBe("ok");
+  });
+
+  /** A response whose headers throw on write, as a `fetch()` response's do. */
+  function immutable(response: Response, opts: { getSetCookie?: boolean } = {}): Response {
+    const headers = response.headers;
+    const frozen = new Proxy(headers, {
+      get(target, prop) {
+        if (prop === "append" || prop === "set" || prop === "delete") {
+          return () => {
+            throw new TypeError("immutable");
+          };
+        }
+        if (prop === "getSetCookie" && opts.getSetCookie === false) return undefined;
+        if (prop === Symbol.iterator && opts.getSetCookie === false) {
+          // A runtime without getSetCookie joins the cookies when iterating.
+          return function* () {
+            const joined = target.getSetCookie().join(", ");
+            for (const [name, value] of target) {
+              if (name !== "set-cookie") yield [name, value];
+            }
+            if (joined !== "") yield ["set-cookie", joined];
+          };
+        }
+        const value = Reflect.get(target, prop, target);
+        return typeof value === "function" ? value.bind(target) : value;
+      },
+    });
+    Object.defineProperty(response, "headers", { value: frozen });
+    return response;
+  }
+
+  it("copies an immutable response, still keeping each Set-Cookie", async () => {
+    const own = immutable(twoCookies());
+    const out = withFrameAncestors(own, FRAME_ANCESTORS);
+    expect(out).not.toBe(own);
+    expect(out.headers.getSetCookie()).toEqual([
+      "a=1; Path=/; Expires=Wed, 21 Oct 2037 07:28:00 GMT",
+      "b=2; Path=/; HttpOnly",
+    ]);
+    expect(out.headers.get("content-type")).toBe("text/plain");
+    expect(out.headers.get("content-security-policy")).toBe(`frame-ancestors ${FRAME_ANCESTORS}`);
+    expect(await out.text()).toBe("ok");
+  });
+
+  it("copies an immutable body-less response", () => {
+    const out = withFrameAncestors(immutable(new Response(null, { status: 304 })), FRAME_ANCESTORS);
+    expect(out.status).toBe(304);
+    expect(out.headers.get("content-security-policy")).toBe(`frame-ancestors ${FRAME_ANCESTORS}`);
+  });
+
+  it("copyHeaders keeps the joined value as is when getSetCookie is missing", () => {
+    const copy = copyHeaders(immutable(twoCookies(), { getSetCookie: false }).headers);
+    expect(copy.get("content-type")).toBe("text/plain");
+    expect(copy.get("set-cookie")).toBe(
+      "a=1; Path=/; Expires=Wed, 21 Oct 2037 07:28:00 GMT, b=2; Path=/; HttpOnly",
+    );
   });
 
   it("includes localhost only for a localhost shell", () => {
