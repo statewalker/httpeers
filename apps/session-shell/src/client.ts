@@ -190,7 +190,9 @@ export interface OpenSessionOptions {
   /**
    * How long closing (or failing to open) waits for the relay to drop the
    * session's services before tearing the connection down anyway. Default
-   * `STOP_TIMEOUT_MS`.
+   * `STOP_TIMEOUT_MS`. AT THE LIMIT the connection closes regardless, and a
+   * service whose UNREGISTER had not landed may stay mounted in the session's
+   * worker -- its paths answering 410 -- until the session name is reopened.
    */
   stopTimeoutMs?: number;
 }

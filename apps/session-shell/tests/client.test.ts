@@ -97,8 +97,18 @@ describe("stopping a session's services before its connection closes (#19)", () 
           resolve();
         }, ms),
       );
-    await stopAll([later("app", 20), later("mesh", 5)], 1_000);
-    expect(settled.sort()).toEqual(["app", "mesh"]);
+    vi.useFakeTimers();
+    try {
+      const waiting = stopAll([later("app", 20), later("mesh", 5)], 1_000);
+      await vi.advanceTimersByTimeAsync(20);
+      await waiting;
+      expect(settled.sort()).toEqual(["app", "mesh"]);
+      // THE BOUND'S OWN TIMER IS CLEARED once every stop has settled, so a
+      // closed session leaves nothing pending behind it.
+      expect(vi.getTimerCount()).toBe(0);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   // A DEAD RELAY NEVER ANSWERS UNREGISTER, and the library's call has no
@@ -115,6 +125,7 @@ describe("stopping a session's services before its connection closes (#19)", () 
       await vi.advanceTimersByTimeAsync(1);
       await waiting;
       expect(done).toBe(true);
+      expect(vi.getTimerCount()).toBe(0);
     } finally {
       vi.useRealTimers();
     }

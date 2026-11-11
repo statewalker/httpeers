@@ -384,6 +384,12 @@ for (const browserName of wanted) {
         refused,
       );
 
+      // WHAT THIS CATCHES AND WHAT IT DOES NOT. It catches stops that are not
+      // awaited at all (verified: that gives the 410). It does NOT catch a bound
+      // that is too short -- even `stopTimeoutMs: 0` passes here, since a local
+      // relay answers UNREGISTER within the one zero-delay timer. The timeout
+      // path is covered by `stopAll`'s unit tests in `tests/client.test.ts`.
+      //
       // The app at `/` WAS mounted before the refusal. If its stop did not
       // reach the worker before the connection closed, the mount is still in
       // the worker's memory with no client behind it, and `/` answers the
