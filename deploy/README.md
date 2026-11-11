@@ -316,11 +316,13 @@ dig +short stun.httpeers.net AAAA     # must be empty -- see below
 ```
 
 **No AAAA for `stun` until Docker IPv6 is configured.** The service binds `0.0.0.0` (IPv4
-only), because Docker publishes IPv6 ports only with IPv6 enabled in the daemon and on the
-network. A client that resolves an AAAA record would send its IPv6 Binding requests into
-nothing — harmless for ICE (that server just yields no IPv6 `srflx` candidate) but a confusing
-half-failure. Add a wildcard or `stun` AAAA only together with Docker IPv6 and a
-`[::]:3478:3478` port binding.
+only) on purpose. A bare `3478:3478` would also listen on the host's IPv6 address, but without
+IPv6 in the daemon and on the network, docker-proxy forwards those packets into the container
+over IPv4, so the STUN server would answer an IPv6 client with a private Docker address as its
+"public" one. With the explicit IPv4 binding, a client that resolves an AAAA record sends its
+IPv6 Binding requests into nothing instead: harmless for ICE (that server just yields no IPv6
+`srflx` candidate) but a confusing half-failure. Add a wildcard or `stun` AAAA only together
+with Docker IPv6 and a `[::]:3478:3478` port binding.
 
 If the `A` answer differs from `dig +short relay.httpeers.net`, someone added an explicit
 `stun` record; it wins over the wildcard.
