@@ -9,9 +9,7 @@
     },
     "transport": "tcp",
     "keepOnPingFailure": false,
-    "cases": [
-      "small"
-    ],
+    "cases": ["small"],
     "runsRequested": 3,
     "table": {
       "per-exchange": {
@@ -97,9 +95,7 @@
     },
     "transport": "tcp",
     "keepOnPingFailure": false,
-    "cases": [
-      "small"
-    ],
+    "cases": ["small"],
     "runsRequested": 3,
     "table": {
       "per-exchange": {
@@ -185,9 +181,7 @@
     },
     "transport": "tcp",
     "keepOnPingFailure": false,
-    "cases": [
-      "small"
-    ],
+    "cases": ["small"],
     "runsRequested": 3,
     "table": {
       "per-exchange": {
@@ -273,9 +267,7 @@
     },
     "transport": "tcp",
     "keepOnPingFailure": false,
-    "cases": [
-      "small"
-    ],
+    "cases": ["small"],
     "runsRequested": 3,
     "table": {
       "per-exchange": {
@@ -361,9 +353,7 @@
     },
     "transport": "tcp",
     "keepOnPingFailure": false,
-    "cases": [
-      "small"
-    ],
+    "cases": ["small"],
     "runsRequested": 3,
     "table": {
       "per-exchange": {
@@ -449,9 +439,7 @@
     },
     "transport": "tcp",
     "keepOnPingFailure": false,
-    "cases": [
-      "small"
-    ],
+    "cases": ["small"],
     "runsRequested": 3,
     "table": {
       "per-exchange": {
@@ -537,9 +525,7 @@
     },
     "transport": "tcp",
     "keepOnPingFailure": false,
-    "cases": [
-      "small"
-    ],
+    "cases": ["small"],
     "runsRequested": 3,
     "table": {
       "per-exchange": {
