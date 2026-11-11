@@ -37,8 +37,12 @@ jobs:
       - name: Build
         run: pnpm --filter "@statewalker/httpeers-browser-conformance..." run build
 
+      # The check launches headless, which in Playwright is Chromium's headless shell: the full
+      # browser would be downloaded and never run.
       - name: Browsers
-        run: pnpm --filter @statewalker/httpeers-browser-conformance exec playwright install --with-deps chromium firefox
+        run: |
+          pnpm --filter @statewalker/httpeers-browser-conformance exec playwright install --with-deps --only-shell chromium
+          pnpm --filter @statewalker/httpeers-browser-conformance exec playwright install --with-deps firefox
 
       - name: Forwarded bodies in Chromium and Firefox
         run: pnpm --filter @statewalker/httpeers-browser-conformance run test:forwarded-body

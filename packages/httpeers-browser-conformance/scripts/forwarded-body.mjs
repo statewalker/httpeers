@@ -83,8 +83,7 @@ const MESH_RULES = ruleSet({
  * Bundle the page from SOURCES, never `dist/`: a check that ran the last build
  * would pass on a fix that was never built and fail on one that was.
  */
-async function buildPage() {
-  const outDir = await mkdtemp(join(tmpdir(), "httpeers-forwarded-body-"));
+async function buildPage(outDir) {
   const packages = join(here, "..", "..");
   const alias = ["access", "core", "libp2p", "member"].flatMap((name) => {
     const src = join(packages, `httpeers-${name}`, "src");
@@ -100,7 +99,6 @@ async function buildPage() {
     resolve: { alias },
     build: { outDir, emptyOutDir: true, minify: false, target: "es2022" },
   });
-  return outDir;
 }
 
 const TYPES = { ".html": "text/html", ".js": "text/javascript", ".css": "text/css" };
@@ -225,11 +223,18 @@ const engines = {
 };
 
 const failures = [];
-const outDir = await buildPage();
-const site = await servePage(outDir);
-const mesh = await startMesh();
+// Declared out here and filled inside the `try`, so a failure while building,
+// serving or starting the mesh still removes whatever had been set up by then.
+let outDir;
+let site;
+let mesh;
 
 try {
+  outDir = await mkdtemp(join(tmpdir(), "httpeers-forwarded-body-"));
+  await buildPage(outDir);
+  site = await servePage(outDir);
+  mesh = await startMesh();
+
   for (const name of wanted) {
     const engine = engines[name];
     if (engine == null) throw new Error(`unknown browser "${name}"`);
@@ -280,9 +285,9 @@ try {
     }
   }
 } finally {
-  await mesh.stop();
-  site.close();
-  await rm(outDir, { recursive: true, force: true });
+  await mesh?.stop();
+  site?.close();
+  if (outDir != null) await rm(outDir, { recursive: true, force: true });
 }
 
 if (failures.length > 0) {
