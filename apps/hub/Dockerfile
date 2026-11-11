@@ -18,12 +18,14 @@
 #
 # `pnpm-workspace.yaml` MUST be copied before `pnpm install`: since the
 # upstream merge (native TypeScript Biscuit), it carries
-# `onlyBuiltDependencies`, including `node-datachannel` — `@libp2p/webrtc`'s
-# native dependency, whose install script fetches a prebuilt `.node` binary.
-# pnpm 10 silently skips that script for any package not named there, and the
-# workspace looks fine until something actually imports `node-datachannel` at
-# runtime. Without this file in the build context, the image would build
-# clean and fail at the first WebRTC connection instead of at build time.
+# the catalogs, `onlyBuiltDependencies`, and the `overrides` floor for
+# `node-datachannel` (`@libp2p/webrtc`'s native dependency; 0.33.6+ carries
+# libdatachannel's DTLS startup fix). Its prebuilt `.node` binary comes from
+# the optional `@node-datachannel/<platform>` package, installed here for the
+# image's own platform (older releases fetched it from an install script,
+# which pnpm 10 skips for packages not in `onlyBuiltDependencies`). Without
+# this file in the build context, the image would not resolve the same
+# dependencies as the workspace.
 #
 # `pnpm deploy ... --legacy --config.node-linker=hoisted` (not the plain
 # isolated store `pnpm deploy` pnpm 10 defaults to): a plain deploy produces a

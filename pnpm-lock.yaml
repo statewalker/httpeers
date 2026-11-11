@@ -1000,6 +1000,9 @@ importers:
       libp2p:
         specifier: 'catalog:'
         version: 3.5.1
+      node-datachannel:
+        specifier: ^0.33.6
+        version: 0.33.6
     devDependencies:
       '@biomejs/biome':
         specifier: 'catalog:'

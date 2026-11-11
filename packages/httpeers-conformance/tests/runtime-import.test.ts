@@ -10,10 +10,13 @@
  *     Cannot find module '../../../build/Release/node_datachannel.node'
  *
  * `nodePlatform` reaches `@libp2p/webrtc`, which needs `node-datachannel`, a
- * native module whose `install` script pnpm 10 blocks unless the package is
- * named in `onlyBuiltDependencies`. It was not, so the prebuild was never
- * fetched. Nothing type-checked could ever have seen this: a `.d.ts` is
- * perfectly happy about a binary that does not exist.
+ * native module. The release of the time fetched its prebuild from an
+ * `install` script, which pnpm 10 blocks unless the package is named in
+ * `onlyBuiltDependencies`. It was not, so the prebuild was never fetched.
+ * (Today's releases ship the binary in an optional `@node-datachannel/<platform>`
+ * package instead; a missing one fails this test the same way.) Nothing
+ * type-checked could ever have seen this: a `.d.ts` is perfectly happy about a
+ * binary that does not exist.
  *
  * A compile check and a runtime check are different claims and the gap between
  * them is where this lived.

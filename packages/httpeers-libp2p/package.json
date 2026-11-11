@@ -62,7 +62,8 @@
     "@statewalker/webrun-http-streams": "catalog:",
     "@statewalker/webrun-streams": "catalog:",
     "@statewalker/webrun-streams-libp2p": "catalog:",
-    "libp2p": "catalog:"
+    "libp2p": "catalog:",
+    "node-datachannel": "catalog:"
   },
   "devDependencies": {
     "@biomejs/biome": "catalog:",

@@ -19,6 +19,9 @@ catalog:
   "@libp2p/tcp": ^11.0.28
   "@libp2p/utils": ^7.4.1
   "@libp2p/webrtc": ^7.0.2
+  # Not imported for its API: httpeers-libp2p lists it so a published consumer
+  # gets the floor too (see `overrides` below).
+  node-datachannel: ^0.33.6
   "@libp2p/websockets": ^10.1.21
   "@multiformats/multiaddr": ^13.0.3
   "@radix-ui/react-dialog": "^1.1.23"
@@ -93,15 +96,18 @@ overrides:
 
 onlyBuiltDependencies:
   - esbuild
-  # REQUIRED, not an optimisation. `@libp2p/webrtc` depends on
-  # `node-datachannel`, a native module whose `install` script fetches the
-  # prebuilt `.node` binary. pnpm 10 blocks install scripts unless the package
-  # is named here, and a blocked one fails SILENTLY at install time: the
-  # workspace looks healthy and then `@statewalker/httpeers-member/node`
-  # throws `Cannot find module '.../node_datachannel.node'` the first time
-  # anything actually imports it. Nothing that only type-checks can see this,
-  # which is why it survived until a runtime import test went looking
-  # (`httpeers-conformance/tests/runtime-import.test.ts`).
+  # A SAFEGUARD, a no-op today. `@libp2p/webrtc` depends on `node-datachannel`,
+  # a native module. Earlier releases fetched the prebuilt `.node` binary from
+  # an `install` script, which pnpm 10 blocks SILENTLY unless the package is
+  # named here: the workspace looked healthy and `@statewalker/httpeers-member/node`
+  # threw `Cannot find module '.../node_datachannel.node'` on first import
+  # (caught by `httpeers-conformance/tests/runtime-import.test.ts`). Current
+  # releases (0.33.x) have no install script: the binary ships in an optional
+  # per-platform package, `@node-datachannel/<platform>` (e.g. `linux-x64-gnu`),
+  # which pnpm installs for the running platform only. So what breaks the import
+  # now is that package missing: optional dependencies turned off, or a
+  # node_modules installed on another platform. Kept in case a release brings an
+  # install step back.
   - node-datachannel
 
 # A version is installable 3 days (in minutes) after it is published: a compromised release is
