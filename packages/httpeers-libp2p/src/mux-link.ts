@@ -39,11 +39,15 @@
  *   - **The serving side keeps the per-exchange path's bounds.** At most
  *     `maxInboundStreams` (512) exchanges at once per CONNECTION, counted
  *     across every mux on it (a port past the cap is refused, and the caller
- *     sees `PeerStreamResetError`, as for a refused stream); an exchange idle
- *     in both directions for `drainTimeoutMs` (15 s) is dropped, so a peer
- *     that withholds credit cannot pin a handler; one message on the stream is
- *     at most a frame plus headroom, and reassembly past the windows is capped
- *     at one window; a keepalive closes a mux whose peer froze.
+ *     sees `PeerStreamResetError`, as for a refused stream); an exchange whose
+ *     response write stays blocked on the caller (no window credit) for
+ *     `drainTimeoutMs` (15 s) is dropped, so a peer that withholds credit
+ *     cannot pin a handler, while a merely quiet exchange (an SSE stream
+ *     between events, a slow response head, an idle tunnel) is never dropped
+ *     for its silence, exactly as on the per-exchange path; one message on
+ *     the stream is at most a frame plus headroom, and reassembly past the
+ *     windows is capped at one window; a keepalive closes a mux whose peer
+ *     froze.
  *   - **Teardown.** `close()` (and the serving teardown) close every mux this
  *     link holds; stopping the node closes their streams, which does the same.
  *
@@ -155,9 +159,10 @@ export function resolveMuxPerPeer(option: MuxPerPeer | undefined): MuxPerPeerOpt
 }
 
 /**
- * A port the serving side closed: refused past its cap, dropped after
- * `drainTimeoutMs` idle, or torn down. Mapped to `PeerStreamResetError`, as a
- * refused or reset stream is on the per-exchange path.
+ * A port the serving side closed: refused past its cap, dropped after its
+ * response write stayed blocked for `drainTimeoutMs`, or torn down. Mapped to
+ * `PeerStreamResetError`, as a refused or reset stream is on the per-exchange
+ * path.
  */
 export class MuxPortClosedError extends Error {
   override name = "MuxPortClosedError";
@@ -190,7 +195,7 @@ export interface Libp2pMuxLinkInit {
   options: MuxPerPeerOptions;
   /** Exchanges served at once per connection, across its muxes; and the default port table. */
   maxInboundStreams: number;
-  /** A served exchange idle in both directions this long is dropped. */
+  /** A served exchange whose response write stays blocked on the caller this long is dropped. */
   drainTimeoutMs: number;
   serveOnLimitedConnection?: boolean;
   /** Whether a call to `peerId` may open its stream on a limited connection. */
@@ -413,18 +418,40 @@ export function libp2pMuxLink(init: Libp2pMuxLinkInit): ClosablePeerLink {
           const portClosed = libs.rpc.getPortCloseSignal(port);
           portClosed?.addEventListener("abort", () => (served.open -= 1), { once: true });
           const handler = handlerFor(peer);
-          // An exchange that ends abnormally (dropped idle, abandoned, failed)
+          // An exchange that ends abnormally (dropped stalled, abandoned, failed)
           // closes its port once its abort notice is posted: the notice alone
           // may sit behind a full window, leaving the caller waiting and the
           // port counted here. One that finishes ends both directions
           // (half-close) and frees the port itself.
           const closePort = () => setTimeout(() => (port as { close?: () => void }).close?.(), 0);
-          libs.rpc.serveDuplexOverPort(port, (input) => onAbnormalEnd(handler(input), closePort), {
-            maxMessageSize: maxChunkBytes,
-            // An exchange idle in both directions this long is dropped: a
-            // peer that opens ports and withholds credit pins nothing past it.
-            timeout: init.drainTimeoutMs,
-          });
+          // No idle `timeout`: silence is not a stall. A response write that
+          // stays blocked on the caller for `drainTimeoutMs` drops the
+          // exchange instead, as the per-exchange path drops a stream whose
+          // write never drains: the port closes (and stops being counted) and
+          // the handler's output is ended. The close also covers a stall on
+          // the stream's last message, after the output already finished, and
+          // a port the caller never answered the handshake for, which only its
+          // close would free otherwise (see `droppingStalledWrites`).
+          libs.rpc.serveDuplexOverPort(
+            port,
+            (input) => {
+              const output: AsyncGenerator<Uint8Array> = onAbnormalEnd(
+                droppingStalledWrites(handler(input), {
+                  rpc: libs.rpc,
+                  port,
+                  pieceBytes: maxChunkBytes,
+                  timeoutMs: init.drainTimeoutMs,
+                  onStall: () => {
+                    closePort();
+                    void output.return(undefined).catch(() => {});
+                  },
+                }),
+                closePort,
+              );
+              return output;
+            },
+            { maxMessageSize: maxChunkBytes },
+          );
           return true;
         });
         accepted.add(session);
@@ -471,6 +498,186 @@ function peerClosedPort(error: unknown): unknown {
   return error instanceof Error && error.message === PEER_CLOSED_PORT
     ? new MuxPortClosedError("the serving peer closed the exchange's port", { cause: error })
     : error;
+}
+
+/** @internal What {@link droppingStalledWrites} needs to watch one served port. */
+export interface StallWatch {
+  rpc: Pick<MuxLibs["rpc"], "getPortCloseSignal" | "portBufferedAmount" | "whenPortReady">;
+  port: MessageTarget;
+  /** Pieces this size or smaller go out as one message each. */
+  pieceBytes: number;
+  /** How long one write may stay blocked on the caller. */
+  timeoutMs: number;
+  /** Called once, when a write stayed blocked for `timeoutMs`. */
+  onStall: () => void;
+}
+
+/**
+ * The handler's output `it`, calling `onStall` once a write of it stays
+ * blocked on the caller for `timeoutMs`: the mux path's half of the
+ * per-exchange `drainTimeoutMs` contract, which bounds a write the peer does
+ * not drain and nothing else.
+ *
+ * WHAT COUNTS AS BLOCKED. The serving pump pulls the next piece only once the
+ * previous one has gone: posted and, past the window, granted credit (or, on a
+ * port that does not pipeline, confirmed by the caller). Between a piece
+ * handed to the pump and the pump's next pull, the handler is suspended and
+ * only the caller can move things on, so that gap is the wait for the caller
+ * and nothing else. A handler that is slow to produce (an SSE stream between
+ * events, a late response head) is waited on inside `next()`, where no clock
+ * runs. Output is split here into pieces that fit one message, so each gap is
+ * one message's wait, as the per-exchange path bounds each wait for drain
+ * rather than a whole body.
+ *
+ * ON THE CONFIRMED PATH the gap measures something else. Until the caller has
+ * answered the window handshake (about one round trip after the port opens),
+ * webrun-rpc sends each piece as a call that the caller confirms only once its
+ * consumer has read past it. A piece sent then is timed by the caller's read
+ * speed, not by credit: a caller that reads nothing for `timeoutMs` right at
+ * the start of a response is dropped. A caller answers the handshake whether
+ * or not it reads, so this lasts one round trip for an honest one.
+ *
+ * THE END OF THE STREAM is posted once the output is over, when nothing pulls
+ * again. Pipelined (the normal case), it is timed while the port's queue still
+ * holds bytes for want of credit; once it has left, the port waits for the
+ * caller to read it and end its own direction, which it may take its time
+ * over, as a late reader on the per-exchange path may. Sent as a confirmed
+ * call instead, the caller never answered the handshake: then neither the
+ * confirmation nor the port's release (an `end` is not agreed without the
+ * handshake, so only the caller's close frees the port) needs anything but
+ * the caller, and the port is closed if it is still open `timeoutMs` later.
+ * Without this a caller that withholds its handshake answer, its confirmation
+ * and its close keeps the port, counted against `maxInboundStreams`, for as
+ * long as the mux lives.
+ *
+ * Every timer is cleared when the wait ends, when the output ends any way, or
+ * when the port closes.
+ *
+ * @internal Exported for its tests only; not part of the package's API.
+ */
+export function droppingStalledWrites(
+  it: AsyncGenerator<Uint8Array>,
+  { rpc, port, pieceBytes, timeoutMs, onStall }: StallWatch,
+): AsyncGenerator<Uint8Array> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  let over = false;
+  const portClosed = rpc.getPortCloseSignal(port);
+  const disarm = () => {
+    if (timer !== undefined) clearTimeout(timer);
+    timer = undefined;
+  };
+  const finish = () => {
+    over = true;
+    disarm();
+    portClosed?.removeEventListener("abort", finish);
+  };
+  portClosed?.addEventListener("abort", finish, { once: true });
+  if (portClosed?.aborted) finish();
+  // The end sent as a confirmed call (see above): spotted where the pump posts
+  // it, by webrun-rpc's call shape on the handler's channel (`out`).
+  let endTimer: ReturnType<typeof setTimeout> | undefined;
+  const clearEnd = () => {
+    if (endTimer !== undefined) clearTimeout(endTimer);
+    endTimer = undefined;
+  };
+  const target = port as { postMessage(message: unknown, ...rest: unknown[]): void };
+  const post = target.postMessage;
+  target.postMessage = function (this: unknown, message: unknown, ...rest: unknown[]) {
+    const sent = message as
+      | { type?: unknown; channelName?: unknown; params?: { done?: unknown } }
+      | undefined;
+    if (
+      endTimer === undefined &&
+      portClosed != null &&
+      !portClosed.aborted &&
+      sent?.type === "request" &&
+      sent.channelName === "out" &&
+      sent.params?.done === true
+    ) {
+      portClosed.addEventListener("abort", clearEnd, { once: true });
+      endTimer = setTimeout(() => {
+        endTimer = undefined;
+        portClosed.removeEventListener("abort", clearEnd);
+        finish();
+        onStall();
+      }, timeoutMs);
+    }
+    return post.call(this, message, ...rest);
+  };
+  const arm = () => {
+    disarm();
+    if (over) return;
+    timer = setTimeout(() => {
+      timer = undefined;
+      if (over) return;
+      finish();
+      onStall();
+    }, timeoutMs);
+  };
+  /**
+   * After the output is over: on a later task (the pump posts the last piece
+   * and the end in the turns after `done`), and again each time the queue
+   * drains, a queue that still holds bytes for want of credit runs the clock.
+   */
+  const watchTail = (): void => {
+    setTimeout(() => {
+      if (over) return;
+      if (rpc.portBufferedAmount(port) === 0) {
+        finish();
+        return;
+      }
+      arm();
+      void rpc.whenPortReady(port).then(() => {
+        disarm();
+        watchTail();
+      });
+    }, 0);
+  };
+  /** The rest of the current block, still to hand out in pieces. */
+  let rest: Uint8Array | undefined;
+  const piece = (): IteratorResult<Uint8Array> => {
+    const block = rest as Uint8Array;
+    const value = block.byteLength > pieceBytes ? block.subarray(0, pieceBytes) : block;
+    rest = block.byteLength > pieceBytes ? block.subarray(pieceBytes) : undefined;
+    // Handed to the pump: until it pulls again, it waits on the caller.
+    arm();
+    return { done: false, value };
+  };
+  const out = {
+    next: async (...args: [] | [unknown]): Promise<IteratorResult<Uint8Array>> => {
+      // The pump pulled: the previous piece has gone.
+      disarm();
+      if (rest !== undefined) return piece();
+      let result: IteratorResult<Uint8Array>;
+      try {
+        result = await it.next(...args);
+      } catch (error) {
+        // The error goes out as the end of the stream, like a last piece.
+        watchTail();
+        throw error;
+      }
+      if (result.done) {
+        watchTail();
+        return result;
+      }
+      rest = result.value;
+      return piece();
+    },
+    return: (value?: unknown) => {
+      finish();
+      rest = undefined;
+      return it.return(value as never);
+    },
+    throw: (error?: unknown) => {
+      finish();
+      rest = undefined;
+      return it.throw(error);
+    },
+    [Symbol.asyncIterator]() {
+      return out;
+    },
+  };
+  return out as unknown as AsyncGenerator<Uint8Array>;
 }
 
 /**

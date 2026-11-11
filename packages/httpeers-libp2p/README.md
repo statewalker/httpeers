@@ -252,11 +252,19 @@ connection; `muxPerPeer: { fallback: false }` fails such calls with
 - at most `maxInboundStreams` (512) exchanges are served at once per
   connection, counted across all of its muxes; a port past that is refused
   and the caller gets `PeerStreamResetError`, as for a refused stream;
-- a served exchange idle in both directions for `drainTimeoutMs` (15 s) is
-  dropped, so a peer that opens ports and withholds credit pins nothing past
-  it. **Unlike the per-exchange path**, this counts any silence, not only a
-  blocked write: a handler that sends nothing for 15 s (a slow head, a quiet
-  event stream) is dropped too;
+- a served exchange whose response write stays blocked on the caller (no
+  window credit) for `drainTimeoutMs` (15 s) is dropped and its port freed,
+  so a peer that opens ports and withholds credit pins nothing past it. As on
+  the per-exchange path, only a blocked write counts: a quiet exchange (a slow
+  response head, an event stream between events, an idle tunnel) is never
+  dropped for its silence. Two qualifications. For about one round trip after
+  a port opens, until the caller answers the window handshake, a write waits
+  for the caller to READ it rather than for credit, so a caller that reads
+  nothing for `drainTimeoutMs` right at the start of a response is dropped.
+  And a caller that never answers the handshake can only free the port by
+  closing it, so the serving side closes such a port itself `drainTimeoutMs`
+  after the response has ended. A caller that did answer may read a finished
+  response as late as it likes;
 - stream chunks are split to `frameSize`, a message on the stream may be at
   most `frameSize` + 16 KiB (`maxMessageBytes`; larger aborts the stream),
   and reassembly past the windows is capped at one window
