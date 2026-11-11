@@ -257,7 +257,14 @@ connection; `muxPerPeer: { fallback: false }` fails such calls with
   so a peer that opens ports and withholds credit pins nothing past it. As on
   the per-exchange path, only a blocked write counts: a quiet exchange (a slow
   response head, an event stream between events, an idle tunnel) is never
-  dropped for its silence;
+  dropped for its silence. Two qualifications. For about one round trip after
+  a port opens, until the caller answers the window handshake, a write waits
+  for the caller to READ it rather than for credit, so a caller that reads
+  nothing for `drainTimeoutMs` right at the start of a response is dropped.
+  And a caller that never answers the handshake can only free the port by
+  closing it, so the serving side closes such a port itself `drainTimeoutMs`
+  after the response has ended. A caller that did answer may read a finished
+  response as late as it likes;
 - stream chunks are split to `frameSize`, a message on the stream may be at
   most `frameSize` + 16 KiB (`maxMessageBytes`; larger aborts the stream),
   and reassembly past the windows is capped at one window

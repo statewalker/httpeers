@@ -429,7 +429,9 @@ export function libp2pMuxLink(init: Libp2pMuxLinkInit): ClosablePeerLink {
           // exchange instead, as the per-exchange path drops a stream whose
           // write never drains: the port closes (and stops being counted) and
           // the handler's output is ended. The close also covers a stall on
-          // the stream's last message, after the output already finished.
+          // the stream's last message, after the output already finished, and
+          // a port the caller never answered the handshake for, which only its
+          // close would free otherwise (see `droppingStalledWrites`).
           libs.rpc.serveDuplexOverPort(
             port,
             (input) => {
@@ -498,9 +500,9 @@ function peerClosedPort(error: unknown): unknown {
     : error;
 }
 
-/** What {@link droppingStalledWrites} needs to watch one served port. */
-interface StallWatch {
-  rpc: MuxLibs["rpc"];
+/** @internal What {@link droppingStalledWrites} needs to watch one served port. */
+export interface StallWatch {
+  rpc: Pick<MuxLibs["rpc"], "getPortCloseSignal" | "portBufferedAmount" | "whenPortReady">;
   port: MessageTarget;
   /** Pieces this size or smaller go out as one message each. */
   pieceBytes: number;
@@ -525,14 +527,35 @@ interface StallWatch {
  * events, a late response head) is waited on inside `next()`, where no clock
  * runs. Output is split here into pieces that fit one message, so each gap is
  * one message's wait, as the per-exchange path bounds each wait for drain
- * rather than a whole body. The last piece, and the end of the stream behind
- * it, are posted once the output is over, when nothing pulls again: for them
- * the clock runs while the port's queue still holds bytes for want of credit.
+ * rather than a whole body.
+ *
+ * ON THE CONFIRMED PATH the gap measures something else. Until the caller has
+ * answered the window handshake (about one round trip after the port opens),
+ * webrun-rpc sends each piece as a call that the caller confirms only once its
+ * consumer has read past it. A piece sent then is timed by the caller's read
+ * speed, not by credit: a caller that reads nothing for `timeoutMs` right at
+ * the start of a response is dropped. A caller answers the handshake whether
+ * or not it reads, so this lasts one round trip for an honest one.
+ *
+ * THE END OF THE STREAM is posted once the output is over, when nothing pulls
+ * again. Pipelined (the normal case), it is timed while the port's queue still
+ * holds bytes for want of credit; once it has left, the port waits for the
+ * caller to read it and end its own direction, which it may take its time
+ * over, as a late reader on the per-exchange path may. Sent as a confirmed
+ * call instead, the caller never answered the handshake: then neither the
+ * confirmation nor the port's release (an `end` is not agreed without the
+ * handshake, so only the caller's close frees the port) needs anything but
+ * the caller, and the port is closed if it is still open `timeoutMs` later.
+ * Without this a caller that withholds its handshake answer, its confirmation
+ * and its close keeps the port, counted against `maxInboundStreams`, for as
+ * long as the mux lives.
  *
  * Every timer is cleared when the wait ends, when the output ends any way, or
  * when the port closes.
+ *
+ * @internal Exported for its tests only; not part of the package's API.
  */
-function droppingStalledWrites(
+export function droppingStalledWrites(
   it: AsyncGenerator<Uint8Array>,
   { rpc, port, pieceBytes, timeoutMs, onStall }: StallWatch,
 ): AsyncGenerator<Uint8Array> {
@@ -550,6 +573,37 @@ function droppingStalledWrites(
   };
   portClosed?.addEventListener("abort", finish, { once: true });
   if (portClosed?.aborted) finish();
+  // The end sent as a confirmed call (see above): spotted where the pump posts
+  // it, by webrun-rpc's call shape on the handler's channel (`out`).
+  let endTimer: ReturnType<typeof setTimeout> | undefined;
+  const clearEnd = () => {
+    if (endTimer !== undefined) clearTimeout(endTimer);
+    endTimer = undefined;
+  };
+  const target = port as { postMessage(message: unknown, ...rest: unknown[]): void };
+  const post = target.postMessage;
+  target.postMessage = function (this: unknown, message: unknown, ...rest: unknown[]) {
+    const sent = message as
+      | { type?: unknown; channelName?: unknown; params?: { done?: unknown } }
+      | undefined;
+    if (
+      endTimer === undefined &&
+      portClosed != null &&
+      !portClosed.aborted &&
+      sent?.type === "request" &&
+      sent.channelName === "out" &&
+      sent.params?.done === true
+    ) {
+      portClosed.addEventListener("abort", clearEnd, { once: true });
+      endTimer = setTimeout(() => {
+        endTimer = undefined;
+        portClosed.removeEventListener("abort", clearEnd);
+        finish();
+        onStall();
+      }, timeoutMs);
+    }
+    return post.call(this, message, ...rest);
+  };
   const arm = () => {
     disarm();
     if (over) return;
