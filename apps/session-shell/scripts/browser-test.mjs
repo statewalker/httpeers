@@ -65,13 +65,20 @@ const TYPES = {
   ".json": "application/json",
 };
 
-/** A static server; `csp` mimics the Caddy header on the shell. */
-function serve(dir, { csp, notFound } = {}) {
+/**
+ * A static server; `csp` mimics the Caddy header on the shell. `overrides`
+ * serves a few paths from elsewhere -- the short-bound worker of the #20 check.
+ */
+function serve(dir, { csp, notFound, overrides = {} } = {}) {
   const server = createServer((req, res) => {
     const path = normalize(decodeURIComponent(new URL(req.url, "http://x").pathname));
-    let file = join(dir, path === "/" ? "index.html" : path);
+    let file = overrides[path] ?? join(dir, path === "/" ? "index.html" : path);
     let status = 200;
-    if (!file.startsWith(dir) || !existsSync(file) || statSync(file).isDirectory()) {
+    if (
+      !(path in overrides || file.startsWith(dir)) ||
+      !existsSync(file) ||
+      statSync(file).isDirectory()
+    ) {
       if (notFound == null) {
         res.writeHead(404).end("not found");
         return;
@@ -87,12 +94,32 @@ function serve(dir, { csp, notFound } = {}) {
   return new Promise((resolve) => server.listen(0, "127.0.0.1", () => resolve(server)));
 }
 
+// THE WORKER WITH A SHORT CONNECT BOUND (#20), built from `src` for this run
+// only: the shipped one waits 15 s, which is the bound a viewer gets but not one
+// a suite should sit through per check. Everything else about it is the build.
+const WEDGE_BOUND_MS = 1_500;
+const wedgeOut = join(root, "dist", "test-wedge-sw");
+await build({
+  configFile: join(root, "vite.sw.config.ts"),
+  logLevel: "warn",
+  define: { __HTTPEERS_CONNECT_TIMEOUT_MS__: String(WEDGE_BOUND_MS) },
+  build: { outDir: wedgeOut, emptyOutDir: true },
+});
+
 const shell = await serve(site, {
   csp: "frame-ancestors 'self' http://localhost:* http://127.0.0.1:*",
   notFound: "index.html",
 });
 const ghost = await serve(ghostOut);
+// A THIRD ORIGIN, so the short-bound worker is a registration of its own and
+// cannot stand in for the shipped one in any check above it.
+const wedgeShell = await serve(site, {
+  csp: "frame-ancestors 'self' http://localhost:* http://127.0.0.1:*",
+  notFound: "index.html",
+  overrides: { "/relay-sw.js": join(wedgeOut, "relay-sw.js") },
+});
 const SHELL = `http://localhost:${shell.address().port}`;
+const WEDGE_SHELL = `http://localhost:${wedgeShell.address().port}`;
 const GHOST = `http://127.0.0.1:${ghost.address().port}`;
 
 const results = [];
@@ -436,12 +463,102 @@ for (const browserName of wanted) {
     } finally {
       await fresh.close();
     }
+
+    // ---- A WEDGED RELAY (#20) ------------------------------------------
+    // The relay page is alive and the app's REGISTER stands, but a CONNECT
+    // gets no reply. Without a bound in the worker every fetch in the session
+    // hangs for good; with it, each settles as a 504 shortly after the bound.
+    const wedgeContext = await browser.newContext();
+    try {
+      const page = await wedgeContext.newPage();
+      page.on("pageerror", (e) => console.log(`  [${browserName}] pageerror: ${e.message}`));
+      await page.goto(`${GHOST}/ghost.html`);
+      await page.evaluate((s) => window.openWedgeableSession(s), WEDGE_SHELL);
+      await page.evaluate((s) => window.addProbeFrame(s), WEDGE_SHELL);
+      const probe = page.frames().find((f) => f.url() === `${WEDGE_SHELL}/relay.html?probe`);
+      if (probe == null) throw new Error("no probe frame");
+
+      /** `fetch(path)` from the probe, settled or not after `ms`. */
+      const timedFetch = (path, ms) =>
+        probe.evaluate(
+          ([p, limit]) => {
+            const started = performance.now();
+            return Promise.race([
+              fetch(p, { headers: { accept: "application/json" } }).then(async (r) => ({
+                status: r.status,
+                shell: r.headers.get("x-httpeers-session"),
+                body: await r.text(),
+                ms: Math.round(performance.now() - started),
+              })),
+              new Promise((resolve) => setTimeout(() => resolve({ status: "pending" }), limit)),
+            ]);
+          },
+          [path, ms],
+        );
+
+      const healthy = await timedFetch("/", WEDGE_BOUND_MS * 4);
+      check(
+        browserName,
+        "a wedgeable session serves while it answers",
+        healthy.status === 200 && healthy.body.includes("hello from the app"),
+        `${healthy.status} ${healthy.ms}ms`,
+      );
+
+      await page.evaluate(() => window.wedgeTestSession(true));
+      const stuck = await timedFetch("/api/echo", WEDGE_BOUND_MS + 5_000);
+      check(
+        browserName,
+        "a CONNECT the relay never answers settles as a 504 at the bound, not a hang",
+        stuck.status === 504 &&
+          stuck.shell === "shell" &&
+          stuck.body.includes(`within ${WEDGE_BOUND_MS} ms`) &&
+          stuck.ms >= WEDGE_BOUND_MS - 100,
+        `${stuck.status} ${stuck.shell} ${stuck.ms}ms ${stuck.body?.slice(0, 80)}`,
+      );
+
+      // A NAVIGATION is what a viewer sees, so it gets the page, not JSON.
+      const shown = await page.evaluate(
+        (s) =>
+          new Promise((resolve) => {
+            const frame = document.createElement("iframe");
+            frame.id = "wedged";
+            frame.onload = () => resolve("loaded");
+            frame.src = `${s}/wedged-page`;
+            document.body.append(frame);
+            setTimeout(() => resolve("pending"), 8_000);
+          }),
+        WEDGE_SHELL,
+      );
+      const heading = await page
+        .frameLocator("#wedged")
+        .locator("h1")
+        .textContent({ timeout: 2_000 })
+        .catch(String);
+      check(
+        browserName,
+        "and a navigation shows the timeout page",
+        shown === "loaded" && heading === "The app did not answer",
+        `${shown} ${heading}`,
+      );
+
+      await page.evaluate(() => window.wedgeTestSession(false));
+      const recovered = await timedFetch("/", WEDGE_BOUND_MS * 4);
+      check(
+        browserName,
+        "and the session answers again once its app does",
+        recovered.status === 200 && recovered.body.includes("hello from the app"),
+        `${recovered.status} ${recovered.ms}ms`,
+      );
+    } finally {
+      await wedgeContext.close();
+    }
   } finally {
     await browser.close();
   }
 }
 
 shell.close();
+wedgeShell.close();
 ghost.close();
 const failed = results.filter((r) => !r.ok);
 console.log(`\n${results.length - failed.length}/${results.length} passed`);

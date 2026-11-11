@@ -11,11 +11,13 @@
  * ServiceWorker. So the stand-in answers with the service that got the
  * request, and with the body that arrived.
  */
+import { initHttpService, newRemoteRelayChannel } from "@statewalker/webrun-http-browser";
 import {
   APP_SERVICE_KEY,
   MESH_PREFIX,
   MESH_SERVICE_KEY,
   openSession,
+  RELAY_PATH,
   type Session,
 } from "../../src/client.js";
 
@@ -177,3 +179,43 @@ window.addProbeFrame = (shellOrigin) =>
     frame.src = new URL("/relay.html?probe", shellOrigin).href;
     document.body.append(frame);
   });
+
+declare global {
+  interface Window {
+    openWedgeableSession(shellOrigin: string): Promise<string>;
+    wedgeTestSession(wedged: boolean): void;
+  }
+}
+
+let wedged = false;
+
+/**
+ * A session whose ghost can STOP ANSWERING CONNECT while staying connected
+ * (#20): the relay page is alive, the worker's REGISTER stands, and a CONNECT
+ * simply gets no reply -- what a wedged relay page or a ghost whose keyed
+ * CONNECT listener is gone looks like from the worker.
+ *
+ * BUILT FROM THE LIBRARY'S PARTS rather than `openSession`, because the wedge
+ * has to sit between the relay's port and the service: the service listens on
+ * one end of a local channel, and a pipe carries everything across except, once
+ * wedged, a CONNECT -- dropped with its reply port, so nobody ever answers it.
+ * No iframe is added: the caller fetches from a probe frame.
+ */
+window.openWedgeableSession = async (origin) => {
+  const connection = await newRemoteRelayChannel({
+    baseUrl: new URL(`${origin}/`),
+    url: new URL(RELAY_PATH, origin),
+  });
+  const pipe = new MessageChannel();
+  connection.port.onmessage = (event) => {
+    if (wedged && event.data?.type === "CONNECT") return;
+    pipe.port2.postMessage(event.data, [...event.ports]);
+  };
+  pipe.port2.onmessage = (event) => connection.port.postMessage(event.data, [...event.ports]);
+  await initHttpService(handler, { key: APP_SERVICE_KEY, path: "/", port: pipe.port1 });
+  return origin;
+};
+
+window.wedgeTestSession = (value) => {
+  wedged = value;
+};

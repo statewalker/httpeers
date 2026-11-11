@@ -19,6 +19,8 @@
  * decides how it reads.
  */
 
+import { connectTimeoutMessage } from "./connect-deadline.js";
+
 /** Statuses a viewer can do something about, and what to tell them. */
 const EXPLAINED: Record<number, { title: string; text: string }> = {
   403: {
@@ -28,6 +30,10 @@ const EXPLAINED: Record<number, { title: string; text: string }> = {
   410: {
     title: "No app is connected",
     text: "Nothing is serving this session right now. Reopen it from the app that created it.",
+  },
+  504: {
+    title: "The app did not answer",
+    text: "The session's app is connected but did not take this request in time. Reload to try again, or reopen the session from its app.",
   },
 };
 
@@ -40,7 +46,7 @@ const EXPLAINED: Record<number, { title: string; text: string }> = {
  */
 const ENVELOPE_TYPE = "application/json";
 
-function isRelayEnvelope(response: Response): boolean {
+export function isRelayEnvelope(response: Response): boolean {
   return (response.headers.get("content-type") ?? "").includes(ENVELOPE_TYPE);
 }
 
@@ -98,6 +104,42 @@ export function sessionErrorPage(response: Response, request: Request): Response
     statusText: response.statusText,
     headers: {
       "content-type": "text/html; charset=utf-8",
+      "cache-control": "no-store",
+      "x-httpeers-session": "shell",
+    },
+  });
+}
+
+/**
+ * The answer to a request whose CONNECT timed out (`connect-deadline.ts`): a
+ * 504, as a page for a viewer and as the relay's own envelope shape for a
+ * `fetch()` caller.
+ *
+ * THE ONE PLACE THE SHELL CHOOSES A STATUS. Everywhere else the library
+ * decides and this module only rewrites how it reads; here the library has
+ * no way to say "timed out" (`serve()` makes every foreign failure a 500), so
+ * the shell says it.
+ */
+export function connectTimeoutResponse(request: Request, timeoutMs: number): Response {
+  const status = 504;
+  const statusText = "Gateway Timeout";
+  if (wantsHtml(request)) {
+    const page = sessionErrorPage(
+      new Response("{}", { status, statusText, headers: { "content-type": ENVELOPE_TYPE } }),
+      request,
+    );
+    if (page != null) return page;
+  }
+  const body = JSON.stringify({
+    status,
+    statusText,
+    message: connectTimeoutMessage(timeoutMs),
+  });
+  return new Response(body, {
+    status,
+    statusText,
+    headers: {
+      "content-type": ENVELOPE_TYPE,
       "cache-control": "no-store",
       "x-httpeers-session": "shell",
     },

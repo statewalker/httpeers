@@ -59,6 +59,7 @@ shell's whole footprint.
 | `src/policy.ts` | zones, allowed parent origins, `SESSION_SERVICE_KEYS`, navigation check |
 | `src/client.ts` | `openSession`, `reservedPlaceholders` — the `./client` export |
 | `src/errors.ts` | relay failures as readable pages |
+| `src/connect-deadline.ts` | the 15 s bound on the relay's CONNECT: a wedged relay answers 504, not a hang |
 | `scripts/deploy.mjs`, `scripts/browser-test.mjs`, `scripts/live-check.mjs` | publish, browser test, live check |
 
 ## How to run it
@@ -78,7 +79,10 @@ connection** — the app at `/` and a stand-in for the mesh at `/peers/`, each a
 with which of them got the request and with the un-stripped pathname it was given — a
 root-absolute script and a POST with a body, a stopped worker restarting (Chromium), the
 shell's own files bypassing the app, a second ghost refused, a key outside the allowlist
-refused, a top-level visit refused, and the session freed once its ghost is gone. It serves every session
+refused, a top-level visit refused, the session freed once its ghost is gone, and a wedged
+relay -- alive, registered, never answering CONNECT -- failing its fetches as a 504 at the
+bound instead of hanging them (with a worker built for the run with a 1.5 s bound, on a third
+origin). It serves every session
 name from ONE local origin, so it proves the protocol, not the per-name isolation. A
 shell served from `localhost` accepts `localhost` parents; the deployed rule never does.
 
@@ -217,6 +221,17 @@ too. What `src/sw.ts` adds is what the library cannot know:
   library's JSON envelope — a session's `index.html` is a navigation. Only the relay's
   *own* envelope is rewritten: `decorateResponse` also carries the app's answers, so an
   app's own 404 page and its redirects pass through untouched.
+- **A CONNECT the relay page does not answer fails at 15 s, as a 504** (`src/connect-deadline.ts`,
+  #20). The library's `serve()` awaits the CONNECT with no bound, and the ghost's deadline
+  covers only its handler, so a relay page that is alive but not answering -- or a ghost
+  whose keyed listener is gone -- would leave every fetch in the session pending for good.
+  The library is handed a view of `self` whose clients answer an overdue CONNECT for the
+  relay page, with an error, so `serve()` settles through its own catch; the 500 it makes
+  of that becomes the 504 (a page for a navigation). Only the CONNECT is bounded, never the
+  handler after it. The bound is a build-time constant (`__HTTPEERS_CONNECT_TIMEOUT_MS__`),
+  not a URL parameter: a parameter on the worker's URL would let any page that frames the
+  relay re-install the worker with a bound of its choosing. The right home for it is an
+  option on the library's `serve()`; until it has one, this is the shell's.
 
 ## What will surprise you
 
