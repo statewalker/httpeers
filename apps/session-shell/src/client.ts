@@ -137,6 +137,41 @@ export function reservedPlaceholders(
     .map((key) => ({ key, handler: refuseReservedKey }));
 }
 
+/** How long `stopAll` waits for the relay by default: 5 s. */
+export const STOP_TIMEOUT_MS = 5_000;
+
+/**
+ * Run every stop and wait until they have all settled, or `ms` has passed.
+ *
+ * WAITED FOR, BECAUSE CLOSING FIRST LEAVES A GHOST MOUNT (#19). A stop sends
+ * UNREGISTER over the connection and settles once the relay answered it.
+ * Closing the connection before that tears the ports down under the message:
+ * the worker never hears it, keeps the mount in its in-memory table, and
+ * later finds no live client behind it -- so that path answers 410 until the
+ * session name is opened again.
+ *
+ * BOUNDED, BECAUSE NOTHING ELSE IS. The library's channel call has no timeout
+ * of its own, so a relay that died (its iframe gone, its worker wedged) would
+ * hold `close()` -- and an `openSession` that is already failing -- forever.
+ * Past `ms` the caller closes anyway: the mount may then linger, which is what
+ * would have happened without the wait, and no worse. Never rejects -- a stop
+ * that failed is logged by the library and is no reason to keep the
+ * connection open.
+ */
+export async function stopAll(stops: Array<() => Promise<void>>, ms: number): Promise<void> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  try {
+    await Promise.race([
+      Promise.allSettled(stops.map(async (stop) => stop())),
+      new Promise<void>((resolve) => {
+        timer = setTimeout(resolve, ms);
+      }),
+    ]);
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
 export interface OpenSessionOptions {
   /** What this session serves, and where. */
   services: SessionService[];
@@ -152,6 +187,14 @@ export interface OpenSessionOptions {
   container?: HTMLElement;
   /** How long the relay may take to accept the app. Default 20 s. */
   timeoutMs?: number;
+  /**
+   * How long closing (or failing to open) waits for the relay to drop the
+   * session's services before tearing the connection down anyway. Default
+   * `STOP_TIMEOUT_MS`. AT THE LIMIT the connection closes regardless, and a
+   * service whose UNREGISTER had not landed may stay mounted in the session's
+   * worker -- its paths answering 410 -- until the session name is reopened.
+   */
+  stopTimeoutMs?: number;
 }
 
 export interface Session {
@@ -181,6 +224,7 @@ export async function openSession(options: OpenSessionOptions): Promise<Session>
   // origin check -- the iframe still fires `load` and the REGISTER call below
   // simply never gets an answer.
   const timeoutMs = options.timeoutMs ?? 20_000;
+  const stopTimeoutMs = options.stopTimeoutMs ?? STOP_TIMEOUT_MS;
   let timer: ReturnType<typeof setTimeout> | undefined;
   const stops: Array<() => Promise<void>> = [];
   try {
@@ -219,9 +263,10 @@ export async function openSession(options: OpenSessionOptions): Promise<Session>
       );
     }
   } catch (error) {
-    // Each stop settles once the relay has dropped its service; closing the
-    // connection first would tear the ports down before UNREGISTER lands.
-    await Promise.all(stops.map((stop) => stop()));
+    // A LATER SERVICE WAS REFUSED, and the earlier ones are live. Each stop
+    // settles once the relay has dropped its service -- see `stopAll` for why
+    // closing before that point leaves a mount answering 410.
+    await stopAll(stops, stopTimeoutMs);
     connection.close();
     throw error;
   } finally {
@@ -233,7 +278,7 @@ export async function openSession(options: OpenSessionOptions): Promise<Session>
     origin,
     url: (path = "/") => new URL(path, `${origin}/`).href,
     async close() {
-      await Promise.all(stops.map((stop) => stop()));
+      await stopAll(stops, stopTimeoutMs);
       connection.close();
     },
   };

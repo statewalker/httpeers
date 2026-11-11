@@ -365,6 +365,77 @@ for (const browserName of wanted) {
       .textContent({ timeout: 15_000 })
       .catch(String);
     check(browserName, "and the new app serves it", again === "hello from the app", again);
+
+    // ---- A LATER SERVICE REFUSED (#19) ---------------------------------
+    // A FRESH CONTEXT: its own worker and registry, so nothing "alpha" left
+    // behind can stand in for (or hide) what this failure leaves.
+    const fresh = await browser.newContext();
+    try {
+      const failing = await fresh.newPage();
+      failing.on("pageerror", (e) => console.log(`  [${browserName}] pageerror: ${e.message}`));
+      await failing.goto(`${GHOST}/ghost.html`);
+      const refused = await failing
+        .evaluate((s) => window.failTestSession(s, "gamma", "evil"), SHELL)
+        .catch(String);
+      check(
+        browserName,
+        "a session whose second service is refused fails to open",
+        refused.includes('may not register "evil"'),
+        refused,
+      );
+
+      // WHAT THIS CATCHES AND WHAT IT DOES NOT. It catches stops that are not
+      // awaited at all (verified: that gives the 410). It does NOT catch a bound
+      // that is too short -- even `stopTimeoutMs: 0` passes here, since a local
+      // relay answers UNREGISTER within the one zero-delay timer. The timeout
+      // path is covered by `stopAll`'s unit tests in `tests/client.test.ts`.
+      //
+      // The app at `/` WAS mounted before the refusal. If its stop did not
+      // reach the worker before the connection closed, the mount is still in
+      // the worker's memory with no client behind it, and `/` answers the
+      // relay's 410 instead of falling through to the network -- which, for a
+      // path that is no file of the shell's, is the local server's 404 page.
+      await failing.evaluate((s) => window.addProbeFrame(s), SHELL);
+      const probe = failing.frames().find((f) => f.url() === `${SHELL}/relay.html?probe`);
+      const after = probe
+        ? await probe.evaluate(async () => {
+            const controlled = navigator.serviceWorker.controller != null;
+            const r = await fetch("/after-the-refusal");
+            return `${controlled ? "controlled" : "uncontrolled"} ${r.status} ${r.headers.get("content-type")}`;
+          })
+        : "no probe frame";
+      check(
+        browserName,
+        "and leaves no mount behind: its paths are the network's again, not a 410",
+        // CONTROLLED, or the fetch never met the worker and proves nothing.
+        after.startsWith("controlled 404 text/html"),
+        after,
+      );
+
+      const retried = await failing
+        .evaluate(
+          (s) =>
+            window.openTestSession(s, "gamma").then(
+              () => "opened",
+              (e) => String(e),
+            ),
+          SHELL,
+        )
+        .catch(String);
+      const served = await failing
+        .frameLocator("#session")
+        .locator("#hello")
+        .textContent({ timeout: 15_000 })
+        .catch(String);
+      check(
+        browserName,
+        "and the name opens cleanly afterwards",
+        retried === "opened" && served === "hello from the app",
+        `${retried} / ${served}`,
+      );
+    } finally {
+      await fresh.close();
+    }
   } finally {
     await browser.close();
   }

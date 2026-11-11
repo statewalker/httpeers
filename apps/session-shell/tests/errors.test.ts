@@ -89,7 +89,7 @@ describe("the page a session shows when the relay cannot answer", () => {
   // both say "rewrite this" and the ONLY thing that stops it is `ok`. The case
   // that used to stand here was a 304, which returns through the 3xx guard --
   // so it stayed green when the null-body line was deleted, which is how that
-  // line survived unreachable. 304 itself is covered by the 3xx loop below.
+  // line survived unreachable. 304 itself is pinned by the 3xx test below.
   it.each([204, 205])("does not give %i a body, though it looks rewritable", (status) => {
     expect(sessionErrorPage(nullBodyEnvelope(status), acceptHeaderNavigation())).toBeNull();
   });
@@ -143,6 +143,14 @@ describe("the page a session shows when the relay cannot answer", () => {
     for (const status of [301, 302, 303, 307, 308]) {
       expect(sessionErrorPage(envelope(status), acceptHeaderNavigation())).toBeNull();
     }
+  });
+
+  // 304 IS A 3XX WITH A NULL BODY, so it cannot join the loop above
+  // (`new Response("{}", { status: 304 })` throws). It is the case that
+  // returns through the 3xx guard alone, ahead of the `ok` line.
+  it("leaves a 304 alone, and gives it no body", () => {
+    expect(sessionErrorPage(nullBodyEnvelope(304), acceptHeaderNavigation())).toBeNull();
+    expect(sessionErrorPage(nullBodyEnvelope(304), navigationByMode() as Request)).toBeNull();
   });
 
   // The behaviour that must SURVIVE the discriminator: the relay's own

@@ -128,3 +128,52 @@ window.tryTestService = async (shellOrigin, name, key, path) => {
     return String(error);
   }
 };
+
+declare global {
+  interface Window {
+    failTestSession(shellOrigin: string, name: string, refusedKey: string): Promise<string>;
+    addProbeFrame(shellOrigin: string): Promise<void>;
+  }
+}
+
+/**
+ * Open a session whose SECOND service the worker refuses, and say what
+ * happened: `"opened"`, or the error.
+ *
+ * THE PARTIAL FAILURE #19 IS ABOUT. The app at `/` registers and mounts; the
+ * next service (a key off the session's allowlist) is refused, so
+ * `openSession` has to tear the app back down before it closes the
+ * connection. Whether it did is what the probe frame checks next.
+ */
+window.failTestSession = async (shellOrigin, name, refusedKey) => {
+  try {
+    await openSession({
+      name,
+      origin: () => shellOrigin,
+      services: [
+        { key: APP_SERVICE_KEY, path: "/", handler },
+        { key: refusedKey, path: "/refused/", handler },
+      ],
+      timeoutMs: 15_000,
+    });
+    return "opened";
+  } catch (error) {
+    return String(error);
+  }
+};
+
+/**
+ * A frame in the shell origin that is NOT a session's app: the relay page,
+ * framed but never handed a port. It is controlled by the worker, so a
+ * `fetch()` from it is routed exactly as an app's would be -- which is how a
+ * test sees the worker's mount table with no app connected.
+ */
+window.addProbeFrame = (shellOrigin) =>
+  new Promise<void>((resolve, reject) => {
+    const frame = document.createElement("iframe");
+    frame.id = "probe";
+    frame.onload = () => resolve();
+    frame.onerror = () => reject(new Error("probe frame did not load"));
+    frame.src = new URL("/relay.html?probe", shellOrigin).href;
+    document.body.append(frame);
+  });
