@@ -288,13 +288,35 @@ export function muxTargetOverStream(
 
 /**
  * What frames posted in one task are gathered into before they go out as one
- * `stream.send()`: just under one Noise message (65519 bytes of payload) less
- * a yamux header, so a batch is one yamux frame, one Noise message and one
- * socket write. A frame this large or larger goes out on its own. Gathering
- * waits for the next task at most, never for more data, and for
- * {@link GATHER_MS} at most within a long task.
+ * `stream.send()`: one yamux frame, one Noise message and one socket write. A
+ * frame this large or larger goes out on its own. Gathering waits for the
+ * next task at most, never for more data, and for {@link GATHER_MS} at most
+ * within a long task.
+ *
+ * WHY 16 KiB AND NOT A WHOLE NOISE MESSAGE (65519 bytes; #56). The far side
+ * can decrypt a Noise message, and so read any frame in it, only once all of
+ * it has arrived. Where TCP's congestion window is a few segments (1% or 3%
+ * loss), a 64 KB batch (45 segments) took several round trips to arrive, and
+ * every frame in it, the first exchange's answer as much as the last's, was
+ * read at the end of them, together: the far side then answered them
+ * together, and the exchanges moved in lock-step bursts, one direction at a
+ * time. With 100 concurrent 256 B exchanges on a 10 Mbit / 80 ms / 1% loss
+ * link, batches of up to 64 KB gave a median of 165/s over 10 runs
+ * (147-196) and batches of up to 16 KiB 235/s (205-300), the per-exchange
+ * path about 155/s (`scripts/bench-mux-net.mjs`). 16 KiB is about one round
+ * trip's worth of segments at such a window (11 segments); 1.4 KB and 4 KiB
+ * batches measured the same as 16 KiB within the noise.
+ *
+ * WHAT IT COSTS. Bulk frames no longer share a send: at the old limit two
+ * frames of the default size (31837 bytes each with their envelopes) went as
+ * one, now each goes alone, so bulk takes up to twice the sends, yamux
+ * frames and Noise messages. Bulk throughput did not change measurably (on
+ * loopback 141 MB/s against 139; on the emulated links 682, 47.0, 9.4 and
+ * 18.3 Mbit/s against 688, 47.0, 9.4 and 18.4). Frames of 8-16 KiB, which
+ * went four to six to a send, now go one per send; their cost was not
+ * measured.
  */
-const COALESCE_BYTES = 65_519 - 12 - 3;
+const COALESCE_BYTES = 16 * 1024;
 
 /**
  * How long a gathered frame may wait within one task: the next frame posted

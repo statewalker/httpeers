@@ -1,0 +1,1228 @@
+{
+  "about": "Issue #56, the mux's small-exchange rate on lossy links. --out JSON of scripts/bench-mux-net.mjs, TCP, mux 256 KiB, written by the script and merged here unchanged. 'before' is the mux as on main before chunk-gather.ts and the 16 KiB gathering limit (same session); 'after' is with both. 'k100Only' are --ks 100 runs on the mobile profile (1% loss) used to separate the two changes; for the rows that vary the gathering limit, mux-target.js in dist was patched to that limit for the run.",
+  "before": {
+    "mobile": {
+      "link": {
+        "rate": 10,
+        "delay": 40,
+        "jitter": 10,
+        "loss": 0.01,
+        "queue": 200
+      },
+      "transport": "tcp",
+      "keepOnPingFailure": false,
+      "cases": ["small"],
+      "runsRequested": 5,
+      "table": {
+        "mux 256 KiB": {
+          "smallK1": 7.15696149040908,
+          "smallK10": 41.712542694113594,
+          "smallK100": 109.31435547805343,
+          "runs": 5
+        }
+      },
+      "raw": {
+        "mux 256 KiB": [
+          {
+            "smallK1": 7.15696149040908,
+            "smallK10": 40.227178631085344,
+            "smallK100": 88.84776564073194
+          },
+          {
+            "smallK1": 7.348955663475668,
+            "smallK10": 41.712542694113594,
+            "smallK100": 109.31435547805343
+          },
+          {
+            "smallK1": 6.2068045896205675,
+            "smallK10": 47.69828243435105,
+            "smallK100": 119.46487680731661
+          },
+          {
+            "smallK1": 7.538143388403657,
+            "smallK10": 38.2314901388973,
+            "smallK100": 109.9496553718553
+          },
+          {
+            "smallK1": 5.113667073576235,
+            "smallK10": 42.46590027135286,
+            "smallK100": 96.95611512915364
+          }
+        ]
+      }
+    },
+    "bad": {
+      "link": {
+        "rate": 2,
+        "delay": 100,
+        "jitter": 0,
+        "loss": 0.03,
+        "queue": 500
+      },
+      "transport": "tcp",
+      "keepOnPingFailure": false,
+      "cases": ["small"],
+      "runsRequested": 5,
+      "table": {
+        "mux 256 KiB": {
+          "smallK1": 1.6631518339028022,
+          "smallK10": 12.842323311388274,
+          "smallK100": 25.447238991466392,
+          "runs": 5
+        }
+      },
+      "raw": {
+        "mux 256 KiB": [
+          {
+            "smallK1": 1.5295646753944505,
+            "smallK10": 9.84942755929277,
+            "smallK100": 18.097418583398877
+          },
+          {
+            "smallK1": 1.7556352606834964,
+            "smallK10": 14.014623562693727,
+            "smallK100": 18.356372904894858
+          },
+          {
+            "smallK1": 1.6631518339028022,
+            "smallK10": 14.255619582902447,
+            "smallK100": 34.2988251071167
+          },
+          {
+            "smallK1": 2.059502865284945,
+            "smallK10": 12.842323311388274,
+            "smallK100": 25.447238991466392
+          },
+          {
+            "smallK1": 1.512624116435715,
+            "smallK10": 12.308428732976227,
+            "smallK100": 28.16491956099508
+          }
+        ]
+      }
+    }
+  },
+  "after": {
+    "mobile": {
+      "link": {
+        "rate": 10,
+        "delay": 40,
+        "jitter": 10,
+        "loss": 0.01,
+        "queue": 200
+      },
+      "transport": "tcp",
+      "keepOnPingFailure": false,
+      "cases": ["small"],
+      "runsRequested": 5,
+      "table": {
+        "per-exchange": {
+          "smallK1": 2.926017519666446,
+          "smallK10": 20.671430885133507,
+          "smallK100": 147.5636026570132,
+          "runs": 5
+        },
+        "mux 256 KiB": {
+          "smallK1": 7.820056240839607,
+          "smallK10": 45.29139110098806,
+          "smallK100": 240.87180910864004,
+          "runs": 5
+        }
+      },
+      "raw": {
+        "per-exchange": [
+          {
+            "smallK1": 2.926017519666446,
+            "smallK10": 19.87257789170344,
+            "smallK100": 143.50222326083545
+          },
+          {
+            "smallK1": 3.5675524605509965,
+            "smallK10": 22.425236068087838,
+            "smallK100": 126.17383140005401
+          },
+          {
+            "smallK1": 2.7006539042757614,
+            "smallK10": 20.500207963315695,
+            "smallK100": 156.04601305710042
+          },
+          {
+            "smallK1": 3.8419345442385016,
+            "smallK10": 22.756153032487937,
+            "smallK100": 147.5636026570132
+          },
+          {
+            "smallK1": 2.756759046740085,
+            "smallK10": 20.671430885133507,
+            "smallK100": 166.25602215781322
+          }
+        ],
+        "mux 256 KiB": [
+          {
+            "smallK1": 8.581636829864427,
+            "smallK10": 47.65865717926086,
+            "smallK100": 209.26984276897196
+          },
+          {
+            "smallK1": 7.820056240839607,
+            "smallK10": 44.72746905951469,
+            "smallK100": 275.7601756124524
+          },
+          {
+            "smallK1": 5.940727061109214,
+            "smallK10": 47.739014426164886,
+            "smallK100": 185.3403901962423
+          },
+          {
+            "smallK1": 8.183131518542108,
+            "smallK10": 45.29139110098806,
+            "smallK100": 240.87180910864004
+          },
+          {
+            "smallK1": 6.654565501100196,
+            "smallK10": 44.65757471974306,
+            "smallK100": 268.55620687353553
+          }
+        ]
+      }
+    },
+    "bad": {
+      "link": {
+        "rate": 2,
+        "delay": 100,
+        "jitter": 0,
+        "loss": 0.03,
+        "queue": 500
+      },
+      "transport": "tcp",
+      "keepOnPingFailure": false,
+      "cases": ["small"],
+      "runsRequested": 5,
+      "table": {
+        "per-exchange": {
+          "smallK1": 0.8504207622340598,
+          "smallK10": 7.239445264133932,
+          "smallK100": 38.20623444,
+          "runs": 5
+        },
+        "mux 256 KiB": {
+          "smallK1": 1.7493339868454956,
+          "smallK10": 13.055563144278539,
+          "smallK100": 39.630862142748676,
+          "runs": 5
+        }
+      },
+      "raw": {
+        "per-exchange": [
+          {
+            "smallK1": 0.8154896251200595,
+            "smallK10": 7.386235319745952,
+            "smallK100": 38.20623444
+          },
+          {
+            "smallK1": 0.7826860637067656,
+            "smallK10": 6.99106164006093,
+            "smallK100": 35.46211313481899
+          },
+          {
+            "smallK1": 0.9035537003766884,
+            "smallK10": 8.663978611852874,
+            "smallK100": 52.335615306550984
+          },
+          {
+            "smallK1": 0.8504207622340598,
+            "smallK10": 7.213518745489187,
+            "smallK100": 38.34328594392341
+          },
+          {
+            "smallK1": 0.9369961604742689,
+            "smallK10": 7.239445264133932,
+            "smallK100": 34.675141591207534
+          }
+        ],
+        "mux 256 KiB": [
+          {
+            "smallK1": 1.4480742253229955,
+            "smallK10": 12.509941242206489,
+            "smallK100": 42.17580135251899
+          },
+          {
+            "smallK1": 2.0139207700077466,
+            "smallK10": 13.055563144278539,
+            "smallK100": 39.630862142748676
+          },
+          {
+            "smallK1": 1.6791116504602264,
+            "smallK10": 14.731904037194232,
+            "smallK100": 38.824780562278036
+          },
+          {
+            "smallK1": 1.7493339868454956,
+            "smallK10": 11.640885750346763,
+            "smallK100": 38.00380177272718
+          },
+          {
+            "smallK1": 1.7819132890807923,
+            "smallK10": 18.448137824057476,
+            "smallK100": 57.27748962721268
+          }
+        ]
+      }
+    }
+  },
+  "afterOtherProfiles": {
+    "lan": {
+      "link": {
+        "rate": 1000,
+        "delay": 0.5,
+        "jitter": 0,
+        "loss": 0,
+        "queue": 5
+      },
+      "transport": "tcp",
+      "keepOnPingFailure": false,
+      "cases": ["small"],
+      "runsRequested": 3,
+      "table": {
+        "per-exchange": {
+          "smallK1": 165.7447897638587,
+          "smallK10": 763.303524201568,
+          "smallK100": 1364.1514329941144,
+          "runs": 3
+        },
+        "mux 256 KiB": {
+          "smallK1": 271.0461620929651,
+          "smallK10": 1337.6608332532826,
+          "smallK100": 3060.0977240013826,
+          "runs": 3
+        }
+      },
+      "raw": {
+        "per-exchange": [
+          {
+            "smallK1": 162.32943434264985,
+            "smallK10": 763.303524201568,
+            "smallK100": 1364.1514329941144
+          },
+          {
+            "smallK1": 169.20043197762917,
+            "smallK10": 751.7495426358278,
+            "smallK100": 1303.8747563372929
+          },
+          {
+            "smallK1": 165.7447897638587,
+            "smallK10": 829.0472275917746,
+            "smallK100": 1375.447646834653
+          }
+        ],
+        "mux 256 KiB": [
+          {
+            "smallK1": 271.0461620929651,
+            "smallK10": 1288.2698509643606,
+            "smallK100": 3137.3449261800006
+          },
+          {
+            "smallK1": 268.06164490372794,
+            "smallK10": 1398.9111199001493,
+            "smallK100": 3060.0977240013826
+          },
+          {
+            "smallK1": 275.8961034132381,
+            "smallK10": 1337.6608332532826,
+            "smallK100": 2888.159218834013
+          }
+        ]
+      }
+    },
+    "broadband": {
+      "link": {
+        "rate": 50,
+        "delay": 15,
+        "jitter": 0,
+        "loss": 0.001,
+        "queue": 100
+      },
+      "transport": "tcp",
+      "keepOnPingFailure": false,
+      "cases": ["small"],
+      "runsRequested": 3,
+      "table": {
+        "per-exchange": {
+          "smallK1": 14.031671029428285,
+          "smallK10": 79.1232865555584,
+          "smallK100": 712.2855017256137,
+          "runs": 3
+        },
+        "mux 256 KiB": {
+          "smallK1": 29.039540554378974,
+          "smallK10": 217.97634479678328,
+          "smallK100": 1379.805468903461,
+          "runs": 3
+        }
+      },
+      "raw": {
+        "per-exchange": [
+          {
+            "smallK1": 14.031671029428285,
+            "smallK10": 79.1232865555584,
+            "smallK100": 780.9448323393061
+          },
+          {
+            "smallK1": 12.576201262494168,
+            "smallK10": 80.68426199640774,
+            "smallK100": 697.6005507997338
+          },
+          {
+            "smallK1": 14.125984664554972,
+            "smallK10": 76.22671072017452,
+            "smallK100": 712.2855017256137
+          }
+        ],
+        "mux 256 KiB": [
+          {
+            "smallK1": 26.38853692451666,
+            "smallK10": 217.97634479678328,
+            "smallK100": 1379.805468903461
+          },
+          {
+            "smallK1": 29.039540554378974,
+            "smallK10": 221.77397047660267,
+            "smallK100": 1397.085578915883
+          },
+          {
+            "smallK1": 29.434631247145397,
+            "smallK10": 197.70775286480045,
+            "smallK100": 1254.0389510260925
+          }
+        ]
+      }
+    },
+    "broadband-noloss": {
+      "link": {
+        "rate": 50,
+        "delay": 15,
+        "jitter": 0,
+        "loss": 0,
+        "queue": 100
+      },
+      "transport": "tcp",
+      "keepOnPingFailure": false,
+      "cases": ["small"],
+      "runsRequested": 3,
+      "table": {
+        "per-exchange": {
+          "smallK1": 15.247827024546819,
+          "smallK10": 153.75334590417728,
+          "smallK100": 1006.2341944174735,
+          "runs": 3
+        },
+        "mux 256 KiB": {
+          "smallK1": 29.528531994163423,
+          "smallK10": 291.097542941127,
+          "smallK100": 1928.2503641481367,
+          "runs": 3
+        }
+      },
+      "raw": {
+        "per-exchange": [
+          {
+            "smallK1": 15.149997683192813,
+            "smallK10": 153.78313013146533,
+            "smallK100": 1006.2341944174735
+          },
+          {
+            "smallK1": 15.25389290627468,
+            "smallK10": 153.75334590417728,
+            "smallK100": 1025.0144131182853
+          },
+          {
+            "smallK1": 15.247827024546819,
+            "smallK10": 153.2117883787886,
+            "smallK100": 954.5128156012139
+          }
+        ],
+        "mux 256 KiB": [
+          {
+            "smallK1": 29.528531994163423,
+            "smallK10": 291.097542941127,
+            "smallK100": 1874.820183952973
+          },
+          {
+            "smallK1": 29.56537272520174,
+            "smallK10": 289.1247374976129,
+            "smallK100": 1968.8466061370361
+          },
+          {
+            "smallK1": 29.460216084583216,
+            "smallK10": 292.3682954311725,
+            "smallK100": 1928.2503641481367
+          }
+        ]
+      }
+    },
+    "mobile-noloss": {
+      "link": {
+        "rate": 10,
+        "delay": 40,
+        "jitter": 10,
+        "loss": 0,
+        "queue": 200
+      },
+      "transport": "tcp",
+      "keepOnPingFailure": false,
+      "cases": ["small"],
+      "runsRequested": 3,
+      "table": {
+        "per-exchange": {
+          "smallK1": 5.953933596502598,
+          "smallK10": 54.55376173271238,
+          "smallK100": 451.10609583466794,
+          "runs": 3
+        },
+        "mux 256 KiB": {
+          "smallK1": 11.788962354307495,
+          "smallK10": 110.82450210736155,
+          "smallK100": 865.4933048422331,
+          "runs": 3
+        }
+      },
+      "raw": {
+        "per-exchange": [
+          {
+            "smallK1": 5.9984860092212084,
+            "smallK10": 54.18332993768874,
+            "smallK100": 448.065483744711
+          },
+          {
+            "smallK1": 5.903144346849065,
+            "smallK10": 54.67531891559937,
+            "smallK100": 451.10609583466794
+          },
+          {
+            "smallK1": 5.953933596502598,
+            "smallK10": 54.55376173271238,
+            "smallK100": 459.1919481369831
+          }
+        ],
+        "mux 256 KiB": [
+          {
+            "smallK1": 11.788962354307495,
+            "smallK10": 109.46916744270871,
+            "smallK100": 865.4933048422331
+          },
+          {
+            "smallK1": 11.557021600143509,
+            "smallK10": 110.82450210736155,
+            "smallK100": 874.7736644968271
+          },
+          {
+            "smallK1": 11.86039228781605,
+            "smallK10": 112.13288457839786,
+            "smallK100": 859.5430203970842
+          }
+        ]
+      }
+    },
+    "longfat": {
+      "link": {
+        "rate": 100,
+        "delay": 50,
+        "jitter": 0,
+        "loss": 0,
+        "queue": 50
+      },
+      "transport": "tcp",
+      "keepOnPingFailure": false,
+      "cases": ["small"],
+      "runsRequested": 3,
+      "table": {
+        "per-exchange": {
+          "smallK1": 4.794394281825087,
+          "smallK10": 46.56851377907393,
+          "smallK100": 450.8097439987658,
+          "runs": 3
+        },
+        "mux 256 KiB": {
+          "smallK1": 9.550120918525428,
+          "smallK10": 95.15872716638133,
+          "smallK100": 828.8717594235902,
+          "runs": 3
+        }
+      },
+      "raw": {
+        "per-exchange": [
+          {
+            "smallK1": 4.794394281825087,
+            "smallK10": 46.46891136999871,
+            "smallK100": 447.84473281050253
+          },
+          {
+            "smallK1": 4.77988745761195,
+            "smallK10": 46.57296578803938,
+            "smallK100": 450.9411860250821
+          },
+          {
+            "smallK1": 4.805236107790496,
+            "smallK10": 46.56851377907393,
+            "smallK100": 450.8097439987658
+          }
+        ],
+        "mux 256 KiB": [
+          {
+            "smallK1": 9.550120918525428,
+            "smallK10": 95.15872716638133,
+            "smallK100": 864.4051538040143
+          },
+          {
+            "smallK1": 9.575683136643848,
+            "smallK10": 95.303746114886,
+            "smallK100": 823.7101580802467
+          },
+          {
+            "smallK1": 9.542886013953428,
+            "smallK10": 94.4996411354151,
+            "smallK100": 828.8717594235902
+          }
+        ]
+      }
+    }
+  },
+  "afterBulk": {
+    "lan": {
+      "link": {
+        "rate": 1000,
+        "delay": 0.5,
+        "jitter": 0,
+        "loss": 0,
+        "queue": 5
+      },
+      "transport": "tcp",
+      "keepOnPingFailure": false,
+      "cases": ["bulk"],
+      "runsRequested": 1,
+      "table": {
+        "mux 256 KiB": {
+          "bulkAloneMbit": 681.6813517737698,
+          "pingBulkP50": 3.578631999999743,
+          "pingBulkP99": 8.238655000000108,
+          "pingBulkN": 200,
+          "blobBulkFirstP50": 2.868384000000333,
+          "blobBulkFirstP99": 6.480477000000064,
+          "blobBulkWholeP50": 3.3232590000006894,
+          "blobBulkWholeP99": 7.140739999999823,
+          "blobBulkN": 40,
+          "runs": 1
+        }
+      },
+      "raw": {
+        "mux 256 KiB": [
+          {
+            "bulkAloneMbit": 681.6813517737698,
+            "pingBulkP50": 3.578631999999743,
+            "pingBulkP99": 8.238655000000108,
+            "pingBulkN": 200,
+            "blobBulkFirstP50": 2.868384000000333,
+            "blobBulkFirstP99": 6.480477000000064,
+            "blobBulkWholeP50": 3.3232590000006894,
+            "blobBulkWholeP99": 7.140739999999823,
+            "blobBulkN": 40
+          }
+        ]
+      }
+    },
+    "broadband-noloss": {
+      "link": {
+        "rate": 50,
+        "delay": 15,
+        "jitter": 0,
+        "loss": 0,
+        "queue": 100
+      },
+      "transport": "tcp",
+      "keepOnPingFailure": false,
+      "cases": ["bulk"],
+      "runsRequested": 1,
+      "table": {
+        "mux 256 KiB": {
+          "bulkAloneMbit": 46.95391128294279,
+          "pingBulkP50": 39.427513999999064,
+          "pingBulkP99": 44.396904999999606,
+          "pingBulkN": 100,
+          "blobBulkFirstP50": 44.78686999999991,
+          "blobBulkFirstP99": 49.15500500000053,
+          "blobBulkWholeP50": 50.865905000002385,
+          "blobBulkWholeP99": 55.2131100000006,
+          "blobBulkN": 20,
+          "runs": 1
+        }
+      },
+      "raw": {
+        "mux 256 KiB": [
+          {
+            "bulkAloneMbit": 46.95391128294279,
+            "pingBulkP50": 39.427513999999064,
+            "pingBulkP99": 44.396904999999606,
+            "pingBulkN": 100,
+            "blobBulkFirstP50": 44.78686999999991,
+            "blobBulkFirstP99": 49.15500500000053,
+            "blobBulkWholeP50": 50.865905000002385,
+            "blobBulkWholeP99": 55.2131100000006,
+            "blobBulkN": 20
+          }
+        ]
+      }
+    },
+    "mobile-noloss": {
+      "link": {
+        "rate": 10,
+        "delay": 40,
+        "jitter": 10,
+        "loss": 0,
+        "queue": 200
+      },
+      "transport": "tcp",
+      "keepOnPingFailure": false,
+      "cases": ["bulk"],
+      "runsRequested": 1,
+      "table": {
+        "mux 256 KiB": {
+          "bulkAloneMbit": 9.409862139238387,
+          "pingBulkP50": 196.2290699999976,
+          "pingBulkP99": 226.19705299999987,
+          "pingBulkN": 60,
+          "blobBulkFirstP50": 235.07741499999975,
+          "blobBulkFirstP99": 496.4663909999981,
+          "blobBulkWholeP50": 265.8167429999994,
+          "blobBulkWholeP99": 522.383511,
+          "blobBulkN": 12,
+          "runs": 1
+        }
+      },
+      "raw": {
+        "mux 256 KiB": [
+          {
+            "bulkAloneMbit": 9.409862139238387,
+            "pingBulkP50": 196.2290699999976,
+            "pingBulkP99": 226.19705299999987,
+            "pingBulkN": 60,
+            "blobBulkFirstP50": 235.07741499999975,
+            "blobBulkFirstP99": 496.4663909999981,
+            "blobBulkWholeP50": 265.8167429999994,
+            "blobBulkWholeP99": 522.383511,
+            "blobBulkN": 12
+          }
+        ]
+      }
+    },
+    "longfat": {
+      "link": {
+        "rate": 100,
+        "delay": 50,
+        "jitter": 0,
+        "loss": 0,
+        "queue": 50
+      },
+      "transport": "tcp",
+      "keepOnPingFailure": false,
+      "cases": ["bulk"],
+      "runsRequested": 1,
+      "table": {
+        "mux 256 KiB": {
+          "bulkAloneMbit": 18.320919302548646,
+          "pingBulkP50": 103.22371600000042,
+          "pingBulkP99": 110.1931880000011,
+          "pingBulkN": 60,
+          "blobBulkFirstP50": 105.43465800000195,
+          "blobBulkFirstP99": 108.9314779999986,
+          "blobBulkWholeP50": 108.43144500000199,
+          "blobBulkWholeP99": 110.27500299999883,
+          "blobBulkN": 16,
+          "runs": 1
+        }
+      },
+      "raw": {
+        "mux 256 KiB": [
+          {
+            "bulkAloneMbit": 18.320919302548646,
+            "pingBulkP50": 103.22371600000042,
+            "pingBulkP99": 110.1931880000011,
+            "pingBulkN": 60,
+            "blobBulkFirstP50": 105.43465800000195,
+            "blobBulkFirstP99": 108.9314779999986,
+            "blobBulkWholeP50": 108.43144500000199,
+            "blobBulkWholeP99": 110.27500299999883,
+            "blobBulkN": 16
+          }
+        ]
+      }
+    }
+  },
+  "k100Only": {
+    "mobile, before (6 runs)": {
+      "mobile": {
+        "link": {
+          "rate": 10,
+          "delay": 40,
+          "jitter": 10,
+          "loss": 0.01,
+          "queue": 200
+        },
+        "transport": "tcp",
+        "keepOnPingFailure": false,
+        "cases": ["small"],
+        "runsRequested": 6,
+        "table": {
+          "mux 256 KiB": {
+            "smallK100": 116.68036887263119,
+            "runs": 6
+          }
+        },
+        "raw": {
+          "mux 256 KiB": [
+            {
+              "smallK100": 105.52222363620635
+            },
+            {
+              "smallK100": 99.2002241819347
+            },
+            {
+              "smallK100": 154.90143053824895
+            },
+            {
+              "smallK100": 127.1441288480756
+            },
+            {
+              "smallK100": 116.68036887263119
+            },
+            {
+              "smallK100": 112.89192418406077
+            }
+          ]
+        }
+      }
+    },
+    "mobile, per-exchange, same session as 'before' (6 runs)": {
+      "mobile": {
+        "link": {
+          "rate": 10,
+          "delay": 40,
+          "jitter": 10,
+          "loss": 0.01,
+          "queue": 200
+        },
+        "transport": "tcp",
+        "keepOnPingFailure": false,
+        "cases": ["small"],
+        "runsRequested": 6,
+        "table": {
+          "per-exchange": {
+            "smallK100": 155.23493383638322,
+            "runs": 6
+          }
+        },
+        "raw": {
+          "per-exchange": [
+            {
+              "smallK100": 138.90188636066364
+            },
+            {
+              "smallK100": 155.23493383638322
+            },
+            {
+              "smallK100": 162.96741084808122
+            },
+            {
+              "smallK100": 138.7831971444062
+            },
+            {
+              "smallK100": 151.67701491106075
+            },
+            {
+              "smallK100": 177.76869287580823
+            }
+          ]
+        }
+      }
+    },
+    "mobile, chunks gathered, gathering up to 64 KB (6 runs)": {
+      "mobile": {
+        "link": {
+          "rate": 10,
+          "delay": 40,
+          "jitter": 10,
+          "loss": 0.01,
+          "queue": 200
+        },
+        "transport": "tcp",
+        "keepOnPingFailure": false,
+        "cases": ["small"],
+        "runsRequested": 6,
+        "table": {
+          "mux 256 KiB": {
+            "smallK100": 173.50695482620492,
+            "runs": 6
+          }
+        },
+        "raw": {
+          "mux 256 KiB": [
+            {
+              "smallK100": 221.7270315244245
+            },
+            {
+              "smallK100": 121.18783376961328
+            },
+            {
+              "smallK100": 173.50695482620492
+            },
+            {
+              "smallK100": 199.392869460857
+            },
+            {
+              "smallK100": 138.6728598073518
+            },
+            {
+              "smallK100": 121.24178274009822
+            }
+          ]
+        }
+      }
+    },
+    "mobile, chunks gathered, gathering up to 16 KiB (6 runs)": {
+      "mobile": {
+        "link": {
+          "rate": 10,
+          "delay": 40,
+          "jitter": 10,
+          "loss": 0.01,
+          "queue": 200
+        },
+        "transport": "tcp",
+        "keepOnPingFailure": false,
+        "cases": ["small"],
+        "runsRequested": 6,
+        "table": {
+          "mux 256 KiB": {
+            "smallK100": 261.40960790202115,
+            "runs": 6
+          }
+        },
+        "raw": {
+          "mux 256 KiB": [
+            {
+              "smallK100": 256.6884271689902
+            },
+            {
+              "smallK100": 230.64843938334775
+            },
+            {
+              "smallK100": 261.40960790202115
+            },
+            {
+              "smallK100": 189.34406444605463
+            },
+            {
+              "smallK100": 301.8102574718837
+            },
+            {
+              "smallK100": 295.1741850892465
+            }
+          ]
+        }
+      }
+    },
+    "mobile, chunks gathered, gathering up to 4 KiB (6 runs)": {
+      "mobile": {
+        "link": {
+          "rate": 10,
+          "delay": 40,
+          "jitter": 10,
+          "loss": 0.01,
+          "queue": 200
+        },
+        "transport": "tcp",
+        "keepOnPingFailure": false,
+        "cases": ["small"],
+        "runsRequested": 6,
+        "table": {
+          "mux 256 KiB": {
+            "smallK100": 214.36449636244745,
+            "runs": 6
+          }
+        },
+        "raw": {
+          "mux 256 KiB": [
+            {
+              "smallK100": 201.72889884085834
+            },
+            {
+              "smallK100": 186.18632428890015
+            },
+            {
+              "smallK100": 257.93716927386424
+            },
+            {
+              "smallK100": 214.36449636244745
+            },
+            {
+              "smallK100": 179.31557943027133
+            },
+            {
+              "smallK100": 239.6435403587509
+            }
+          ]
+        }
+      }
+    },
+    "mobile, chunks gathered, gathering up to 1.4 KB (6 runs)": {
+      "mobile": {
+        "link": {
+          "rate": 10,
+          "delay": 40,
+          "jitter": 10,
+          "loss": 0.01,
+          "queue": 200
+        },
+        "transport": "tcp",
+        "keepOnPingFailure": false,
+        "cases": ["small"],
+        "runsRequested": 6,
+        "table": {
+          "mux 256 KiB": {
+            "smallK100": 242.75705668685796,
+            "runs": 6
+          }
+        },
+        "raw": {
+          "mux 256 KiB": [
+            {
+              "smallK100": 277.96533780041466
+            },
+            {
+              "smallK100": 242.75705668685796
+            },
+            {
+              "smallK100": 224.65790268285068
+            },
+            {
+              "smallK100": 217.96157035608647
+            },
+            {
+              "smallK100": 227.65462965806674
+            },
+            {
+              "smallK100": 248.62644896874494
+            }
+          ]
+        }
+      }
+    },
+    "mobile, per-exchange, measured just before the 10-run rows (6 runs)": {
+      "mobile": {
+        "link": {
+          "rate": 10,
+          "delay": 40,
+          "jitter": 10,
+          "loss": 0.01,
+          "queue": 200
+        },
+        "transport": "tcp",
+        "keepOnPingFailure": false,
+        "cases": ["small"],
+        "runsRequested": 6,
+        "table": {
+          "per-exchange": {
+            "smallK100": 154.36315051037326,
+            "runs": 6
+          }
+        },
+        "raw": {
+          "per-exchange": [
+            {
+              "smallK100": 151.62934001760348
+            },
+            {
+              "smallK100": 154.36315051037326
+            },
+            {
+              "smallK100": 198.76803687880215
+            },
+            {
+              "smallK100": 127.1622751424353
+            },
+            {
+              "smallK100": 146.91920132246545
+            },
+            {
+              "smallK100": 155.39840267091157
+            }
+          ]
+        }
+      }
+    },
+    "mobile, chunks gathered, gathering up to 64 KB (10 runs)": {
+      "mobile": {
+        "link": {
+          "rate": 10,
+          "delay": 40,
+          "jitter": 10,
+          "loss": 0.01,
+          "queue": 200
+        },
+        "transport": "tcp",
+        "keepOnPingFailure": false,
+        "cases": ["small"],
+        "runsRequested": 10,
+        "table": {
+          "mux 256 KiB": {
+            "smallK100": 165.3421329420393,
+            "runs": 10
+          }
+        },
+        "raw": {
+          "mux 256 KiB": [
+            {
+              "smallK100": 156.46615637482012
+            },
+            {
+              "smallK100": 147.34545854304136
+            },
+            {
+              "smallK100": 195.27728475086784
+            },
+            {
+              "smallK100": 189.44435296223992
+            },
+            {
+              "smallK100": 151.42121138440467
+            },
+            {
+              "smallK100": 156.94628662908272
+            },
+            {
+              "smallK100": 195.6363728298437
+            },
+            {
+              "smallK100": 165.3421329420393
+            },
+            {
+              "smallK100": 156.93097572018095
+            },
+            {
+              "smallK100": 180.97794524280147
+            }
+          ]
+        }
+      }
+    },
+    "mobile, gathering up to 16 KiB only (10 runs)": {
+      "mobile": {
+        "link": {
+          "rate": 10,
+          "delay": 40,
+          "jitter": 10,
+          "loss": 0.01,
+          "queue": 200
+        },
+        "transport": "tcp",
+        "keepOnPingFailure": false,
+        "cases": ["small"],
+        "runsRequested": 10,
+        "table": {
+          "mux 256 KiB": {
+            "smallK100": 159.37341472151076,
+            "runs": 10
+          }
+        },
+        "raw": {
+          "mux 256 KiB": [
+            {
+              "smallK100": 96.60272393971152
+            },
+            {
+              "smallK100": 159.37341472151076
+            },
+            {
+              "smallK100": 170.1984060003242
+            },
+            {
+              "smallK100": 184.32880713363403
+            },
+            {
+              "smallK100": 136.4197807887152
+            },
+            {
+              "smallK100": 168.37948369714258
+            },
+            {
+              "smallK100": 125.9946093886744
+            },
+            {
+              "smallK100": 150.14601028216947
+            },
+            {
+              "smallK100": 171.76164339298225
+            },
+            {
+              "smallK100": 115.58298989551089
+            }
+          ]
+        }
+      }
+    },
+    "mobile, chunks gathered, gathering up to 16 KiB (10 runs)": {
+      "mobile": {
+        "link": {
+          "rate": 10,
+          "delay": 40,
+          "jitter": 10,
+          "loss": 0.01,
+          "queue": 200
+        },
+        "transport": "tcp",
+        "keepOnPingFailure": false,
+        "cases": ["small"],
+        "runsRequested": 10,
+        "table": {
+          "mux 256 KiB": {
+            "smallK100": 234.92285694946364,
+            "runs": 10
+          }
+        },
+        "raw": {
+          "mux 256 KiB": [
+            {
+              "smallK100": 220.86607515377028
+            },
+            {
+              "smallK100": 299.91048533027583
+            },
+            {
+              "smallK100": 234.92285694946364
+            },
+            {
+              "smallK100": 210.5349908498451
+            },
+            {
+              "smallK100": 207.73813360423185
+            },
+            {
+              "smallK100": 267.2866465893302
+            },
+            {
+              "smallK100": 271.7245086838576
+            },
+            {
+              "smallK100": 205.0075016683927
+            },
+            {
+              "smallK100": 267.2333809058348
+            },
+            {
+              "smallK100": 215.5210085906
+            }
+          ]
+        }
+      }
+    }
+  }
+}

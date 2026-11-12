@@ -6,10 +6,11 @@
 //   sudo node packages/httpeers-libp2p/scripts/bench-mux-net.mjs \
 //     [--profiles lan,broadband,mobile,bad] [--transport tcp|webrtc] [--runs 3] \
 //     [--windows 262144,4194304] [--paths stream,mux] [--out results.json] \
-//     [--keep-on-ping-failure] [--cases ping,small,blob,bulk]
+//     [--keep-on-ping-failure] [--cases ping,small,blob,bulk] [--ks 1,10,100]
 //
 // `--cases` runs a subset (e.g. `small` for the exchange rates alone);
-// `bulk` is the bulk download and everything measured beside it.
+// `bulk` is the bulk download and everything measured beside it. `--ks`
+// picks the concurrency levels of the small-exchange case.
 //
 // Profiles: lan, broadband, mobile, bad (the default set), and
 // broadband-noloss, mobile-noloss, longfat (see PROFILES).
@@ -278,7 +279,15 @@ async function forSeconds(seconds, worker, k) {
   return count / ((performance.now() - started) / 1000);
 }
 
-async function oneRun({ mux, window, transport, t, keepOnPingFailure, cases = ALL_CASES }) {
+async function oneRun({
+  mux,
+  window,
+  transport,
+  t,
+  keepOnPingFailure,
+  cases = ALL_CASES,
+  ks = [1, 10, 100],
+}) {
   const run = new Set(cases);
   const childArgs = [
     "--serve",
@@ -332,7 +341,7 @@ async function oneRun({ mux, window, transport, t, keepOnPingFailure, cases = AL
     }
 
     const payload = new Uint8Array(SMALL);
-    for (const k of run.has("small") ? [1, 10, 100] : []) {
+    for (const k of run.has("small") ? ks : []) {
       phase = `small exchanges K=${k}`;
       result[`smallK${k}`] = await forSeconds(
         t.small,
@@ -480,6 +489,7 @@ const PATHS = opt("--paths", "stream,mux").split(",");
 const OUT = opt("--out", undefined);
 const KEEP = args.includes("--keep-on-ping-failure");
 const CASES = opt("--cases", ALL_CASES.join(",")).split(",");
+const KS = opt("--ks", "1,10,100").split(",").map(Number);
 for (const c of CASES) if (!ALL_CASES.includes(c)) throw new Error(`unknown case ${c}`);
 const PROFILE_NAMES = opt("--profiles", "lan,broadband,mobile,bad").split(",");
 // All names checked before the first link comes up, not one hour in.
@@ -512,6 +522,7 @@ for (const name of PROFILE_NAMES) {
           t: profile.t,
           keepOnPingFailure: KEEP,
           cases: CASES,
+          ks: KS,
         });
         if (r) runs.push(r);
         else process.stderr.write("  (run failed)\n");

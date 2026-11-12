@@ -70,6 +70,7 @@ import type { PeerIdStr, ProvenPeer } from "@statewalker/httpeers-core";
 import type { MessageTarget, PortMux } from "@statewalker/webrun-rpc";
 import type { Duplex } from "@statewalker/webrun-streams";
 import { PeerGoneError } from "@statewalker/webrun-streams-libp2p";
+import { gatheringChunks } from "./chunk-gather.js";
 import { presumingAcks } from "./mux-presumed-ack.js";
 import { muxTargetOverStream } from "./mux-target.js";
 
@@ -95,11 +96,12 @@ export const DEFAULT_MUX_WINDOW = 256 * 1024;
  *
  * WHY THIS SIZE. Each message costs the mux, its codec and libp2p a fixed
  * amount, so larger frames carry bulk for less CPU: 31 KiB carries about 15%
- * more than 16 KiB on loopback (`scripts/bench-mux.mjs`, #56). Two such
- * frames still fit one coalesced write (`mux-target.ts`), one Noise message.
- * And a frame plus its envelope stays within 32 KiB, the largest message a
- * build on the earlier (unreleased) 16 KiB default accepts (`frameSize +
- * MUX_MESSAGE_HEADROOM`), so such a peer still reads what this side sends.
+ * more than 16 KiB on loopback (`scripts/bench-mux.mjs`, #56). Such a frame
+ * goes out as one write of its own (`mux-target.ts` gathers only smaller
+ * ones, up to 16 KiB), one Noise message. And a frame plus its envelope
+ * stays within 32 KiB, the largest message a build on the earlier
+ * (unreleased) 16 KiB default accepts (`frameSize + MUX_MESSAGE_HEADROOM`),
+ * so such a peer still reads what this side sends.
  */
 export const DEFAULT_MUX_FRAME_SIZE = 31 * 1024;
 
@@ -453,8 +455,13 @@ export function libp2pMuxLink(init: Libp2pMuxLinkInit): ClosablePeerLink {
       const { rpc } = await loadMuxLibs();
       const duplex = rpc.duplexOverPort(port, { maxMessageSize: maxChunkBytes });
       return {
+        // The pieces of the request written back to back go as one message,
+        // not one each (`chunk-gather.ts`): fewer envelopes per exchange.
         call: ((input: AsyncIterable<Uint8Array>) =>
-          mappingErrors(duplex(input), peerClosedPort)) as Duplex,
+          mappingErrors(
+            duplex(gatheringChunks(input[Symbol.asyncIterator](), maxChunkBytes)),
+            peerClosedPort,
+          )) as Duplex,
         async close() {
           (port as { close?: () => void }).close?.();
         },
@@ -508,7 +515,10 @@ export function libp2pMuxLink(init: Libp2pMuxLinkInit): ClosablePeerLink {
             port,
             (input) => {
               const output: AsyncGenerator<Uint8Array> = onAbnormalEnd(
-                droppingStalledWrites(handler(input), {
+                // The pieces of the response written back to back go as one
+                // message, not one each (`chunk-gather.ts`); inside the stall
+                // watch, which times the caller and not the handler.
+                droppingStalledWrites(gatheringChunks(handler(input), maxChunkBytes), {
                   rpc: libs.rpc,
                   port,
                   pieceBytes: maxChunkBytes,
