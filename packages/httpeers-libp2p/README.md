@@ -115,6 +115,21 @@ Node-only transport into every browser bundle that imports the root. Pass
 The root uses an explicit export list, never `export *`, so nothing Node-only
 leaks in through a barrel.
 
+### A busy connection is not killed for a slow ping
+
+libp2p's own connection monitor aborts a connection whenever one of its
+10-second pings times out (after at least 5 s). Under a bulk transfer on a slow
+or lossy link the ping waits behind the queued data, and the healthy
+connection dies with every exchange on it. `createNode` therefore replaces it
+with `connectionLiveness()`: the same ping, but a failed ping aborts the
+connection only when nothing was received on it since the ping was sent. A
+peer that vanishes silently is still dropped within the interval plus the
+timeout (about 15 s by default). Tune it with `connectionMonitor`
+(`pingIntervalMs`, `pingTimeout`, `abortOnPingFailure`), or pass `false` for
+no monitor. A node built by hand with `createLibp2p` gets the same with
+`connectionMonitor: { enabled: false }` and
+`services: { [CONNECTION_LIVENESS_SERVICE]: connectionLiveness() }`.
+
 ### A browser is reachable only through a relay reservation
 
 A page cannot listen for inbound connections. It reserves a slot on a relay and

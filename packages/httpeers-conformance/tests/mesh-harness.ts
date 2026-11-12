@@ -47,7 +47,9 @@ import {
   usesTransportIdentity,
 } from "@statewalker/httpeers-hub";
 import {
+  CONNECTION_LIVENESS_SERVICE,
   circuitAddrs,
+  connectionLiveness,
   dialRelay,
   hubRelayService,
   membershipGater,
@@ -138,8 +140,11 @@ async function hubNode(
       // that ordering cycle.
       ...membershipGater(() => isMember()),
     },
+    // As the hub app: abort only a connection that went silent.
+    connectionMonitor: { enabled: false },
     services: {
       identify: identify(),
+      [CONNECTION_LIVENESS_SERVICE]: connectionLiveness(),
       // The hub's own relay service unless a test must fill its reservation
       // store; then the same service with a smaller store.
       relay:
@@ -300,7 +305,8 @@ export async function memberNode(privateKey?: Ed25519PrivateKey): Promise<Libp2p
     connectionEncrypters: [noise()],
     streamMuxers: [yamux()],
     connectionGater: { denyDialMultiaddr: async () => false },
-    services: { identify: identify() },
+    connectionMonitor: { enabled: false },
+    services: { identify: identify(), [CONNECTION_LIVENESS_SERVICE]: connectionLiveness() },
   });
 }
 

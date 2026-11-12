@@ -25,6 +25,8 @@ import type { Ed25519PrivateKey, Libp2p } from "@libp2p/interface";
 import { webRTC } from "@libp2p/webrtc";
 import { webSockets } from "@libp2p/websockets";
 import {
+  CONNECTION_LIVENESS_SERVICE,
+  connectionLiveness,
   dialRelay,
   hubRelayService,
   type IceServer,
@@ -74,8 +76,13 @@ export async function createHubNode(init: CreateHubNodeInit): Promise<Libp2p<Hub
     connectionEncrypters: [noise()],
     streamMuxers: [yamux()],
     connectionGater: membershipGater(init.isMember),
+    // libp2p's monitor aborts a connection on any slow ping, which kills a
+    // busy, healthy one on a slow link; `connectionLiveness` aborts only a
+    // silent one (see `@statewalker/httpeers-libp2p`'s `createNode`).
+    connectionMonitor: { enabled: false },
     services: {
       identify: identify(),
+      [CONNECTION_LIVENESS_SERVICE]: connectionLiveness(),
       relay: hubRelayService(
         init.maxReservations != null ? { maxReservations: init.maxReservations } : {},
       ),
