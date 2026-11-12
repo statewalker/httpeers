@@ -417,7 +417,9 @@ export interface CreateNodeInit {
    * (its ping waits behind the data). A silent dead peer is still aborted
    * within the ping interval plus that connection's ping timeout (15 s with
    * the defaults), or two intervals plus the timeout (25 s) while the node is
-   * receiving on other connections (read as a congested shared link).
+   * receiving on other connections (read as a congested shared link); on a
+   * slow link whose timeout has grown past the interval, up to two intervals
+   * plus twice the timeout.
    * Pass options to tune it, or `false` for no monitor at all (neither
    * libp2p's nor this one). See `connection-liveness.ts`.
    */

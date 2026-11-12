@@ -32,6 +32,7 @@ export {
   DEFAULT_SILENT_FAILURES_WHEN_BUSY,
   LIVENESS_PING_PROTOCOL,
   NODE_BUSY_BYTES,
+  STATS_SAMPLE_TIMEOUT_MS,
   statsBytesReceived,
 } from "./connection-liveness.js";
 export {

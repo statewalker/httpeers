@@ -127,7 +127,9 @@ Each connection learns its own timeout, from answered pings only. A peer that
 vanishes silently is still dropped within the interval plus the timeout
 (about 15 s by default), or within two intervals plus the timeout (about
 25 s) while the node is receiving at least 64 KiB elsewhere, which is read as
-a congested shared link. Bytes are seen on the raw transport connection (TCP,
+a congested shared link. Those bounds assume the connection's learned timeout
+is no longer than the interval; on a slow link where it has grown past the
+interval, the worst case approaches two intervals plus twice the timeout. Bytes are seen on the raw transport connection (TCP,
 WebSockets, relayed circuits) or through `getStats()` (WebRTC). Tune it with
 `connectionMonitor` (`pingIntervalMs`, `pingTimeout`, `abortOnPingFailure`,
 `silentFailuresWhenBusy`), or pass `false` for no monitor.

@@ -29,7 +29,9 @@ import {
   CONNECTION_LIVENESS_SERVICE,
   type ConnectionLiveness,
   type ConnectionLivenessOptions,
+  connectionLiveness,
   LIVENESS_PING_PROTOCOL,
+  STATS_SAMPLE_TIMEOUT_MS,
   statsBytesReceived,
 } from "../src/connection-liveness.js";
 import { generateKey } from "../src/identity.js";
@@ -338,6 +340,51 @@ describe("connectionLiveness over WebRTC", () => {
       Date.now() - 3 * INTERVAL_MS,
     );
   }, 30_000);
+
+  it("still aborts a silent connection whose getStats() never settles, within the bound", async () => {
+    // Fake components and a fake WebRTC connection: getStats hangs forever,
+    // and every ping times out (the peer is gone). A sample awaited without
+    // a bound would park the check for good.
+    const aborted: { at?: number } = {};
+    const fake = {
+      id: "fake",
+      status: "open",
+      remotePeer: { toString: () => "peer" },
+      maConn: { peerConnection: { getStats: () => new Promise(() => {}) } },
+      newStream: (_protocol: string, options: { signal: AbortSignal }) =>
+        new Promise((_resolve, reject) => {
+          options.signal.addEventListener("abort", () => reject(options.signal.reason), {
+            once: true,
+          });
+        }),
+      abort: () => {
+        aborted.at = Date.now();
+        fake.status = "aborted";
+      },
+    };
+    const log = Object.assign(() => {}, { error: () => {}, trace: () => {} });
+    const events = new EventTarget();
+    const monitor = connectionLiveness({
+      pingIntervalMs: INTERVAL_MS,
+      pingTimeout: { minTimeout: TIMEOUT_MS, maxTimeout: TIMEOUT_MS },
+    })({
+      connectionManager: { getConnections: () => [fake as unknown as Connection] },
+      events: events as never,
+      logger: { forComponent: () => log } as never,
+    });
+    monitor.start();
+    cleanups.push(() => monitor.stop());
+    const t0 = Date.now();
+    events.dispatchEvent(new CustomEvent("connection:open", { detail: fake }));
+    expect(monitor.byteSource(fake as unknown as Connection)).toBe("webrtc-stats");
+    const sampleBound = Math.min(STATS_SAMPLE_TIMEOUT_MS, INTERVAL_MS / 4);
+    while (aborted.at === undefined && Date.now() - t0 < 5_000) await sleep(20);
+    // The first tick pings; one bounded sample before it, one after it fails.
+    expect(aborted.at).toBeDefined();
+    expect((aborted.at ?? Infinity) - t0).toBeLessThanOrEqual(
+      INTERVAL_MS + 2 * sampleBound + TIMEOUT_MS + SLACK_MS,
+    );
+  });
 
   it("sums transport stats when present, else the candidate pairs", async () => {
     const report = (stats: Array<Record<string, unknown>>) => ({

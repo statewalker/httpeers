@@ -37,10 +37,14 @@
  * DETECTION BOUND for a peer that vanishes silently, with I the ping interval
  * and T that connection's ping timeout (10 s and 5 s by default): I + T
  * (15 s) while the node receives nothing else, 2 I + T (25 s) while it is
- * busy elsewhere. On a connection that was itself busy the clock starts once
- * the last bytes the peer sent before vanishing have arrived (what was still
- * queued in the network or its socket), plus at most one more interval if
- * they arrived during a ping.
+ * busy elsewhere. Both assume T is at most I. On a slow link whose answered
+ * pings have grown T past I, a ping still out at the next tick holds the
+ * one after it back, so the busy-node worst case approaches 2 I + 2 T. On a
+ * connection that was itself busy the clock starts once the last bytes the
+ * peer sent before vanishing have arrived (what was still queued in the
+ * network or its socket), plus at most one more interval if they arrived
+ * during a ping. On WebRTC each check can also wait up to twice
+ * `STATS_SAMPLE_TIMEOUT_MS` for `getStats()`.
  *
  * ONE TIMEOUT ESTIMATOR PER CONNECTION, FED ONLY BY ANSWERED PINGS. A shared
  * estimator lets one connection's slow or failing pings raise every other
@@ -108,6 +112,13 @@ export const DEFAULT_SILENT_FAILURES_WHEN_BUSY = 2;
  * above what pings and keepalives of many idle connections add up to.
  */
 export const NODE_BUSY_BYTES = 64 * 1024;
+
+/**
+ * The longest a WebRTC `getStats()` sample may take, capped at a quarter of
+ * the ping interval. One that does not settle by then counts as "nothing
+ * received", so a stuck stats call can delay a check, never stop it.
+ */
+export const STATS_SAMPLE_TIMEOUT_MS = 1_000;
 
 /** The ping's payload length (libp2p's). */
 const PING_LENGTH = 32;
@@ -368,8 +379,19 @@ class LivenessMonitor implements ConnectionLiveness {
   /** Sample a WebRTC connection's byte count; record progress like a `message` event would. */
   private async sample(watch: Watch): Promise<void> {
     if (watch.stats === undefined) return;
+    let timer: ReturnType<typeof setTimeout> | undefined;
     try {
-      const bytes = await statsBytesReceived(watch.stats);
+      const bound = Math.min(STATS_SAMPLE_TIMEOUT_MS, this.intervalMs / 4);
+      const bytes = await Promise.race([
+        statsBytesReceived(watch.stats),
+        new Promise<"timeout">((resolve) => {
+          timer = setTimeout(() => resolve("timeout"), bound);
+        }),
+      ]);
+      if (bytes === "timeout") {
+        this.log("getStats did not settle within %d ms; counting nothing received", bound);
+        return;
+      }
       if (bytes === undefined) return;
       if (watch.statsBytes !== undefined && bytes > watch.statsBytes) {
         watch.lastReceivedAt = Date.now();
@@ -378,6 +400,8 @@ class LivenessMonitor implements ConnectionLiveness {
       watch.statsBytes = bytes;
     } catch (error) {
       this.log("getStats failed - %e", error);
+    } finally {
+      clearTimeout(timer);
     }
   }
 

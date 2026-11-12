@@ -813,7 +813,11 @@ ping at 20 s, plus its 5 s timeout). The same with the node receiving a bulk
 stream from a third peer the whole time: **23.0 / 23.0 / 23.0 s** (the second
 silent failure). The bounds, with I the interval and T that connection's
 timeout: I + T (15 s) on a quiet node, 2 I + T (25 s) on a node busy
-elsewhere. On a connection that was itself busy the clock starts once the
+elsewhere. Both assume T ≤ I; once answered pings on a slow link have grown
+T past I, a ping still out at the next tick holds the next one back and the
+worst case approaches 2 I + 2 T. On WebRTC each check may also wait up to
+1 s, twice, for a `getStats()` sample (one that never settles counts as
+nothing received). On a connection that was itself busy the clock starts once the
 last bytes the peer sent before it vanished have arrived, plus at most one
 interval if they arrived while a ping was out. The package's tests
 (`tests/connection-liveness.test.ts`, scaled down to a 200 ms interval) check
