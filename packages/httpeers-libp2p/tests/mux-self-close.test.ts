@@ -8,8 +8,12 @@
  *     `UnknownPeerCallError`, and the next call dials a new mux instead of
  *     reusing the closed one;
  *   - on the SERVING side, a handler reading its request body sees
- *     `PeerGoneError` (not the mux's own reason), the exchange's port is
- *     released, and a new mux from the same peer is served.
+ *     `PeerGoneError` (not the mux's own reason), the dead session is let
+ *     go, the exchange's port is released, and a new mux from the same peer
+ *     is served.
+ *
+ * And `peerGoneFailure` on its own: only the error the mux failed a port
+ * with becomes a `PeerGoneError`, never one the peer sent.
  *
  * The caller's own silence check (`mux-presumed-ack.ts`) watches the same
  * silence and would close the mux first; it is turned off here, so the mux's
@@ -21,6 +25,7 @@
 
 import type { Libp2p, Stream } from "@libp2p/interface";
 import { tcp } from "@libp2p/tcp";
+import { serveFetchOverLink } from "@statewalker/httpeers-bridge";
 import { type PeerIdStr, PeerStreamResetError } from "@statewalker/httpeers-core";
 import { fetchOverDuplex, serveFetchOverDuplex } from "@statewalker/webrun-http-streams";
 import { msgpackCodec } from "@statewalker/webrun-msgpack";
@@ -30,16 +35,19 @@ import {
   multiplexPort,
   serveDuplexOverPort,
 } from "@statewalker/webrun-rpc";
+import { PeerGoneError } from "@statewalker/webrun-streams-libp2p";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { generateKey } from "../src/identity.js";
+import { libp2pLink } from "../src/link.js";
 import {
   DEFAULT_MUX_FRAME_SIZE,
   DEFAULT_MUX_WINDOW,
   MUX_MESSAGE_HEADROOM,
   MUX_PROTOCOL,
+  peerGoneFailure,
 } from "../src/mux-link.js";
 import { muxTargetOverStream } from "../src/mux-target.js";
-import { createNode, createRemote, serveTransport } from "../src/transport.js";
+import { createNode, createRemote } from "../src/transport.js";
 
 // The caller's silence check off: the mux's own keepalive must be what closes it.
 vi.mock("../src/mux-presumed-ack.js", async (importOriginal) => {
@@ -184,15 +192,18 @@ describe("a mux closed by its own keepalive", () => {
     expect(streams).toBe(2);
   }, 30_000);
 
-  it("fails a served handler's request body with PeerGoneError, releases its port, and serves the next mux", async () => {
+  it("fails a served handler's request body with PeerGoneError, drops the session, releases its port, and serves the next mux", async () => {
     const serverNode = await node(["/ip4/127.0.0.1/tcp/0"]);
     let bodyFailure: Promise<unknown> | undefined;
-    const stop = await serveTransport({
+    const link = libp2pLink({
       node: serverNode,
       muxPerPeer: { keepaliveMs: 100 },
       // One exchange at a time on the connection: the next mux is served only
       // if the dead mux's port was released.
       maxInboundStreams: 1,
+    }) as ReturnType<typeof libp2pLink> & { liveSessions(): number };
+    const stop = await serveFetchOverLink({
+      link,
       dispatch: async (req) => {
         if (new URL(req.url).pathname === "/upload") {
           // Reads the upload, which never ends; answers at once with a body
@@ -256,6 +267,7 @@ describe("a mux closed by its own keepalive", () => {
       } as RequestInit),
     );
     expect(response.status).toBe(200);
+    expect(link.liveSessions()).toBe(1);
     // Long enough for the caller to have answered a keepalive ping.
     await sleep(350);
     freeze = true;
@@ -263,6 +275,9 @@ describe("a mux closed by its own keepalive", () => {
     expect(bodyFailure).toBeDefined();
     const failure = await Promise.race([bodyFailure, sleep(3_000).then(() => "timed out")]);
     expect((failure as Error | undefined)?.name).toBe("PeerGoneError");
+    // The dead session is let go: before, a mux that closed itself stayed in
+    // the link's tables (and its teardown's) for as long as the link lived.
+    await expect.poll(() => link.liveSessions(), { timeout: 2_000 }).toBe(0);
 
     // A new mux from the same peer, on the same connection, is served: the
     // dead mux's port no longer counts against `maxInboundStreams`.
@@ -270,5 +285,42 @@ describe("a mux closed by its own keepalive", () => {
     const next = await callerMux(() => false);
     const hello = await next(new Request("http://peer.local/x"));
     expect(await hello.text()).toBe("hello");
+    expect(link.liveSessions()).toBe(1);
   }, 30_000);
+});
+
+describe("peerGoneFailure", () => {
+  const diedOf = (reason: unknown) => {
+    const dead = new AbortController();
+    dead.abort(reason);
+    return dead.signal;
+  };
+  const keepalive = new Error(
+    "webrun-rpc: the peer did not answer 3 keepalive pings, 100 ms apart",
+  );
+
+  it("turns the error the mux failed the port with into a PeerGoneError, once the mux died of the peer", () => {
+    const mapped = peerGoneFailure(keepalive, keepalive, diedOf(new PeerGoneError()));
+    expect(mapped).toBeInstanceOf(PeerGoneError);
+    expect((mapped as Error).cause).toBe(keepalive);
+  });
+
+  it("leaves an error the peer sent before the death as it is", () => {
+    const handlers = new Error("the handler's own");
+    handlers.name = "TimeoutError";
+    expect(peerGoneFailure(handlers, keepalive, diedOf(new PeerGoneError()))).toBe(handlers);
+  });
+
+  it("leaves everything as it is while the session lives, or after a close on purpose", () => {
+    expect(peerGoneFailure(keepalive, keepalive, new AbortController().signal)).toBe(keepalive);
+    const closed = new Error("httpeers-libp2p: the link was closed");
+    expect(peerGoneFailure(closed, closed, diedOf(closed))).toBe(closed);
+  });
+
+  it("leaves a PeerGoneError, and a port the peer closed, as they are", () => {
+    const gone = new PeerGoneError();
+    expect(peerGoneFailure(gone, gone, diedOf(gone))).toBe(gone);
+    const peerClosed = new Error("webrun-rpc: the peer closed the port");
+    expect(peerGoneFailure(peerClosed, peerClosed, diedOf(new PeerGoneError()))).toBe(peerClosed);
+  });
 });

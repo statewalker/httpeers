@@ -239,11 +239,31 @@ interface Session {
   /** Close the mux (and so its stream and every port on it) on purpose. */
   close(reason: unknown): Promise<void>;
   /**
-   * An error read from one of this mux's ports, as the exchange should see it:
-   * once the mux died otherwise than on purpose, a `PeerGoneError` (mapped to
-   * `PeerStreamResetError`), whatever the mux failed its ports with.
+   * An error read from `port`, one of this mux's, as the exchange should see
+   * it: see {@link peerGoneFailure}.
    */
-  failure(error: unknown): unknown;
+  failure(error: unknown, port: MessageTarget): unknown;
+}
+
+/**
+ * `error`, read from a port whose close signal aborted with `closedWith`, as
+ * the exchange should see it, given the session's `dead` signal. Once the mux
+ * died otherwise than on purpose (`dead` aborted with a `PeerGoneError`), the
+ * error the mux failed the port with (its keepalive's "the peer did not
+ * answer", a stream's plain end), matched by identity, becomes a
+ * `PeerGoneError` (mapped to `PeerStreamResetError`). Anything else is left as
+ * it is: an error the peer sent before the death (a handler's own, rebuilt
+ * with its name), a port the peer closed, a `PeerGoneError` already, and
+ * every error after a close on purpose (the link's own `close()`).
+ *
+ * @internal Exported for its tests only; not part of the package's API.
+ */
+export function peerGoneFailure(error: unknown, closedWith: unknown, dead: AbortSignal): unknown {
+  if (!dead.aborted || !(dead.reason instanceof PeerGoneError)) return error;
+  if (error !== closedWith || error instanceof PeerGoneError || isPeerClosedPort(error)) {
+    return error;
+  }
+  return new PeerGoneError(error);
 }
 
 /** Why a mux that closed itself died, as the peer-gone error every exchange on it sees. */
@@ -252,7 +272,10 @@ function peerGone(reason: unknown): PeerGoneError {
 }
 
 /** Wrap a running node as a link whose exchanges share one mux per peer. */
-export function libp2pMuxLink(init: Libp2pMuxLinkInit): ClosablePeerLink {
+export function libp2pMuxLink(init: Libp2pMuxLinkInit): ClosablePeerLink & {
+  /** @internal The sessions alive now, both directions: for tests only. */
+  liveSessions(): number;
+} {
   const { node, perExchange, options } = init;
   const protocol = options.protocol ?? muxProtocolOf(init.protocol);
   const fallback = options.fallback ?? true;
@@ -351,32 +374,28 @@ export function libp2pMuxLink(init: Libp2pMuxLinkInit): ClosablePeerLink {
         if (!dead.signal.aborted) dead.abort(reason);
         await mux.close(reason);
       },
-      failure(error) {
-        // The mux failed its ports with its own reason (a keepalive's "the
-        // peer did not answer", a stream's plain end) just before releasing
-        // its pipe; read afterwards, the session is dead, and the exchange
-        // gets what the session died of. A close on purpose (the link's own
-        // `close()`) and the peer closing a port keep their own errors.
-        if (!dead.signal.aborted || !(dead.signal.reason instanceof PeerGoneError)) return error;
-        if (error instanceof PeerGoneError || isPeerClosedPort(error)) return error;
-        return new PeerGoneError(error);
+      failure(error, port) {
+        return peerGoneFailure(error, libs.rpc.getPortCloseSignal(port)?.reason, dead.signal);
       },
     };
     session = opened;
-    live.add(opened);
     const onStreamGone = () => {
       // A backstop: the mux, listening first, has normally released its pipe already.
       if (!dead.signal.aborted) dead.abort(peerGone(signal.reason));
     };
-    dead.signal.addEventListener(
-      "abort",
-      () => {
-        live.delete(opened);
-        presumed?.stop();
-        signal.removeEventListener("abort", onStreamGone);
-      },
-      { once: true },
-    );
+    const cleanUp = () => {
+      live.delete(opened);
+      presumed?.stop();
+      signal.removeEventListener("abort", onStreamGone);
+    };
+    // A mux that closed while it was being built has aborted `dead` already:
+    // clean up at once rather than wait for an event that has fired.
+    if (dead.signal.aborted) {
+      cleanUp();
+      return opened;
+    }
+    live.add(opened);
+    dead.signal.addEventListener("abort", cleanUp, { once: true });
     if (signal.aborted) onStreamGone();
     else signal.addEventListener("abort", onStreamGone, { once: true });
     // A stream that died, or that the peer half-closed, before
@@ -510,7 +529,7 @@ export function libp2pMuxLink(init: Libp2pMuxLinkInit): ClosablePeerLink {
         call: ((input: AsyncIterable<Uint8Array>) =>
           mappingErrors(
             duplex(gatheringChunks(input[Symbol.asyncIterator](), maxChunkBytes)),
-            (error) => peerClosedPort(session.failure(error)),
+            (error) => peerClosedPort(session.failure(error, port)),
           )) as Duplex,
         async close() {
           (port as { close?: () => void }).close?.();
@@ -574,7 +593,9 @@ export function libp2pMuxLink(init: Libp2pMuxLinkInit): ClosablePeerLink {
                     // what the session died of (`PeerGoneError`), as the
                     // caller's exchanges do, not with the mux's own reason.
                     handler(
-                      mappingErrors(asyncIteratorOf(input), (error) => session.failure(error)),
+                      mappingErrors(asyncIteratorOf(input), (error) =>
+                        session.failure(error, port),
+                      ),
                     ),
                     maxChunkBytes,
                   ),
@@ -605,6 +626,7 @@ export function libp2pMuxLink(init: Libp2pMuxLinkInit): ClosablePeerLink {
           );
           return true;
         });
+        if (session.dead.aborted) return;
         accepted.add(session);
         session.dead.addEventListener("abort", () => accepted.delete(session), { once: true });
       };
@@ -625,6 +647,8 @@ export function libp2pMuxLink(init: Libp2pMuxLinkInit): ClosablePeerLink {
         await stopPerExchange();
       };
     },
+
+    liveSessions: () => live.size,
 
     async close() {
       if (closed) return;
