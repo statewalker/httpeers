@@ -768,12 +768,32 @@ sent**. Bytes arriving prove the remote is alive and the path delivers; a
 ping stuck behind them proves nothing. Both ends of a bulk transfer receive:
 the reader gets the data, the sender gets the yamux window updates the
 reader returns for every data frame (and the reader's pings), on the
-uncongested direction. libp2p has no per-connection byte counter; the
-service listens for `message` events on the connection's raw transport
-stream (`maConn`), the hook libp2p's own metrics use, and records a
-timestamp. `connectionMonitor` on `createNode` tunes it (`pingIntervalMs`,
-`pingTimeout`, `abortOnPingFailure: "when-silent" | "always" | "never"`) or
-turns it off (`false`). The member nodes (`httpeers-member`), the hub app's
+uncongested direction.
+
+- **Seeing bytes.** libp2p has no per-connection byte counter. On TCP,
+  WebSockets and relayed circuits the service listens for `message` events on
+  the connection's raw transport stream (`maConn`), the hook libp2p's own
+  metrics use, records a timestamp and a byte count, and removes the listener
+  on stop. WebRTC's `maConn` never emits `message` (data travels on data
+  channels), so there it reads `bytesReceived` from
+  `RTCPeerConnection.getStats()` (`transport` stats, else the candidate
+  pairs; browsers and node-datachannel report them) when a ping starts and
+  when it fails. A connection with neither is aborted on any failed ping, as
+  libp2p does. Never a listener on a muxed stream, which would start delivery
+  before its real reader attaches.
+- **One timeout per connection, learned from answered pings only.** A shared
+  estimator lets a busy connection's failures push every other connection's
+  timeout toward 60 s (and their detection time with it); a failed ping is
+  not a round-trip sample, and feeding it only lengthens the timeout of the
+  connection most likely to be failing.
+- **A congested shared link.** When the node as a whole received at least
+  64 KiB during a silent connection's failed ping, the connection is aborted
+  at its second silent failure in a row (`silentFailuresWhenBusy`, default 2)
+  rather than its first.
+
+`connectionMonitor` on `createNode` tunes it (`pingIntervalMs`, `pingTimeout`,
+`abortOnPingFailure: "when-silent" | "always" | "never"`,
+`silentFailuresWhenBusy`) or turns it off (`false`). The member nodes (`httpeers-member`), the hub app's
 node and the conformance harness install it the same way.
 
 The options considered:
@@ -783,25 +803,53 @@ The options considered:
 | libp2p's default (abort on any failed ping) | killed once ~5 s of data queue ahead of the ping | aborted after 5–15 s |
 | (a) `abortConnectionOnPingFailure: false` | kept | **not detected**: yamux's keepalive only logs a missed ping, TCP keeps retransmitting for many minutes, the 2-minute socket inactivity timeout never fires while pings are written, and the mux keepalive and request timeouts fail exchanges, not the connection. Measured: still open 150 s after the peer went silent. |
 | (b) a higher minimum ping timeout (e.g. 30 s) | kept until the queue exceeds the new floor (the bad profile's pings under bulk already reach 11 s; a larger window or a slower link gets past any floor) | aborted after up to interval + floor (40 s with 30 s) |
-| (c) abort only when nothing was received since the ping (chosen) | kept for as long as data arrives | aborted after 5–15 s, as before |
+| (c) abort only when nothing was received since the ping (chosen) | kept for as long as data arrives | aborted after 5–15 s, as before (up to 25 s while the node receives on other connections) |
 
 Detection of a peer that vanishes silently (no FIN or RST), measured through
 a loopback TCP proxy that stops forwarding without closing either socket,
 idle connection, `createNode` defaults, peer gone 12 s after the dial, 3 runs
-each: **before 12.9 / 13.0 / 13.0 s, after 12.9 / 13.0 / 13.0 s** (the next
-ping at 20 s, plus its 5 s timeout). The bound is the ping interval plus the
-ping timeout (15 s with the defaults). On a busy connection the same bound
-starts once the last bytes the peer sent before it vanished have arrived,
-plus at most one interval if they arrived while a ping was out. The package's
-tests (`tests/connection-liveness.test.ts`) check both bounds with a short
-interval, check that a connection whose pings are never answered stays up
-while it receives a trickle (and that libp2p's rule, `"always"`, kills the
-same connection), and that `"never"` leaves a silent connection open.
+each: **before 12.9 / 13.0 / 13.0 s, after 13.0 / 13.0 / 13.0 s** (the next
+ping at 20 s, plus its 5 s timeout). The same with the node receiving a bulk
+stream from a third peer the whole time: **23.0 / 23.0 / 23.0 s** (the second
+silent failure). The bounds, with I the interval and T that connection's
+timeout: I + T (15 s) on a quiet node, 2 I + T (25 s) on a node busy
+elsewhere. On a connection that was itself busy the clock starts once the
+last bytes the peer sent before it vanished have arrived, plus at most one
+interval if they arrived while a ping was out. The package's tests
+(`tests/connection-liveness.test.ts`, scaled down to a 200 ms interval) check
+these bounds, including a silent connection beside three busy ones whose
+pings all fail; that a connection whose pings are never answered stays up
+while it receives a trickle, over TCP and over WebRTC, with its timeout at
+its floor (and that libp2p's rule, `"always"`, kills it); that one
+connection's slow answered pings leave another's timeout alone; that
+`"never"` leaves a silent connection open; and that `createNode` runs no
+libp2p monitor.
 
-The trade-off: a remote whose process is wedged but whose socket still
-drains bytes it queued earlier is kept until those bytes stop arriving (on a
-slow link, as long as its queue takes to drain), and a connection whose
-`maConn` cannot be observed is treated as silent (libp2p's behaviour). The
+The bad-profile rerun above used the first revision of this service (one
+timeout estimator for all connections, failed pings fed into it, no
+congestion rule). None of the three differences applies to it: each process
+holds one connection, a failing ping on it was always kept because bytes
+arrived, and the congestion rule only acts on a connection that received
+nothing.
+
+The trade-offs:
+
+- A remote whose process is wedged but whose socket still drains bytes it
+  queued earlier is kept until those bytes stop arriving (on a slow link, as
+  long as its queue takes to drain).
+- **An idle connection that shares a congested access link with a busy one**
+  (a member's hub or relay reservation while it downloads from another peer)
+  waits as long for its pings and receives nothing meanwhile. The congestion
+  rule gives it one more interval; a queue that delays its pings past about
+  two intervals still aborts it, and the reservation is lost and made again.
+  Counting bytes on other connections to the same peer would not help here
+  (the reservation is to a different peer). `apps/relay` builds its node
+  without this package and still runs libp2p's monitor, so the relay aborts
+  such a connection after a single ping slower than 5 s.
+- On a node busy elsewhere, a dead peer takes one interval longer to find
+  (25 s rather than 15 s at the defaults).
+- A connection whose bytes cannot be seen is treated as silent (libp2p's
+  behaviour). The
 request timeouts (`requestTimeoutMs`, 8 s to the response head on the
 per-exchange path) and the mux's keepalive (nothing for 3 × 5 s closes the
 mux) are unchanged: they fail exchanges, not the connection, and the

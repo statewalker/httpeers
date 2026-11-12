@@ -22,13 +22,17 @@
  */
 export {
   type AbortOnPingFailure,
+  type ByteSource,
   CONNECTION_LIVENESS_SERVICE,
   type ConnectionLiveness,
   type ConnectionLivenessComponents,
   type ConnectionLivenessOptions,
   connectionLiveness,
   DEFAULT_LIVENESS_PING_INTERVAL_MS,
+  DEFAULT_SILENT_FAILURES_WHEN_BUSY,
   LIVENESS_PING_PROTOCOL,
+  NODE_BUSY_BYTES,
+  statsBytesReceived,
 } from "./connection-liveness.js";
 export {
   createDuplexMounts,

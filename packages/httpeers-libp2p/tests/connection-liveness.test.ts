@@ -1,7 +1,8 @@
 /**
  * `connectionLiveness` (#56): a connection whose pings fail while it keeps
  * RECEIVING data is kept; a connection whose peer vanished silently (no FIN,
- * no RST) is still aborted, within a bounded time, idle or busy.
+ * no RST) is still aborted, within a bounded time, idle or busy, and however
+ * slow another connection's pings are.
  *
  * Pings are made to fail deterministically by registering a ping handler that
  * never answers, which is what a ping stuck behind seconds of queued bulk
@@ -13,20 +14,33 @@
  */
 
 import net from "node:net";
+import { noise } from "@chainsafe/libp2p-noise";
+import { yamux } from "@chainsafe/libp2p-yamux";
+import { circuitRelayServer, circuitRelayTransport } from "@libp2p/circuit-relay-v2";
 import type { Connection, Libp2p, Stream } from "@libp2p/interface";
 import { tcp } from "@libp2p/tcp";
+import { byteStream } from "@libp2p/utils";
+import { webRTC } from "@libp2p/webrtc";
 import { multiaddr } from "@multiformats/multiaddr";
+import { createLibp2p } from "libp2p";
 import { afterEach, describe, expect, it } from "vitest";
 import {
   type AbortOnPingFailure,
   CONNECTION_LIVENESS_SERVICE,
+  type ConnectionLiveness,
+  type ConnectionLivenessOptions,
   LIVENESS_PING_PROTOCOL,
+  statsBytesReceived,
 } from "../src/connection-liveness.js";
 import { generateKey } from "../src/identity.js";
-import { createNode } from "../src/transport.js";
+import { dialRelay, waitForCircuitReservation } from "../src/reservation.js";
+import { createNode, type TransportFactory } from "../src/transport.js";
 
-const INTERVAL_MS = 250;
-const TIMEOUT_MS = 250;
+const INTERVAL_MS = 200;
+/** The floor of every ping timeout here; answered loopback pings keep it there. */
+const TIMEOUT_MS = 200;
+/** Scheduling slack on a loaded CI machine. */
+const SLACK_MS = 500;
 const TRICKLE = "/test/trickle/1.0.0";
 
 const cleanups: Array<() => unknown> = [];
@@ -43,36 +57,59 @@ afterEach(async () => {
 
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
-async function node(abortOnPingFailure: AbortOnPingFailure, listen: string[] = []) {
+async function node(
+  abortOnPingFailure: AbortOnPingFailure,
+  listen: string[] = [],
+  transports: TransportFactory[] = [tcp() as never],
+  services: Record<string, unknown> = {},
+  timeoutMultiplier?: number,
+) {
+  const options: ConnectionLivenessOptions = {
+    pingIntervalMs: INTERVAL_MS,
+    // A ceiling well above the floor, so a timeout that grew would show; the
+    // moving average's time span scaled with the interval, as 5 s is to 10 s.
+    pingTimeout: {
+      minTimeout: TIMEOUT_MS,
+      maxTimeout: 4_000,
+      interval: INTERVAL_MS / 2,
+      ...(timeoutMultiplier != null ? { timeoutMultiplier } : {}),
+    },
+    abortOnPingFailure,
+  };
   const created = await createNode({
     privateKey: await generateKey(),
     listen,
-    transports: [tcp() as never],
-    connectionMonitor: {
-      pingIntervalMs: INTERVAL_MS,
-      pingTimeout: { minTimeout: TIMEOUT_MS, maxTimeout: TIMEOUT_MS },
-      abortOnPingFailure,
-    },
+    transports,
+    services,
+    connectionMonitor: options,
   });
   cleanups.push(() => created.stop());
   return created;
+}
+
+function liveness(of: Libp2p): ConnectionLiveness {
+  return (of.services as Record<string, ConnectionLiveness>)[CONNECTION_LIVENESS_SERVICE];
 }
 
 /** Answer pings never; count how many arrive. */
 async function stallPings(target: Libp2p): Promise<{ count: number }> {
   const seen = { count: 0 };
   const held: Stream[] = [];
-  await target.handle(LIVENESS_PING_PROTOCOL, (stream) => {
-    seen.count++;
-    held.push(stream);
-  });
+  await target.handle(
+    LIVENESS_PING_PROTOCOL,
+    (stream) => {
+      seen.count++;
+      held.push(stream);
+    },
+    { runOnLimitedConnection: true },
+  );
   return seen;
 }
 
-/** Serve a small chunk every 20 ms for as long as the stream is open. */
+/** Serve 16 KiB every 20 ms (~800 KB/s) for as long as the stream is open. */
 async function serveTrickle(target: Libp2p): Promise<void> {
   await target.handle(TRICKLE, async (stream) => {
-    const chunk = new Uint8Array(4096);
+    const chunk = new Uint8Array(16 * 1024);
     while (stream.status === "open") {
       if (!stream.send(chunk)) await stream.onDrain().catch(() => {});
       await sleep(20);
@@ -124,10 +161,29 @@ async function silentProxy(targetPort: number) {
   };
 }
 
-function closedAfter(connection: Connection, since: () => number): Promise<number> {
-  return new Promise((resolve) =>
-    connection.addEventListener("close", () => resolve(Date.now() - since()), { once: true }),
+function portOf(target: Libp2p): number {
+  return Number(target.getMultiaddrs()[0].toString().split("/")[4]);
+}
+
+async function dialThroughProxy(from: Libp2p, to: Libp2p) {
+  const proxy = await silentProxy(portOf(to));
+  const connection = await from.dial(
+    multiaddr(`/ip4/127.0.0.1/tcp/${proxy.port}/p2p/${to.peerId}`),
   );
+  return { connection, proxy };
+}
+
+/** Blackhole the proxy now; resolves with how long the connection took to close. */
+function blackholeAndTime(
+  connection: Connection,
+  proxy: { blackhole: () => void },
+): Promise<number> {
+  const t0 = Date.now();
+  const closed = new Promise<number>((resolve) =>
+    connection.addEventListener("close", () => resolve(Date.now() - t0), { once: true }),
+  );
+  proxy.blackhole();
+  return closed;
 }
 
 describe("connectionLiveness: a busy connection whose pings fail", () => {
@@ -140,85 +196,197 @@ describe("connectionLiveness: a busy connection whose pings fail", () => {
     await serveTrickle(server);
     const connection = await client.dial(server.getMultiaddrs()[0]);
     const got = await readTrickle(connection);
-    await sleep(8 * INTERVAL_MS);
-    return { connection, got, serverSaw, clientSaw };
+    await sleep(6 * INTERVAL_MS);
+    return { client, connection, got, serverSaw, clientSaw };
   }
 
-  it("is kept while it receives data (default: when-silent)", async () => {
-    const { connection, got, serverSaw, clientSaw } = await run("when-silent");
+  it("is kept while it receives data, and its timeout does not grow (default: when-silent)", async () => {
+    const { client, connection, got, serverSaw, clientSaw } = await run("when-silent");
     // The scenario really happened: several pings each way went unanswered.
-    expect(serverSaw.count).toBeGreaterThanOrEqual(4);
-    expect(clientSaw.count).toBeGreaterThanOrEqual(4);
+    expect(serverSaw.count).toBeGreaterThanOrEqual(3);
+    expect(clientSaw.count).toBeGreaterThanOrEqual(3);
     expect(connection.status).toBe("open");
+    // Unanswered pings are not round-trip samples: the timeout stays at its floor.
+    expect(liveness(client).nextTimeoutMs(connection)).toBe(TIMEOUT_MS);
     const before = got.bytes;
-    await sleep(200);
+    await sleep(100);
     expect(got.bytes).toBeGreaterThan(before);
-  }, 20_000);
+  }, 15_000);
 
   it("is killed by libp2p's rule (always), which is the bug", async () => {
     const { connection } = await run("always");
     expect(connection.status).not.toBe("open");
-  }, 20_000);
+  }, 15_000);
 });
 
 describe("connectionLiveness: a peer that vanishes silently", () => {
-  async function connectThroughProxy(mode: AbortOnPingFailure) {
-    const server = await node(mode, ["/ip4/127.0.0.1/tcp/0"]);
-    const client = await node(mode);
-    await serveTrickle(server);
-    const serverPort = Number(server.getMultiaddrs()[0].toString().split("/")[4]);
-    const proxy = await silentProxy(serverPort);
-    const connection = await client.dial(
-      multiaddr(`/ip4/127.0.0.1/tcp/${proxy.port}/p2p/${server.peerId}`),
-    );
-    // A few pings succeed first, so the timeout has a history.
-    await sleep(3 * INTERVAL_MS);
+  it("is detected on an idle connection of a quiet node within one interval plus the timeout", async () => {
+    const server = await node("when-silent", ["/ip4/127.0.0.1/tcp/0"]);
+    const client = await node("when-silent");
+    const { connection, proxy } = await dialThroughProxy(client, server);
+    await sleep(2 * INTERVAL_MS); // a few answered pings first
     expect(connection.status).toBe("open");
-    return { connection, proxy };
-  }
-
-  it("is detected on an idle connection within one interval plus the timeout", async () => {
-    const { connection, proxy } = await connectThroughProxy("when-silent");
-    let t0 = 0;
-    const closed = closedAfter(connection, () => t0);
-    t0 = Date.now();
-    proxy.blackhole();
-    const ms = await closed;
-    expect(ms).toBeLessThanOrEqual(INTERVAL_MS + TIMEOUT_MS + 500);
-  }, 20_000);
+    expect(liveness(client).byteSource(connection)).toBe("transport-events");
+    const ms = await blackholeAndTime(connection, proxy);
+    expect(ms).toBeLessThanOrEqual(INTERVAL_MS + TIMEOUT_MS + SLACK_MS);
+  }, 15_000);
 
   it("is detected on a busy connection within two intervals plus the timeout", async () => {
-    const { connection, proxy } = await connectThroughProxy("when-silent");
+    const server = await node("when-silent", ["/ip4/127.0.0.1/tcp/0"]);
+    const client = await node("when-silent");
+    await serveTrickle(server);
+    const { connection, proxy } = await dialThroughProxy(client, server);
     const got = await readTrickle(connection);
     await sleep(2 * INTERVAL_MS);
     expect(got.bytes).toBeGreaterThan(0);
-    let t0 = 0;
-    const closed = closedAfter(connection, () => t0);
-    t0 = Date.now();
-    proxy.blackhole();
-    const ms = await closed;
-    expect(ms).toBeLessThanOrEqual(2 * INTERVAL_MS + TIMEOUT_MS + 500);
-  }, 20_000);
+    const ms = await blackholeAndTime(connection, proxy);
+    expect(ms).toBeLessThanOrEqual(2 * INTERVAL_MS + TIMEOUT_MS + SLACK_MS);
+  }, 15_000);
+
+  it("is detected within two intervals plus ITS OWN timeout while other connections' pings fail", async () => {
+    // One node, four peers. To each `busy` peer, pings are never answered
+    // while a trickle keeps arriving: kept, failing every tick. To `quiet`,
+    // pings are answered, then the peer goes silent. A timeout estimator
+    // shared between them would have grown on the busy failures and delayed
+    // `quiet`'s detection; and the node receiving from `busy` reads as a
+    // congested link, so `quiet` gets its second silent failure, not its first.
+    const client = await node("when-silent");
+    const busyConnections: Connection[] = [];
+    for (let i = 0; i < 3; i++) {
+      const busy = await node("when-silent", ["/ip4/127.0.0.1/tcp/0"]);
+      await stallPings(busy);
+      await serveTrickle(busy);
+      const connection = await client.dial(busy.getMultiaddrs()[0]);
+      await readTrickle(connection);
+      busyConnections.push(connection);
+    }
+    const quiet = await node("when-silent", ["/ip4/127.0.0.1/tcp/0"]);
+    const { connection: quietConnection, proxy } = await dialThroughProxy(client, quiet);
+    await sleep(6 * INTERVAL_MS);
+    for (const connection of busyConnections) expect(connection.status).toBe("open");
+    expect(liveness(client).nextTimeoutMs(quietConnection)).toBe(TIMEOUT_MS);
+
+    const ms = await blackholeAndTime(quietConnection, proxy);
+    expect(ms).toBeLessThanOrEqual(2 * INTERVAL_MS + TIMEOUT_MS + SLACK_MS);
+    for (const connection of busyConnections) expect(connection.status).toBe("open");
+  }, 15_000);
+
+  it("one connection's slow answered pings do not lengthen another connection's timeout", async () => {
+    // Timeouts of 3 x the average answered ping: `slow` answers after 150 ms
+    // (timeout ~450 ms), `fast` at once (timeout at its 200 ms floor). With one
+    // estimator for both, `fast` would read ~450 ms after each `slow` answer.
+    const client = await node("when-silent", [], [tcp() as never], {}, 3);
+    const slow = await node("when-silent", ["/ip4/127.0.0.1/tcp/0"]);
+    const fast = await node("when-silent", ["/ip4/127.0.0.1/tcp/0"]);
+    await slow.handle(LIVENESS_PING_PROTOCOL, async (stream) => {
+      const bytes = byteStream(stream);
+      const ping = await bytes.read({ bytes: 32 });
+      await sleep(150);
+      await bytes.write(ping);
+    });
+    const slowConnection = await client.dial(slow.getMultiaddrs()[0]);
+    const fastConnection = await client.dial(fast.getMultiaddrs()[0]);
+    const fastSeen = new Set<number>();
+    let slowMax = 0;
+    for (let i = 0; i < 30; i++) {
+      await sleep(50);
+      fastSeen.add(liveness(client).nextTimeoutMs(fastConnection) ?? -1);
+      slowMax = Math.max(slowMax, liveness(client).nextTimeoutMs(slowConnection) ?? 0);
+    }
+    expect(slowMax).toBeGreaterThanOrEqual(400);
+    expect([...fastSeen]).toEqual([TIMEOUT_MS]);
+  }, 15_000);
 
   it("is never detected by this monitor with abortOnPingFailure: never", async () => {
-    const { connection, proxy } = await connectThroughProxy("never");
+    const server = await node("never", ["/ip4/127.0.0.1/tcp/0"]);
+    const client = await node("never");
+    const { connection, proxy } = await dialThroughProxy(client, server);
+    await sleep(INTERVAL_MS);
     proxy.blackhole();
-    await sleep(6 * INTERVAL_MS);
+    await sleep(4 * INTERVAL_MS);
     expect(connection.status).toBe("open");
-  }, 20_000);
+  }, 15_000);
+});
+
+describe("connectionLiveness over WebRTC", () => {
+  it("reads received bytes from getStats, and keeps a busy connection whose pings fail", async () => {
+    const webrtc = () => [
+      tcp() as never,
+      circuitRelayTransport() as never,
+      webRTC({ rtcConfiguration: { iceServers: [] } }) as never,
+    ];
+    const relay = await node("when-silent", ["/ip4/127.0.0.1/tcp/0"], [tcp() as never], {
+      relay: circuitRelayServer({ reservations: { applyDefaultLimit: false } }),
+    });
+    const server = await node("when-silent", ["/p2p-circuit", "/webrtc"], webrtc());
+    const client = await node("when-silent", [], webrtc());
+    await dialRelay(server, relay.getMultiaddrs()[0].toString());
+    await waitForCircuitReservation(server);
+    const serverSaw = await stallPings(server);
+    await serveTrickle(server);
+    const connection = await client.dial(
+      multiaddr(`${relay.getMultiaddrs()[0]}/p2p-circuit/webrtc/p2p/${server.peerId}`),
+    );
+    expect(connection.remoteAddr.toString()).toContain("/webrtc");
+    expect(liveness(client).byteSource(connection)).toBe("webrtc-stats");
+    await readTrickle(connection);
+    await sleep(6 * INTERVAL_MS);
+    expect(serverSaw.count).toBeGreaterThanOrEqual(3);
+    expect(connection.status).toBe("open");
+    // Progress was seen through the stats, at a failed ping's end.
+    expect(liveness(client).lastReceivedAt(connection)).toBeGreaterThan(
+      Date.now() - 3 * INTERVAL_MS,
+    );
+  }, 30_000);
+
+  it("sums transport stats when present, else the candidate pairs", async () => {
+    const report = (stats: Array<Record<string, unknown>>) => ({
+      getStats: async () => new Map(stats.map((s, i) => [String(i), s])),
+    });
+    expect(
+      await statsBytesReceived(
+        report([
+          { type: "transport", bytesReceived: 10 },
+          { type: "candidate-pair", bytesReceived: 99 },
+        ]),
+      ),
+    ).toBe(10);
+    expect(
+      await statsBytesReceived(
+        report([
+          { type: "candidate-pair", bytesReceived: 5 },
+          { type: "candidate-pair", bytesReceived: 7 },
+        ]),
+      ),
+    ).toBe(12);
+    expect(await statsBytesReceived(report([{ type: "local-candidate" }]))).toBe(undefined);
+  });
 });
 
 describe("createNode's connection monitor", () => {
-  it("installs connectionLiveness by default, and nothing with false", async () => {
+  const componentsOf = (of: Libp2p) =>
+    (of as unknown as { components: { components: Record<string, unknown> } }).components
+      .components;
+
+  it("installs connectionLiveness and disables libp2p's own monitor by default", async () => {
     const withDefault = await createNode({ transports: [tcp() as never] });
     cleanups.push(() => withDefault.stop());
-    expect(
-      (withDefault.services as Record<string, unknown>)[CONNECTION_LIVENESS_SERVICE],
-    ).toBeDefined();
+    expect(liveness(withDefault)).toBeDefined();
+    expect(componentsOf(withDefault).connectionMonitor).toBe(undefined);
+    // The control: a node built with libp2p's defaults does run its monitor.
+    const plain = await createLibp2p({
+      transports: [tcp()],
+      connectionEncrypters: [noise()],
+      streamMuxers: [yamux()],
+    });
+    cleanups.push(() => plain.stop());
+    expect(componentsOf(plain).connectionMonitor).toBeDefined();
+  });
+
+  it("runs no monitor at all with false", async () => {
     const without = await createNode({ transports: [tcp() as never], connectionMonitor: false });
     cleanups.push(() => without.stop());
-    expect((without.services as Record<string, unknown>)[CONNECTION_LIVENESS_SERVICE]).toBe(
-      undefined,
-    );
+    expect(liveness(without)).toBe(undefined);
+    expect(componentsOf(without).connectionMonitor).toBe(undefined);
   });
 });
