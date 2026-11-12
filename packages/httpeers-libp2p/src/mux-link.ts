@@ -35,7 +35,10 @@
  *     every port on it: open calls fail at once with `PeerGoneError` (mapped to
  *     `PeerStreamResetError` by the transport, as for a reset stream). The
  *     dead session is forgotten in the same turn, so the next call dials a new
- *     one: reconnection is just the next call.
+ *     one: reconnection is just the next call. A mux that closes ITSELF (its
+ *     keepalive finding the peer silent while the stream still looks alive,
+ *     its pump failing) dies the same way: same error, same redial
+ *     (`startSession`, "the one way a session dies").
  *   - **The serving side keeps the per-exchange path's bounds.** At most
  *     `maxInboundStreams` (512) exchanges at once per CONNECTION, counted
  *     across every mux on it (a port past the cap is refused, and the caller
@@ -227,14 +230,52 @@ export interface ClosablePeerLink extends PeerLink {
 
 interface Session {
   mux: PortMux;
-  /** Aborts when the mux is over, for whatever reason. */
+  /**
+   * Aborts once when the mux is over, for whatever reason: with the reason
+   * given to `close()`, or with a `PeerGoneError` when the mux closed itself
+   * (its keepalive, its stream's end, death or a malformed frame, its pump).
+   */
   dead: AbortSignal;
-  /** Close the mux (and so its stream and every port on it). */
+  /** Close the mux (and so its stream and every port on it) on purpose. */
   close(reason: unknown): Promise<void>;
+  /**
+   * An error read from `port`, one of this mux's, as the exchange should see
+   * it: see {@link peerGoneFailure}.
+   */
+  failure(error: unknown, port: MessageTarget): unknown;
+}
+
+/**
+ * `error`, read from a port whose close signal aborted with `closedWith`, as
+ * the exchange should see it, given the session's `dead` signal. Once the mux
+ * died otherwise than on purpose (`dead` aborted with a `PeerGoneError`), the
+ * error the mux failed the port with (its keepalive's "the peer did not
+ * answer", a stream's plain end), matched by identity, becomes a
+ * `PeerGoneError` (mapped to `PeerStreamResetError`). Anything else is left as
+ * it is: an error the peer sent before the death (a handler's own, rebuilt
+ * with its name), a port the peer closed, a `PeerGoneError` already, and
+ * every error after a close on purpose (the link's own `close()`).
+ *
+ * @internal Exported for its tests only; not part of the package's API.
+ */
+export function peerGoneFailure(error: unknown, closedWith: unknown, dead: AbortSignal): unknown {
+  if (!dead.aborted || !(dead.reason instanceof PeerGoneError)) return error;
+  if (error !== closedWith || error instanceof PeerGoneError || isPeerClosedPort(error)) {
+    return error;
+  }
+  return new PeerGoneError(error);
+}
+
+/** Why a mux that closed itself died, as the peer-gone error every exchange on it sees. */
+function peerGone(reason: unknown): PeerGoneError {
+  return reason instanceof PeerGoneError ? reason : new PeerGoneError(reason);
 }
 
 /** Wrap a running node as a link whose exchanges share one mux per peer. */
-export function libp2pMuxLink(init: Libp2pMuxLinkInit): ClosablePeerLink {
+export function libp2pMuxLink(init: Libp2pMuxLinkInit): ClosablePeerLink & {
+  /** @internal The sessions alive now, both directions: for tests only. */
+  liveSessions(): number;
+} {
   const { node, perExchange, options } = init;
   const protocol = options.protocol ?? muxProtocolOf(init.protocol);
   const fallback = options.fallback ?? true;
@@ -293,7 +334,24 @@ export function libp2pMuxLink(init: Libp2pMuxLinkInit): ClosablePeerLink {
             },
           })
         : undefined;
-    const target = presumed?.target ?? (pipe as unknown as MessageTarget);
+    // THE ONE WAY A SESSION DIES. However the mux closes -- `close()` here,
+    // its stream's end or death (`signal`), or on its own (its keepalive
+    // finding the peer silent, its pump failing) -- it releases its pipe last,
+    // after failing its ports, in the same turn. That release aborts `dead`,
+    // once, so the session is dropped (the next call dials) and its timers
+    // and listeners go, whichever path closed it. A close not asked for here
+    // dies of a `PeerGoneError`: the stream's own reason when the stream
+    // ended, else the mux giving up on its peer.
+    const target = releasing(presumed?.target ?? (pipe as unknown as MessageTarget), () => {
+      if (dead.signal.aborted) return;
+      dead.abort(
+        peerGone(
+          signal.aborted
+            ? signal.reason
+            : new Error("httpeers-libp2p: the multiplexer closed itself (keepalive or transport)"),
+        ),
+      );
+    });
     const mux = libs.rpc.multiplexPort(target, {
       codec: presumed?.codec ?? libs.codec,
       side,
@@ -313,23 +371,31 @@ export function libp2pMuxLink(init: Libp2pMuxLinkInit): ClosablePeerLink {
       mux,
       dead: dead.signal,
       async close(reason) {
-        dead.abort(reason);
+        if (!dead.signal.aborted) dead.abort(reason);
         await mux.close(reason);
+      },
+      failure(error, port) {
+        return peerGoneFailure(error, libs.rpc.getPortCloseSignal(port)?.reason, dead.signal);
       },
     };
     session = opened;
-    live.add(opened);
-    dead.signal.addEventListener(
-      "abort",
-      () => {
-        live.delete(opened);
-        presumed?.stop();
-      },
-      { once: true },
-    );
     const onStreamGone = () => {
-      dead.abort(signal.reason);
+      // A backstop: the mux, listening first, has normally released its pipe already.
+      if (!dead.signal.aborted) dead.abort(peerGone(signal.reason));
     };
+    const cleanUp = () => {
+      live.delete(opened);
+      presumed?.stop();
+      signal.removeEventListener("abort", onStreamGone);
+    };
+    // A mux that closed while it was being built has aborted `dead` already:
+    // clean up at once rather than wait for an event that has fired.
+    if (dead.signal.aborted) {
+      cleanUp();
+      return opened;
+    }
+    live.add(opened);
+    dead.signal.addEventListener("abort", cleanUp, { once: true });
     if (signal.aborted) onStreamGone();
     else signal.addEventListener("abort", onStreamGone, { once: true });
     // A stream that died, or that the peer half-closed, before
@@ -411,7 +477,9 @@ export function libp2pMuxLink(init: Libp2pMuxLinkInit): ClosablePeerLink {
   const peerRefusedMux = (peerId: PeerIdStr): boolean =>
     node.getConnections(peerIdFromString(peerId)).some((c) => refused.has(c));
 
-  const openPort = async (peerId: PeerIdStr): Promise<MessageTarget> => {
+  const openPort = async (
+    peerId: PeerIdStr,
+  ): Promise<{ port: MessageTarget; session: Session }> => {
     // Twice at most: a session can die between being handed out and opening
     // its port (the stream reset in that window). The second attempt dials.
     for (let attempt = 0; ; attempt++) {
@@ -427,7 +495,7 @@ export function libp2pMuxLink(init: Libp2pMuxLinkInit): ClosablePeerLink {
         continue;
       }
       try {
-        return await session.mux.openPort({ kind: "httpeers" });
+        return { port: await session.mux.openPort({ kind: "httpeers" }), session };
       } catch (error) {
         if (!session.dead.aborted) throw error;
         // What killed the session says more than "the multiplexer is closed":
@@ -442,8 +510,9 @@ export function libp2pMuxLink(init: Libp2pMuxLinkInit): ClosablePeerLink {
       if (closed) throw new Error("httpeers-libp2p: the link was closed");
       if (fallback && peerRefusedMux(peerId)) return perExchange.open(peerId);
       let port: MessageTarget;
+      let session: Session;
       try {
-        port = await openPort(peerId);
+        ({ port, session } = await openPort(peerId));
       } catch (error) {
         // Every mux stream this connection allows is taken (by other links
         // to the same peer): this call goes the per-exchange way.
@@ -460,7 +529,7 @@ export function libp2pMuxLink(init: Libp2pMuxLinkInit): ClosablePeerLink {
         call: ((input: AsyncIterable<Uint8Array>) =>
           mappingErrors(
             duplex(gatheringChunks(input[Symbol.asyncIterator](), maxChunkBytes)),
-            peerClosedPort,
+            (error) => peerClosedPort(session.failure(error, port)),
           )) as Duplex,
         async close() {
           (port as { close?: () => void }).close?.();
@@ -518,24 +587,37 @@ export function libp2pMuxLink(init: Libp2pMuxLinkInit): ClosablePeerLink {
                 // The pieces of the response written back to back go as one
                 // message, not one each (`chunk-gather.ts`); inside the stall
                 // watch, which times the caller and not the handler.
-                droppingStalledWrites(gatheringChunks(handler(input), maxChunkBytes), {
-                  rpc: libs.rpc,
-                  port,
-                  pieceBytes: maxChunkBytes,
-                  timeoutMs: init.drainTimeoutMs,
-                  onStall: () => {
-                    // Close the port FIRST, synchronously, and only then end
-                    // the output. Ended first, the output looks finished: the
-                    // serving pump would post a clean end of stream before a
-                    // deferred close, and the caller would read a truncated
-                    // body as complete (an `HttpParseError` mid-chunk) rather
-                    // than see the exchange reset. Closed first, the pump is
-                    // aborted, posts nothing more, and the caller gets the
-                    // close: `MuxPortClosedError`, mapped to `PeerStreamResetError`.
-                    (port as { close?: () => void }).close?.();
-                    void output.return(undefined).catch(() => {});
+                droppingStalledWrites(
+                  gatheringChunks(
+                    // A request body cut short by the mux's death fails with
+                    // what the session died of (`PeerGoneError`), as the
+                    // caller's exchanges do, not with the mux's own reason.
+                    handler(
+                      mappingErrors(asyncIteratorOf(input), (error) =>
+                        session.failure(error, port),
+                      ),
+                    ),
+                    maxChunkBytes,
+                  ),
+                  {
+                    rpc: libs.rpc,
+                    port,
+                    pieceBytes: maxChunkBytes,
+                    timeoutMs: init.drainTimeoutMs,
+                    onStall: () => {
+                      // Close the port FIRST, synchronously, and only then end
+                      // the output. Ended first, the output looks finished: the
+                      // serving pump would post a clean end of stream before a
+                      // deferred close, and the caller would read a truncated
+                      // body as complete (an `HttpParseError` mid-chunk) rather
+                      // than see the exchange reset. Closed first, the pump is
+                      // aborted, posts nothing more, and the caller gets the
+                      // close: `MuxPortClosedError`, mapped to `PeerStreamResetError`.
+                      (port as { close?: () => void }).close?.();
+                      void output.return(undefined).catch(() => {});
+                    },
                   },
-                }),
+                ),
                 closePort,
               );
               return output;
@@ -544,6 +626,7 @@ export function libp2pMuxLink(init: Libp2pMuxLinkInit): ClosablePeerLink {
           );
           return true;
         });
+        if (session.dead.aborted) return;
         accepted.add(session);
         session.dead.addEventListener("abort", () => accepted.delete(session), { once: true });
       };
@@ -564,6 +647,8 @@ export function libp2pMuxLink(init: Libp2pMuxLinkInit): ClosablePeerLink {
         await stopPerExchange();
       };
     },
+
+    liveSessions: () => live.size,
 
     async close() {
       if (closed) return;
@@ -598,9 +683,49 @@ function isStreamLimit(error: unknown): boolean {
 
 /** The peer closing a port, as this package names it; anything else as it was. */
 function peerClosedPort(error: unknown): unknown {
-  return error instanceof Error && error.message === PEER_CLOSED_PORT
+  return isPeerClosedPort(error)
     ? new MuxPortClosedError("the serving peer closed the exchange's port", { cause: error })
     : error;
+}
+
+function isPeerClosedPort(error: unknown): boolean {
+  return error instanceof Error && error.message === PEER_CLOSED_PORT;
+}
+
+/** `input`'s iterator; webrun-rpc hands a served port's input as an async iterable. */
+function asyncIteratorOf(
+  input: AsyncIterable<Uint8Array> | Iterable<Uint8Array>,
+): AsyncGenerator<Uint8Array> {
+  if (Symbol.asyncIterator in input) {
+    return input[Symbol.asyncIterator]() as AsyncGenerator<Uint8Array>;
+  }
+  return (async function* () {
+    yield* input;
+  })();
+}
+
+/**
+ * `target`, calling `onRelease` when the mux releases it (`close()`): the last
+ * thing every close of `multiplexPort` does, whatever closed it, after it
+ * failed its ports and in the same turn.
+ */
+function releasing(target: MessageTarget, onRelease: () => void): MessageTarget {
+  return {
+    addEventListener: (type, listener) => target.addEventListener(type, listener),
+    removeEventListener: (type, listener) => target.removeEventListener(type, listener),
+    postMessage: (message, transfer) => target.postMessage(message, transfer),
+    get bufferedAmount() {
+      return target.bufferedAmount;
+    },
+    ...(target.whenDrained == null
+      ? {}
+      : { whenDrained: () => target.whenDrained?.() as Promise<void> }),
+    ...(target.start == null ? {} : { start: () => target.start?.() }),
+    close: (reason?: unknown) => {
+      onRelease();
+      return target.close?.(reason);
+    },
+  };
 }
 
 /** @internal What {@link droppingStalledWrites} needs to watch one served port. */
