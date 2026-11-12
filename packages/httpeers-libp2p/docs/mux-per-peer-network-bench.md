@@ -257,9 +257,10 @@ Two causes, each in httpeers:
    piece). Only chunk boundaries move, which neither `duplexOverPort` nor
    the HTTP codec sees, so it is wire-compatible with every peer, old or
    new, in either role. Now 820 and 730 bytes on loopback: fewer than the
-   per-exchange path. A `return()` (an exchange torn down) reaches the
-   producer at once and does not wait for a read ahead that a quiet producer
-   (an SSE stream between events) may never finish.
+   per-exchange path. A `return()` (an exchange torn down) frees the
+   consumer at once and is passed to the producer at once, but a producer
+   with a read ahead pending (an SSE stream between events) runs it, and
+   its cleanup, only once that read settles, at its next event.
 
    The same saving upstream would be the codec yielding a small message (or
    a body chunk with its framing) as one piece; on the per-exchange path
@@ -280,22 +281,28 @@ Two causes, each in httpeers:
    messages stayed under 400 bytes.
 
    Fix: the gathering limit is 16 KiB, about a round trip's worth of
-   segments at such a window. A mux frame of the default size (31 KiB) went
-   out alone at the old limit too, so bulk keeps its one frame per send.
+   segments at such a window. The cost is in bulk: at the old limit two
+   frames of the default size (31837 bytes each with their envelopes) shared
+   a send, now each goes alone, so bulk takes up to twice the sends, yamux
+   frames and Noise messages. Its throughput did not change measurably
+   (below). Frames of 8–16 KiB, which went four to six to a send, now go one
+   per send; that cost was not measured.
 
 Each change alone, mobile 1% loss, K=100 only (`--ks 100`), exchanges/s,
 median and range:
 
-| | runs | mux | per-exchange, same session |
+| | runs | mux | per-exchange (6 runs) |
 |---|---|---|---|
-| neither (before) | 6 | 117 (99–155) | 155 (139–178) |
+| neither (before) | 6 | 117 (99–155) | 155 (139–178), same session |
 | batches of up to 16 KiB only | 10 | 159 (97–184) | |
 | pieces joined only | 10 | 165 (147–196) | |
-| both (after) | 10 | 235 (205–300) | 154 (127–199) |
+| both (after) | 10 | 235 (205–300) | 154 (127–199), just before the 10-run rows |
 
 With the pieces joined, the gathering limit made little difference at or
-under 16 KiB: 243 at 1.4 KB, 214 at 4 KiB, 261 at 16 KiB, and 174 at 64 KB
-(6 runs each).
+under 16 KiB (6 runs each, measured before the 10-run rows): 243 (218–278)
+at 1.4 KB, 214 (179–258) at 4 KiB, 261 (189–302) at 16 KiB, against 174
+(121–222) at 64 KB. Every number in this table and paragraph is under
+`k100Only` in `tcp-gathered-chunks.json`.
 
 **After both, 256 B exchanges/s at K = 1 / 10 / 100** (the lossy profiles 5
 runs each, the others 3; the mux "before" on the lossy profiles is from the

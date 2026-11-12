@@ -8,8 +8,9 @@
  *     is not held for it;
  *   - chunks stay within `maxBytes`; a larger piece passes on its own;
  *   - an error after some pieces delivers them first, then the error;
- *   - `return()` reaches the source, and does not wait for a read ahead that
- *     a quiet producer never finishes.
+ *   - `return()` and `throw()` reach the source, and free the consumer at
+ *     once even while a read ahead waits on a quiet producer (whose cleanup
+ *     then runs once that read settles).
  */
 
 import { describe, expect, it } from "vitest";
@@ -115,6 +116,35 @@ describe("gatheringChunks", () => {
     expect(result).toEqual({ done: true, value: undefined });
     expect((await it.next()).done).toBe(true);
     // The source runs its cleanup once its pending step settles.
+    release?.();
+    await expect.poll(() => finished).toBe(true);
+  });
+
+  it("throws at once while a read ahead waits on a quiet producer, and the source still gets the throw", async () => {
+    let release: (() => void) | undefined;
+    let finished = false;
+    async function* source() {
+      try {
+        yield text("event: one\n\n");
+        await new Promise<void>((resolve) => {
+          release = resolve;
+        });
+        yield text("event: two\n\n");
+      } finally {
+        finished = true;
+      }
+    }
+    const it = gatheringChunks(source(), 1024);
+    await it.next();
+    const result = await Promise.race([
+      it.throw(new Error("torn down")).then(
+        () => "resolved",
+        (error: Error) => error.message,
+      ),
+      sleep(500).then(() => "held"),
+    ]);
+    expect(result).toBe("torn down");
+    expect((await it.next()).done).toBe(true);
     release?.();
     await expect.poll(() => finished).toBe(true);
   });

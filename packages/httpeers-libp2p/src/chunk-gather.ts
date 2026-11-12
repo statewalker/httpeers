@@ -28,9 +28,13 @@
  *
  * READING AHEAD. One `next()` of the source may be outstanding while the
  * consumer holds the previous chunk (the piece that did not arrive in time).
- * A `return()` or `throw()` reaches the source at once, as it would without
- * this; if the read ahead is still pending, the consumer does not wait for
- * the source to finish it.
+ * A `return()` or `throw()` is passed to the source at once and, with no
+ * read ahead pending, settles as the source's does. With one pending, the
+ * consumer is freed at once (`return()` resolves done, `throw()` rejects
+ * with its error), but an async generator source runs the `return()` or
+ * `throw()`, and so its cleanup, only once that pending read settles: a
+ * quiet producer (an SSE stream between events) is cleaned up at its next
+ * event, not at once.
  */
 
 const TIMED_OUT = Symbol("timed out");
@@ -97,9 +101,15 @@ export function gatheringChunks(
     },
     async throw(error?: unknown): Promise<IteratorResult<Uint8Array>> {
       over = true;
-      ahead?.catch(() => {});
+      const pending = ahead;
       ahead = undefined;
-      if (it.throw != null) return it.throw(error);
+      if (it.throw == null) throw error;
+      const thrown = it.throw(error);
+      if (pending == null) return thrown;
+      // As `return()`: the source takes it once its read ahead settles; the
+      // consumer gets what an unhandled throw gives, at once.
+      void Promise.resolve(thrown).catch(() => {});
+      void pending.catch(() => {});
       throw error;
     },
     [Symbol.asyncIterator]() {

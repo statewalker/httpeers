@@ -304,10 +304,17 @@ export function muxTargetOverStream(
  * link, batches of up to 64 KB gave a median of 165/s over 10 runs
  * (147-196) and batches of up to 16 KiB 235/s (205-300), the per-exchange
  * path about 155/s (`scripts/bench-mux-net.mjs`). 16 KiB is about one round
- * trip's worth of segments at such a window (11 segments), and a mux frame of
- * the default size (31 KiB) went out alone at the old limit too, so bulk
- * keeps its frame-per-send cost; 1.4 KB and 4 KiB batches measured the same
- * as 16 KiB within the noise.
+ * trip's worth of segments at such a window (11 segments); 1.4 KB and 4 KiB
+ * batches measured the same as 16 KiB within the noise.
+ *
+ * WHAT IT COSTS. Bulk frames no longer share a send: at the old limit two
+ * frames of the default size (31837 bytes each with their envelopes) went as
+ * one, now each goes alone, so bulk takes up to twice the sends, yamux
+ * frames and Noise messages. Bulk throughput did not change measurably (on
+ * loopback 141 MB/s against 139; on the emulated links 682, 47.0, 9.4 and
+ * 18.3 Mbit/s against 688, 47.0, 9.4 and 18.4). Frames of 8-16 KiB, which
+ * went four to six to a send, now go one per send; their cost was not
+ * measured.
  */
 const COALESCE_BYTES = 16 * 1024;
 
