@@ -28,7 +28,12 @@ import type { Ed25519PrivateKey, Libp2p } from "@libp2p/interface";
 import { tcp } from "@libp2p/tcp";
 import { webRTC } from "@libp2p/webrtc";
 import { webSockets } from "@libp2p/websockets";
-import { type IceServer, webRTCInitOf } from "@statewalker/httpeers-libp2p";
+import {
+  CONNECTION_LIVENESS_SERVICE,
+  connectionLiveness,
+  type IceServer,
+  webRTCInitOf,
+} from "@statewalker/httpeers-libp2p";
 import { warnIfOldLibdatachannel } from "@statewalker/httpeers-libp2p/node";
 import { createLibp2p } from "libp2p";
 import type { MemberPlatform } from "./start-member.js";
@@ -56,7 +61,10 @@ export async function createNodeMemberNode(init: {
     connectionEncrypters: [noise()],
     streamMuxers: [yamux()],
     connectionGater: { denyDialMultiaddr: async () => false },
-    services: { identify: identify() },
+    // As `createNode`: abort a connection on a failed ping only when it went
+    // silent, never one that is busy receiving (libp2p's monitor would).
+    connectionMonitor: { enabled: false },
+    services: { identify: identify(), [CONNECTION_LIVENESS_SERVICE]: connectionLiveness() },
   });
 }
 

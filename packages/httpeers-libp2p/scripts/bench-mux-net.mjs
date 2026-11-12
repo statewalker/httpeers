@@ -6,7 +6,7 @@
 //   sudo node packages/httpeers-libp2p/scripts/bench-mux-net.mjs \
 //     [--profiles lan,broadband,mobile,bad] [--transport tcp|webrtc] [--runs 3] \
 //     [--windows 262144,4194304] [--paths stream,mux] [--out results.json] \
-//     [--keep-on-ping-failure] [--cases ping,small,blob,bulk] [--ks 1,10,100]
+//     [--keep-on-ping-failure | --libp2p-monitor] [--cases ping,small,blob,bulk] [--ks 1,10,100]
 //
 // `--cases` runs a subset (e.g. `small` for the exchange rates alone);
 // `bulk` is the bulk download and everything measured beside it. `--ks`
@@ -129,16 +129,25 @@ function nodeTransports(transport) {
 }
 
 /**
- * `createNode`, or with `keepOnPingFailure` the same node built by hand but
- * with libp2p's connection monitor told not to abort the connection when its
- * ping times out. That monitor pings every 10 s with a timeout of at least
- * 5 s and, by default, ABORTS THE WHOLE CONNECTION on a miss: once a bulk
- * transfer has queued more than ~5 s of data ahead of the ping (slow, lossy
- * links), every exchange on the connection fails. `--keep-on-ping-failure`
- * measures past that; the default measures what httpeers does today.
+ * How the nodes find dead connections (#56):
+ *
+ *   - "default": `createNode` as it is, i.e. `connectionLiveness`, which
+ *     aborts a connection on a failed ping only when nothing arrived on it
+ *     since the ping was sent;
+ *   - "never" (`--keep-on-ping-failure`): the same monitor, never aborting;
+ *   - "libp2p" (`--libp2p-monitor`): the node built by hand with libp2p's own
+ *     connection monitor at its defaults, as `createNode` was before: it
+ *     pings every 10 s with a timeout of at least 5 s and ABORTS THE WHOLE
+ *     CONNECTION on a miss, so once a bulk transfer has queued more than ~5 s
+ *     of data ahead of the ping (slow, lossy links), every exchange on the
+ *     connection fails.
  */
-async function makeNode(init, keepOnPingFailure) {
-  if (!keepOnPingFailure) return createNode(init);
+const MONITORS = ["default", "never", "libp2p"];
+
+async function makeNode(init, monitor) {
+  if (monitor === "never")
+    return createNode({ ...init, connectionMonitor: { abortOnPingFailure: "never" } });
+  if (monitor !== "libp2p") return createNode(init);
   return createLibp2p({
     privateKey: init.privateKey,
     addresses: { listen: init.listen ?? [] },
@@ -146,7 +155,6 @@ async function makeNode(init, keepOnPingFailure) {
     connectionEncrypters: [noise()],
     streamMuxers: [yamux()],
     services: { identify: identify(), ...(init.services ?? {}) },
-    connectionMonitor: { abortConnectionOnPingFailure: false },
   });
 }
 
@@ -162,7 +170,7 @@ if (args.includes("--serve")) {
       listen: transport === "webrtc" ? ["/p2p-circuit", "/webrtc"] : ["/ip4/10.77.0.2/tcp/0"],
       transports: nodeTransports(transport),
     },
-    args.includes("--keep-on-ping-failure"),
+    opt("--monitor", "default"),
   );
   let relay;
   let dialAddr = node.getMultiaddrs()[0]?.toString();
@@ -284,7 +292,7 @@ async function oneRun({
   window,
   transport,
   t,
-  keepOnPingFailure,
+  monitor,
   cases = ALL_CASES,
   ks = [1, 10, 100],
 }) {
@@ -295,7 +303,8 @@ async function oneRun({
     transport,
     ...(mux ? ["--mux"] : []),
     ...(window ? ["--window", String(window)] : []),
-    ...(keepOnPingFailure ? ["--keep-on-ping-failure"] : []),
+    "--monitor",
+    monitor,
   ];
   const child = spawn("ip", ["netns", "exec", "nemB", process.execPath, SCRIPT, ...childArgs], {
     stdio: ["ignore", "inherit", "pipe", "ipc"],
@@ -313,7 +322,7 @@ async function oneRun({
   try {
     node = await makeNode(
       { privateKey: await generateKey(), transports: nodeTransports(transport) },
-      keepOnPingFailure,
+      monitor,
     );
     if (transport === "webrtc") {
       await node.dial(multiaddr(served.relayAddr));
@@ -487,7 +496,12 @@ const WINDOWS = opt("--windows", `${DEFAULT_MUX_WINDOW},${4 * 1024 * 1024}`)
   .map(Number);
 const PATHS = opt("--paths", "stream,mux").split(",");
 const OUT = opt("--out", undefined);
-const KEEP = args.includes("--keep-on-ping-failure");
+const MONITOR = args.includes("--libp2p-monitor")
+  ? "libp2p"
+  : args.includes("--keep-on-ping-failure")
+    ? "never"
+    : "default";
+if (!MONITORS.includes(MONITOR)) throw new Error(`unknown monitor ${MONITOR}`);
 const CASES = opt("--cases", ALL_CASES.join(",")).split(",");
 const KS = opt("--ks", "1,10,100").split(",").map(Number);
 for (const c of CASES) if (!ALL_CASES.includes(c)) throw new Error(`unknown case ${c}`);
@@ -520,7 +534,7 @@ for (const name of PROFILE_NAMES) {
           window: c.window,
           transport: TRANSPORT,
           t: profile.t,
-          keepOnPingFailure: KEEP,
+          monitor: MONITOR,
           cases: CASES,
           ks: KS,
         });
@@ -539,7 +553,7 @@ for (const name of PROFILE_NAMES) {
   all[name] = {
     link: profile.link,
     transport: TRANSPORT,
-    keepOnPingFailure: KEEP,
+    monitor: MONITOR,
     cases: CASES,
     runsRequested: RUNS,
     table,
@@ -577,7 +591,7 @@ for (const name of PROFILE_NAMES) {
   const labels = Object.keys(table);
   const l = profile.link;
   console.log(
-    `\n### ${name} (${TRANSPORT}${KEEP ? ", connection monitor does not abort" : ""}): ${l.rate} Mbit/s, RTT ${2 * l.delay} ms${l.jitter ? ` ±${l.jitter} ms` : ""}, loss ${l.loss * 100}%, queue ${l.queue} ms\n`,
+    `\n### ${name} (${TRANSPORT}${MONITOR === "default" ? "" : `, connection monitor: ${MONITOR}`}): ${l.rate} Mbit/s, RTT ${2 * l.delay} ms${l.jitter ? ` ±${l.jitter} ms` : ""}, loss ${l.loss * 100}%, queue ${l.queue} ms\n`,
   );
   console.log(`| | ${labels.join(" | ")} |`);
   console.log(`|---|${labels.map(() => "---").join("|")}|`);

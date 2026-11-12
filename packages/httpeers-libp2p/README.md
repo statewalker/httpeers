@@ -115,6 +115,36 @@ Node-only transport into every browser bundle that imports the root. Pass
 The root uses an explicit export list, never `export *`, so nothing Node-only
 leaks in through a barrel.
 
+### A busy connection is not killed for a slow ping
+
+libp2p's own connection monitor aborts a connection whenever one of its
+10-second pings times out (after at least 5 s). Under a bulk transfer on a slow
+or lossy link the ping waits behind the queued data, and the healthy
+connection dies with every exchange on it. `createNode` therefore replaces it
+with `connectionLiveness()`: the same ping, but a failed ping aborts the
+connection only when nothing was received on it since the ping was sent.
+Each connection learns its own timeout, from answered pings only. A peer that
+vanishes silently is still dropped within the interval plus the timeout
+(about 15 s by default), or within two intervals plus the timeout (about
+25 s) while the node is receiving at least 64 KiB elsewhere, which is read as
+a congested shared link. Those bounds assume the connection's learned timeout
+is no longer than the interval; on a slow link where it has grown past the
+interval, the worst case approaches two intervals plus twice the timeout. Bytes are seen on the raw transport connection (TCP,
+WebSockets, relayed circuits) or through `getStats()` (WebRTC). Tune it with
+`connectionMonitor` (`pingIntervalMs`, `pingTimeout`, `abortOnPingFailure`,
+`silentFailuresWhenBusy`), or pass `false` for no monitor.
+
+What it does not fix: an IDLE connection that shares a congested access link
+with a busy one, such as a member's relay or hub reservation while the member
+downloads from another peer, receives nothing while its pings wait in the same
+queue. The congestion rule gives it one more interval; a queue that delays its
+pings past two intervals still aborts it and the reservation has to be made
+again. `apps/relay` builds its node without this package and still runs
+libp2p's monitor, so a relay aborts such a connection after one slow ping
+(5 s or more). A node built by hand with `createLibp2p` gets the same with
+`connectionMonitor: { enabled: false }` and
+`services: { [CONNECTION_LIVENESS_SERVICE]: connectionLiveness() }`.
+
 ### A browser is reachable only through a relay reservation
 
 A page cannot listen for inbound connections. It reserves a slot on a relay and

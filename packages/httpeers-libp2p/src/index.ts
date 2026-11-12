@@ -15,6 +15,26 @@
  * `(peerId, path)`, with identity captured per stream by closure exactly as
  * the fetch path does it.
  */
+/**
+ * Finding dead connections without killing busy ones (#56): the connection
+ * monitor `createNode` installs in place of libp2p's. A node built by hand
+ * passes `connectionMonitor: { enabled: false }` and this service.
+ */
+export {
+  type AbortOnPingFailure,
+  type ByteSource,
+  CONNECTION_LIVENESS_SERVICE,
+  type ConnectionLiveness,
+  type ConnectionLivenessComponents,
+  type ConnectionLivenessOptions,
+  connectionLiveness,
+  DEFAULT_LIVENESS_PING_INTERVAL_MS,
+  DEFAULT_SILENT_FAILURES_WHEN_BUSY,
+  LIVENESS_PING_PROTOCOL,
+  NODE_BUSY_BYTES,
+  STATS_SAMPLE_TIMEOUT_MS,
+  statsBytesReceived,
+} from "./connection-liveness.js";
 export {
   createDuplexMounts,
   DUPLEX_PROTOCOL,

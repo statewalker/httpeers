@@ -48,6 +48,11 @@ import {
 // The fetch-over-duplex calls themselves moved to `httpeers-bridge`.
 import { HttpParseError } from "@statewalker/webrun-http-streams";
 import { createLibp2p } from "libp2p";
+import {
+  CONNECTION_LIVENESS_SERVICE,
+  type ConnectionLivenessOptions,
+  connectionLiveness,
+} from "./connection-liveness.js";
 import { type CallOnLimitedConnection, libp2pLink } from "./link.js";
 import type { MuxPerPeer } from "./mux-link.js";
 
@@ -403,6 +408,22 @@ export interface CreateNodeInit {
   services?: Record<string, unknown>;
   /** A connection gater, e.g. membership. */
   connectionGater?: unknown;
+  /**
+   * How dead connections are found (#56). By default libp2p's own connection
+   * monitor is replaced by `connectionLiveness()`, which pings every 10 s as
+   * libp2p does but aborts a connection on a failed ping only when nothing
+   * was received on it since the ping was sent: libp2p's default aborts on
+   * any failed ping, which kills a busy, healthy connection on a slow link
+   * (its ping waits behind the data). A silent dead peer is still aborted
+   * within the ping interval plus that connection's ping timeout (15 s with
+   * the defaults), or two intervals plus the timeout (25 s) while the node is
+   * receiving on other connections (read as a congested shared link); on a
+   * slow link whose timeout has grown past the interval, up to two intervals
+   * plus twice the timeout.
+   * Pass options to tune it, or `false` for no monitor at all (neither
+   * libp2p's nor this one). See `connection-liveness.ts`.
+   */
+  connectionMonitor?: ConnectionLivenessOptions | false;
 }
 
 /**
@@ -425,7 +446,14 @@ export type TransportFactory = (components: never) => unknown;
  * `transport-duplex.ts`; `peer.ts` calls it, never `createLibp2p` directly.
  */
 export async function createNode(init: CreateNodeInit): Promise<Libp2p> {
-  const { listen = [], privateKey, transports, services, connectionGater } = init;
+  const {
+    listen = [],
+    privateKey,
+    transports,
+    services,
+    connectionGater,
+    connectionMonitor,
+  } = init;
   if (transports.length === 0) {
     throw new TypeError(
       "createNode: at least one transport is required. Use `nodeTransports()` from " +
@@ -440,7 +468,15 @@ export async function createNode(init: CreateNodeInit): Promise<Libp2p> {
     transports: transports as any,
     connectionEncrypters: [noise()],
     streamMuxers: [yamux()],
-    services: { identify: identify(), ...(services ?? {}) } as never,
+    // Never libp2p's monitor: it would ping beside ours, and abort on its own.
+    connectionMonitor: { enabled: false },
+    services: {
+      identify: identify(),
+      ...(connectionMonitor !== false
+        ? { [CONNECTION_LIVENESS_SERVICE]: connectionLiveness(connectionMonitor ?? {}) }
+        : {}),
+      ...(services ?? {}),
+    } as never,
   });
 }
 

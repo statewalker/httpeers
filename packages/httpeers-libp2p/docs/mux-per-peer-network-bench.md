@@ -435,6 +435,9 @@ node packages/httpeers-libp2p/scripts/bench-mux-net.mjs --profiles lan,broadband
 node packages/httpeers-libp2p/scripts/bench-mux-net.mjs --profiles longfat,broadband-noloss,mobile-noloss --runs 2
 node packages/httpeers-libp2p/scripts/bench-mux-net.mjs --transport webrtc --runs 3
 node packages/httpeers-libp2p/scripts/bench-mux-net.mjs --profiles bad --keep-on-ping-failure
+# the bad link again after the connection-monitor fix (createNode's defaults);
+# everything above it ran before that fix, which `--libp2p-monitor` reproduces
+node packages/httpeers-libp2p/scripts/bench-mux-net.mjs --profiles bad --runs 3
 # the exchange-rate rerun
 node packages/httpeers-libp2p/scripts/bench-mux-net.mjs --cases small --profiles lan,broadband,mobile,bad,broadband-noloss,mobile-noloss,longfat
 node packages/httpeers-libp2p/scripts/bench-mux-net.mjs --cases small --transport webrtc
@@ -565,10 +568,39 @@ BDP 1.25 MB: one 256 KiB window per RTT is 21 Mbit/s, and the mux delivers
 
 ### Bad: 2 Mbit/s, RTT 200 ms, 3% loss, 500 ms queue
 
-With httpeers' defaults, every run on both paths failed (3 of 3 each): the
-connection was aborted under the bulk download (see "The connection dies").
-Measured again with libp2p's connection monitor told not to abort the
-connection (`--keep-on-ping-failure`; 3 runs):
+With libp2p's connection monitor at its defaults (what `createNode` installed
+until the fix in "The connection dies"), every run on both paths failed (3 of
+3 each): the connection was aborted under the bulk download. With
+`createNode`'s defaults since that fix, 3 runs:
+
+| | per-exchange | mux 256 KiB | mux 4096 KiB |
+|---|---|---|---|
+| Bulk alone (Mbit/s) | 0.3 | 0.4 | 0.4 |
+| Ping p50 / p99 idle (ms) | 1011.8 / 1710.6 | 607.4 / 1234.6 | 607.3 / 1091.5 |
+| Ping p50 / p99 under bulk (ms) | 11064.8 / 11176.4 | 4197.1 / 6299.2 | 5378.0 / 7547.7 |
+| 256 B exchanges/s, K = 1 / 10 / 100 | 1 / 8 / 38 | 2 / 14 / 52 | 2 / 15 / 52 |
+| 64 KiB GET idle, first byte / whole p50 (ms) | 2720.4 / 2720.7 | 1273.9 / 2125.7 | 1081.2 / 1669.2 |
+| 64 KiB GET under bulk, first byte p50 / p99 (ms) | 9664.0 / 11009.0 | 6753.6 / 8379.1 | 6846.4 / 9785.8 |
+| 64 KiB GET under bulk, whole p50 / p99 (ms) | 32629.0 / 32629.0 | 8755.4 / 12287.4 | 8941.8 / 11390.0 |
+| Samples under bulk: pings / 64 KiB GETs (median over runs) | 5 / 3 | 7 / 4 | 6 / 4 |
+| Runs that completed | 2 of 3 | 3 of 3 | 3 of 3 |
+
+No connection was aborted. The per-exchange run that failed hit the 8 s
+`DEFAULT_REQUEST_TIMEOUT_MS` on a 64 KiB GET beside the download (its head
+waits behind the download's queued bytes on the same connection), as one of
+the three `--keep-on-ping-failure` runs below did; a separate 2-run check
+with `DEBUG=httpeers:connection-liveness*` failed the same way once and
+logged four failed pings, on both sides, all "keeping it (bytes arrived
+meanwhile)", and no abort. With two runs the per-exchange cells are the
+higher value (see Method); its "whole" GET of 32.6 s comes from a run that
+completed a single 64 KiB GET beside the download (the other run: 12.0 /
+16.9 s over 3). The rows are otherwise in line
+with the earlier `--keep-on-ping-failure` measurement below (the 64 KiB and
+small-exchange rows a little better on the mux, within what the run-to-run
+spread of a 3% loss link allows).
+
+Measured earlier with libp2p's connection monitor told not to abort the
+connection (`--keep-on-ping-failure` at the time; 3 runs):
 
 | | per-exchange | mux 256 KiB | mux 4096 KiB |
 |---|---|---|---|
@@ -705,6 +737,8 @@ covered: they need a browser on a real network.
 
 ## The connection dies under bulk on slow links (both paths)
 
+**Fixed in `createNode` since these measurements: see "The fix" below.**
+
 On the bad profile every TCP run failed. With `DEBUG=libp2p:connection-monitor*`:
 
 ```
@@ -713,7 +747,7 @@ libp2p:connection-monitor:error aborting connection due to ping failure
 run failed in "64 KiB GETs under bulk": request to peer ... timed out after 8000ms
 ```
 
-libp2p 3's connection monitor (on by default; `createNode` does not
+libp2p 3's connection monitor (on by default; `createNode` did not
 configure it) pings every connection every 10 s with a timeout of
 max(5 s, 1.2 × average ping time) and, by default
 (`abortConnectionOnPingFailure: true`), aborts the whole connection when a
@@ -724,17 +758,107 @@ connection is torn down and every exchange on it fails, on either path. The
 lossy mobile profile came within reach of it (p99 ping under bulk 4.5 s), and
 so did the per-exchange path on mobile without loss (4.8–5.3 s).
 
-Measured with the monitor told not to abort (`--keep-on-ping-failure`, which
-builds the same node with `connectionMonitor: { abortConnectionOnPingFailure:
-false }`), the bad profile's numbers are in its section above.
+### The fix: abort only a connection that went silent
 
-**Suggested change (not made here; a library behaviour decision):** pass a
-`connectionMonitor` option from `createNode`: either
-`abortConnectionOnPingFailure: false` (httpeers already bounds requests with
-`requestTimeoutMs`, and the mux has its own keepalive), or a ping timeout
-floor well above the worst queueing delay expected (e.g.
-`pingTimeout: { minTimeout: 30_000 }`). On the mux path an adaptive window
-also removes most of the cause (less data queued ahead of the ping).
+`createNode` now turns libp2p's monitor off and installs `connectionLiveness()`
+(`src/connection-liveness.ts`): the same ping (`/ipfs/ping/1.0.0`, every
+10 s, the same adaptive 5–60 s timeout), but a failed ping aborts the
+connection only when **nothing was received on it since that ping was
+sent**. Bytes arriving prove the remote is alive and the path delivers; a
+ping stuck behind them proves nothing. Both ends of a bulk transfer receive:
+the reader gets the data, the sender gets the yamux window updates the
+reader returns for every data frame (and the reader's pings), on the
+uncongested direction.
+
+- **Seeing bytes.** libp2p has no per-connection byte counter. On TCP,
+  WebSockets and relayed circuits the service listens for `message` events on
+  the connection's raw transport stream (`maConn`), the hook libp2p's own
+  metrics use, records a timestamp and a byte count, and removes the listener
+  on stop. WebRTC's `maConn` never emits `message` (data travels on data
+  channels), so there it reads `bytesReceived` from
+  `RTCPeerConnection.getStats()` (`transport` stats, else the candidate
+  pairs; browsers and node-datachannel report them) when a ping starts and
+  when it fails. A connection with neither is aborted on any failed ping, as
+  libp2p does. Never a listener on a muxed stream, which would start delivery
+  before its real reader attaches.
+- **One timeout per connection, learned from answered pings only.** A shared
+  estimator lets a busy connection's failures push every other connection's
+  timeout toward 60 s (and their detection time with it); a failed ping is
+  not a round-trip sample, and feeding it only lengthens the timeout of the
+  connection most likely to be failing.
+- **A congested shared link.** When the node as a whole received at least
+  64 KiB during a silent connection's failed ping, the connection is aborted
+  at its second silent failure in a row (`silentFailuresWhenBusy`, default 2)
+  rather than its first.
+
+`connectionMonitor` on `createNode` tunes it (`pingIntervalMs`, `pingTimeout`,
+`abortOnPingFailure: "when-silent" | "always" | "never"`,
+`silentFailuresWhenBusy`) or turns it off (`false`). The member nodes (`httpeers-member`), the hub app's
+node and the conformance harness install it the same way.
+
+The options considered:
+
+| | Busy, healthy connection | Silent dead peer, idle connection |
+|---|---|---|
+| libp2p's default (abort on any failed ping) | killed once ~5 s of data queue ahead of the ping | aborted after 5–15 s |
+| (a) `abortConnectionOnPingFailure: false` | kept | **not detected**: yamux's keepalive only logs a missed ping, TCP keeps retransmitting for many minutes, the 2-minute socket inactivity timeout never fires while pings are written, and the mux keepalive and request timeouts fail exchanges, not the connection. Measured: still open 150 s after the peer went silent. |
+| (b) a higher minimum ping timeout (e.g. 30 s) | kept until the queue exceeds the new floor (the bad profile's pings under bulk already reach 11 s; a larger window or a slower link gets past any floor) | aborted after up to interval + floor (40 s with 30 s) |
+| (c) abort only when nothing was received since the ping (chosen) | kept for as long as data arrives | aborted after 5–15 s, as before (up to 25 s while the node receives on other connections) |
+
+Detection of a peer that vanishes silently (no FIN or RST), measured through
+a loopback TCP proxy that stops forwarding without closing either socket,
+idle connection, `createNode` defaults, peer gone 12 s after the dial, 3 runs
+each: **before 12.9 / 13.0 / 13.0 s, after 13.0 / 13.0 / 13.0 s** (the next
+ping at 20 s, plus its 5 s timeout). The same with the node receiving a bulk
+stream from a third peer the whole time: **23.0 / 23.0 / 23.0 s** (the second
+silent failure). The bounds, with I the interval and T that connection's
+timeout: I + T (15 s) on a quiet node, 2 I + T (25 s) on a node busy
+elsewhere. Both assume T ≤ I; once answered pings on a slow link have grown
+T past I, a ping still out at the next tick holds the next one back and the
+worst case approaches 2 I + 2 T. On WebRTC each check may also wait up to
+1 s, twice, for a `getStats()` sample (one that never settles counts as
+nothing received). On a connection that was itself busy the clock starts once the
+last bytes the peer sent before it vanished have arrived, plus at most one
+interval if they arrived while a ping was out. The package's tests
+(`tests/connection-liveness.test.ts`, scaled down to a 200 ms interval) check
+these bounds, including a silent connection beside three busy ones whose
+pings all fail; that a connection whose pings are never answered stays up
+while it receives a trickle, over TCP and over WebRTC, with its timeout at
+its floor (and that libp2p's rule, `"always"`, kills it); that one
+connection's slow answered pings leave another's timeout alone; that
+`"never"` leaves a silent connection open; and that `createNode` runs no
+libp2p monitor.
+
+The bad-profile rerun above used the first revision of this service (one
+timeout estimator for all connections, failed pings fed into it, no
+congestion rule). None of the three differences applies to it: each process
+holds one connection, a failing ping on it was always kept because bytes
+arrived, and the congestion rule only acts on a connection that received
+nothing.
+
+The trade-offs:
+
+- A remote whose process is wedged but whose socket still drains bytes it
+  queued earlier is kept until those bytes stop arriving (on a slow link, as
+  long as its queue takes to drain).
+- **An idle connection that shares a congested access link with a busy one**
+  (a member's hub or relay reservation while it downloads from another peer)
+  waits as long for its pings and receives nothing meanwhile. The congestion
+  rule gives it one more interval; a queue that delays its pings past about
+  two intervals still aborts it, and the reservation is lost and made again.
+  Counting bytes on other connections to the same peer would not help here
+  (the reservation is to a different peer). `apps/relay` builds its node
+  without this package and still runs libp2p's monitor, so the relay aborts
+  such a connection after a single ping slower than 5 s.
+- On a node busy elsewhere, a dead peer takes one interval longer to find
+  (25 s rather than 15 s at the defaults).
+- A connection whose bytes cannot be seen is treated as silent (libp2p's
+  behaviour). The
+request timeouts (`requestTimeoutMs`, 8 s to the response head on the
+per-exchange path) and the mux's keepalive (nothing for 3 × 5 s closes the
+mux) are unchanged: they fail exchanges, not the connection, and the
+per-exchange path's request timeout is what still fails GETs beside a
+download on the bad link (above).
 
 ## Recommendation for plan step 3 (for the maintainer to decide)
 
@@ -758,9 +882,9 @@ Changes this suggests, independent of the decision:
    handshake; with 1% or 3% loss, a message per HTTP codec piece (bytes per
    exchange) and 64 KB batches decrypted whole (see "Lossy links at
    K=100").
-4. Configure libp2p's connection monitor in `createNode` (see above): today a
-   single large download over a slow, lossy link kills the connection on
-   both paths.
+4. ~~Configure libp2p's connection monitor in `createNode`.~~ Done:
+   `connectionLiveness` aborts only a connection that received nothing
+   during a failed ping (see "The connection dies").
 
 ## Raw data
 
@@ -771,7 +895,8 @@ The `--out` JSON of the runs the tables come from is in [`bench-results/`](bench
 |---|---|
 | `tcp-requested-profiles.json` | LAN, broadband, mobile, bad (all runs failed) |
 | `tcp-extra-profiles.json` | broadband and mobile without loss, long fat pipe |
-| `tcp-bad-keep-on-ping-failure.json` | bad with `--keep-on-ping-failure` |
+| `tcp-bad-keep-on-ping-failure.json` | bad with `--keep-on-ping-failure` (libp2p's monitor told not to abort) |
+| `tcp-bad-connection-liveness.json` | bad with `createNode`'s defaults after the connection-monitor fix (per-run values under `raw`) |
 | `webrtc.json` | WebRTC, all four profiles |
 | `tcp-exchange-rates-rerun.json`, `webrtc-exchange-rates-rerun.json` | the exchange-rate rows (rerun) |
 | `tcp-one-round-trip.json` | after the round-trip fixes: idle pings, exchange rates, idle 64 KiB GETs, all seven profiles (per-run values under `raw`) |

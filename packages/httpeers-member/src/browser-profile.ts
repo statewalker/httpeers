@@ -38,6 +38,8 @@ import type { Ed25519PrivateKey, Libp2p } from "@libp2p/interface";
 import { webRTC } from "@libp2p/webrtc";
 import { webSockets } from "@libp2p/websockets";
 import {
+  CONNECTION_LIVENESS_SERVICE,
+  connectionLiveness,
   hubRelayService,
   type IceServer,
   type IsMember,
@@ -170,15 +172,19 @@ export async function createBrowserNode(init: CreateBrowserNodeInit): Promise<Li
       // this node must exist before the hub that answers `isMember` does.
       ...(init.isMember != null ? membershipGater(() => init.isMember as IsMember) : {}),
     },
+    // As `createNode`: abort a connection on a failed ping only when it went
+    // silent, never one that is busy receiving (libp2p's monitor would).
+    connectionMonitor: { enabled: false },
     services: nodeServices(init.isMember),
   });
 }
 
 /** The relay service only on a hub, and only behind its membership test. */
 function nodeServices(isMember: IsMember | undefined): ServiceFactoryMap {
+  const liveness = { [CONNECTION_LIVENESS_SERVICE]: connectionLiveness() };
   return isMember != null
-    ? { identify: identify(), relay: hubRelayService() }
-    : { identify: identify() };
+    ? { identify: identify(), ...liveness, relay: hubRelayService() }
+    : { identify: identify(), ...liveness };
 }
 
 /**
