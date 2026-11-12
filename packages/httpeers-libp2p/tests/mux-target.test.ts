@@ -7,7 +7,7 @@
  *     library's function reads what it writes, and it reads what the library
  *     writes), so it interoperates with any peer using either;
  *   - frames posted in one task leave as few sends: the first at once, the
- *     rest gathered, up to one Noise message per send;
+ *     rest gathered, up to 16 KiB per send;
  *   - a message split across chunks, or many in one chunk, arrives whole and
  *     in order, and the read buffer stays bounded by a frame, not by the
  *     traffic;
@@ -16,7 +16,7 @@
 
 import type { Stream } from "@libp2p/interface";
 import { messageTargetOverStream } from "@statewalker/webrun-streams-libp2p";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { muxTargetOverStream } from "../src/mux-target.js";
 
 const nextTask = () => new Promise((resolve) => setImmediate(resolve));
@@ -126,7 +126,7 @@ describe("muxTargetOverStream", () => {
     expect(readByOurs).toEqual(messages);
   });
 
-  it("sends the first frame of a task at once and gathers the rest, one Noise message per send at most", async () => {
+  it("sends the first frame of a task at once and gathers the rest, 16 KiB per send at most", async () => {
     const s = fakeStream();
     const { target } = muxTargetOverStream(s.stream, { maxMessageBytes: 1 << 20 });
     target.postMessage(bytesOf(10, 1));
@@ -139,11 +139,29 @@ describe("muxTargetOverStream", () => {
     for (const frame of frames) target.postMessage(frame);
     expect(target.bufferedAmount).toBeGreaterThan(0);
     await nextTask();
-    // 20 frames of ~10 KB: gathered into a handful of sends, each within one
-    // Noise message (65519 bytes) less a yamux header.
-    expect(s.sent.length).toBeGreaterThan(1);
-    expect(s.sent.length).toBeLessThan(8);
-    for (const send of s.sent) expect(send.byteLength).toBeLessThanOrEqual(65_519 - 12);
+    // 20 frames of ~10 KB: one each, since two would pass 16 KiB (a batch the
+    // far side can decrypt only once all of it is in; see `COALESCE_BYTES`).
+    expect(s.sent.length).toBe(21);
+    for (const send of s.sent) expect(send.byteLength).toBeLessThanOrEqual(16 * 1024);
+    // Small frames are still gathered, up to 16 KiB a send.
+    s.sent.length = 0;
+    const small = Array.from({ length: 101 }, (_, i) => bytesOf(1_000, i));
+    // The clock held still: on a loaded machine the loop may take over the
+    // millisecond after which a gathered frame leaves with the next one.
+    const now = performance.now();
+    const clock = vi.spyOn(performance, "now").mockReturnValue(now);
+    try {
+      for (const frame of small) target.postMessage(frame);
+    } finally {
+      clock.mockRestore();
+    }
+    await nextTask();
+    // The first at once, then 100 frames of 1002 bytes in batches of 16.
+    expect(s.sent.map((b) => b.byteLength)).toEqual([
+      1_002,
+      ...Array.from({ length: 6 }, () => 16 * 1_002),
+      4 * 1_002,
+    ]);
     expect(target.bufferedAmount).toBe(0);
 
     // A frame past that size goes out on its own, after what was gathered before it.

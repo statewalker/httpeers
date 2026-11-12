@@ -16,22 +16,25 @@ maintainer to decide.
 
 ## Summary
 
-| Profile (TCP) | Bulk Mbit/s: per-exchange / mux 256K / mux 4M | Ping p50 under bulk, ms: per-exchange / mux 256K / mux 4M | 256 B exchanges/s at K=100: per-exchange / mux 256K, before → after the round-trip fixes |
+| Profile (TCP) | Bulk Mbit/s: per-exchange / mux 256K / mux 4M | Ping p50 under bulk, ms: per-exchange / mux 256K / mux 4M | 256 B exchanges/s at K=100: per-exchange / mux 256K, at first → after the round-trip fixes → after gathering chunks |
 |---|---|---|---|
-| LAN, 1 Gbit, 1 ms | 956 / 688 / 953 | 43 / **6** / 47 | 1016 / 1153 → **1690** |
-| Broadband, 50 Mbit, 30 ms, no loss | 48 / 47 / 48 | 958 / **79 → 40** / 862 | 801 / 519 → **1186** |
-| Broadband, 50 Mbit, 30 ms, 0.1% loss | 14 / 12 / 14 | 346 / **222** / 455 | 704 / 379 → **893** |
-| Mobile, 10 Mbit, 80±10 ms, no loss | 9.8 / 9.4 / 9.6 | 4845 / **394 → 198** / 1968 | 449 / 228 → **604** |
-| Mobile, 10 Mbit, 80±10 ms, 1% loss | 1.3 / 1.4 / 1.5 | 1915 / 2447 / 3087 | **158** / 58 → 85 |
-| Long fat pipe, 100 Mbit, 100 ms, no loss | 96 / **18** / 96 | 485 / **205 → 104** / 516 | 435 / 305 → **693** |
-| Bad, 2 Mbit, 200 ms, 3% loss | every run fails on both paths with the defaults (see "The connection dies"); with the monitor not aborting (all three columns): 0.4 / 0.3 / 0.4 | 7687 / 9117 / 10621 (n = 3–7 samples) | **36** / 16 → 20 |
+| LAN, 1 Gbit, 1 ms | 956 / 688 / 953 | 43 / **6 → 4** / 47 | 1364 / 1153 → 1690 → **3060** |
+| Broadband, 50 Mbit, 30 ms, no loss | 48 / 47 / 48 | 958 / **79 → 40** / 862 | 1006 / 519 → 1186 → **1928** |
+| Broadband, 50 Mbit, 30 ms, 0.1% loss | 14 / 12 / 14 | 346 / **222** / 455 | 712 / 379 → 893 → **1380** |
+| Mobile, 10 Mbit, 80±10 ms, no loss | 9.8 / 9.4 / 9.6 | 4845 / **394 → 196** / 1968 | 451 / 228 → 604 → **865** |
+| Mobile, 10 Mbit, 80±10 ms, 1% loss | 1.3 / 1.4 / 1.5 | 1915 / 2447 / 3087 | 148 / 58 → 85 (109) → **241** |
+| Long fat pipe, 100 Mbit, 100 ms, no loss | 96 / **18** / 96 | 485 / **205 → 103** / 516 | 451 / 305 → 693 → **829** |
+| Bad, 2 Mbit, 200 ms, 3% loss | every run fails on both paths with the defaults (see "The connection dies"); with the monitor not aborting (all three columns): 0.4 / 0.3 / 0.4 | 7687 / 9117 / 10621 (n = 3–7 samples) | 38 / 16 → 20 (25) → **40** |
 
-"Before → after" is the mux before and after the two fixes in "One round
-trip, and no lock-step" below; the per-exchange rates in that column are
-from the same session as "after" (the per-exchange path did not change; the
-earlier rerun gave 1104, 805, 743, 452, 169, 439 and 38). Pings under bulk
-were measured again after the fixes on the three profiles without loss only;
-every other cell is from before them. Exchange rates are completed exchanges
+The three mux values are before the two fixes in "One round trip, and no
+lock-step", after them, and after the two fixes in "Lossy links at K=100:
+bytes per exchange, and batches decrypted whole" (both sections below);
+in brackets, the mux after the round-trip fixes measured again in the same
+session as "after gathering chunks". The per-exchange rates are from that
+last session too (the per-exchange path did not change; the earlier sessions
+gave 1016–1104, 801–805, 704–743, 449–452, 158–169, 435–439 and 36–38).
+Pings under bulk were measured again after the fixes on the profiles without
+loss only (mux 256 KiB); every other cell is from before them. Exchange rates are completed exchanges
 over the elapsed time (see Method). Ping samples under bulk vary widely, from
 3 to 200 per cell (3–7 on bad); each profile's table gives them in its
 "Samples under bulk" row.
@@ -70,18 +73,21 @@ What the numbers say:
    multistream negotiation is the likely second round trip, but passing
    `negotiateFully: false` through `dialProtocol` did not change it, so that
    is not established.
-5. **At high concurrency the mux is now ahead on links without loss, and
-   still behind on lossy ones.** Measured first: at K=100 the mux did
-   34–69% of the per-exchange rate on every profile with RTT ≥ 30 ms. Two
-   causes, both fixed (see the section below): the handshake's extra round
-   trip, and frames gathered until the end of a task, which sent a whole
-   burst of answers as one write after the last of them and kept the K
-   exchanges in lock-step rounds (the diagnostic's heads over 290–322 ms
-   and every body at 335–336 ms). After the fixes the mux does 1.3–1.7× the
-   per-exchange rate at K=100 on LAN, broadband (with and without 0.1%
-   loss), mobile without loss and the long fat pipe. On the 1% and 3% loss
-   links it still does only 54% and 56% of it (85 vs 158, 20 vs 36),
-   up from 34% and 42%; not root-caused (see the section below).
+5. **At high concurrency the mux is now ahead on every profile.** Measured
+   first: at K=100 the mux did 34–69% of the per-exchange rate on every
+   profile with RTT ≥ 30 ms. Two causes, both fixed (see "One round trip,
+   and no lock-step"): the handshake's extra round trip, and frames gathered
+   until the end of a task, which kept the K exchanges in lock-step rounds.
+   That made it 1.3–1.7× the per-exchange rate on the links without loss,
+   but on the 1% and 3% loss links it still did only about half (85 vs 158,
+   20 vs 36). Two more causes there, both fixed (see "Lossy links at
+   K=100"): every piece the HTTP codec writes went as a message of its own,
+   so a 256 B exchange took about 1.4 times the per-exchange path's bytes on
+   the wire, which is what counts where TCP's window is the limit; and
+   batches of up to 64 KB, which the far side can decrypt only once all of
+   it is in, delivered the exchanges in bursts. Now the mux does 1.6× the
+   per-exchange rate at K=100 with 1% loss (241 vs 148), the same with 3%
+   (40 vs 38), and 1.8–2.2× on the other profiles.
 6. **On a slow, lossy link the connection dies under a bulk download, on both
    paths**: libp2p's connection monitor pings every 10 s with a 5 s minimum
    timeout and aborts the whole connection when the ping is stuck behind the
@@ -184,20 +190,149 @@ per second at K = 1/10/100; its bulk throughput stayed within run-to-run
 noise (139 vs 131 MB/s, while the unchanged per-exchange path read 237 vs
 226).
 
-**What remains: the lossy links at K=100.** With 1% and 3% loss the mux
-still does about half the per-exchange rate at K=100 (85 vs 158, 20 vs 36),
-though it is ahead at K=1 and K=10 there. Both paths ride one TCP
-connection, so a loss stalls both alike; the difference is not the
-gathering (no gathering at all gave 103/s on lossy mobile, within the noise
-of 85). Not root-caused. A lead: the mux's exchanges still move more
-together than the per-exchange path's, so a stall holds back more of them
-at once, and a burst that ends a flight leaves TCP fewer packets behind a
-loss to detect it by (a tail loss waits for a probe or a timeout rather
-than a fast retransmit).
+**What remained: the lossy links at K=100.** With 1% and 3% loss the mux
+still did about half the per-exchange rate at K=100 (85 vs 158, 20 vs 36),
+though it was ahead at K=1 and K=10 there. Root-caused and fixed in the next
+section.
 
 The per-profile tables below are from before the fixes: their mux idle
 pings, 256 B exchange rates and 64 KiB GET times are superseded by the
-table above.
+table above and the next section's.
+
+## Lossy links at K=100: bytes per exchange, and batches decrypted whole
+
+**Measured with** the same link and script, the small-exchange case only
+(`--cases small`; `--ks 100` runs K=100 alone), mux 256 KiB. Diagnostics, on
+the mobile profile with 1% loss at K=100: `ss -tin` sampled every 250 ms in
+both namespaces, each exchange's start and end, and counters on libp2p's
+Noise and yamux streams (sizes of what is encrypted and decrypted, yamux send
+windows), mux streams accepted and connections opened.
+
+**What it was not.** Each hypothesis checked against the evidence:
+
+| Hypothesis | Evidence | Verdict |
+|---|---|---|
+| Head-of-line blocking where the per-exchange path has none | `ss` lists exactly one established TCP connection in each namespace throughout, on both paths; libp2p opened one connection per run, and the per-exchange path's streams are yamux streams on it | both paths share one connection; a loss stalls both alike |
+| More loss, or more retransmits, on the mux | 7–14 retransmitted segments per side per run on both paths (12–18 per 1000 exchanges per-exchange, 9–17 before and 4–11 after on the mux) | the same loss on both; not the cause |
+| The mux's window or credit | a 256 B exchange puts under 1 KB per direction on its port, against a 256 KiB window | a port never waits for credit here |
+| The keepalive, the silence check, the stall watchdog, `drainTimeout` | every run completed (any failed exchange fails the run); one mux stream accepted per run, before and after, and one connection: no port or mux closed, no redial | none fired |
+| Serial processing on one side | on loopback the mux did 1906 exchanges/s at K=100 before (3082 after): 15–20 times the lossy rates | CPU is not the limit at 100–250/s |
+| Nagle, delayed ACKs | `@libp2p/tcp` sets `noDelay` on dialled and accepted sockets (it defaults to `true`); `ss` shows the sockets' unsent data packed into full segments, one per exchange or fewer, on both paths | not the difference |
+| yamux windows | no yamux stream's send window ran out, on either path (measured on the fixed build): zero sends found it at 0, and the smallest capacity seen at a send was about 256 KiB; with TCP's window at 6–18 segments (under 30 KB in flight), a window of 256 KiB cannot bind | not the cause |
+
+**What it was: bytes per exchange, where the congestion window is the
+limit.** With 1% loss CUBIC keeps the window at 6–18 segments (`ss`), so the
+link carries about one window per round trip and the exchange rate is that
+over the bytes per exchange. Per 256 B exchange (K=100, mobile 1% loss, 3
+runs each; TCP payload bytes and data segments from `ss`, caller → serving
+side and back):
+
+| | bytes, caller → serving side | bytes, back | data segments, each way | exchanges/s | Noise messages over 16 KiB per run | 100 ms intervals with no exchange completed |
+|---|---|---|---|---|---|---|
+| per-exchange | 847–873 | 789–809 | 0.95–1.11 | 139–150 | 0 | 12–20% |
+| mux before | 1111–1124 | 997–1034 | 1.09–1.23 | 113–136 | 21–24 | 56–63% |
+| mux after | 708–719 | 599–610 | 0.60–0.79 | 190–303 | 0–2 | 4–19% |
+
+Two causes, each in httpeers:
+
+1. **Every piece of the HTTP message was a message of its own.** The
+   HTTP/1.1 codec (webrun-http-streams) yields a message in pieces: the head,
+   then for each body chunk its size line, the chunk and a CRLF, then the
+   last-chunk marker. A 256 B POST is five pieces, and its echo five more. On
+   the per-exchange path each piece is a yamux frame (12 bytes of header) in
+   a Noise message (18 more). On the mux each was a windowed
+   `duplexOverPort` message with about 85 bytes of msgpack envelope
+   (`{type: "message", id, payload: {type: "webrun-rpc:chunk", channelName,
+   chunk: {done, value}}}`). On loopback, through a counting proxy, an
+   exchange took 1200–1280 bytes towards the serving side and 1140–1210
+   back on the mux, 855 and 800 on the per-exchange path.
+
+   Fix (`src/chunk-gather.ts`): each direction of a mux exchange (the
+   caller's request, the serving side's response) joins the pieces its
+   producer writes back to back into one chunk, up to the chunk size the
+   mux splits to: after each piece it keeps reading while the next is
+   already on its way, and the first piece that is not there by the next
+   task is read ahead and starts the next chunk. Nothing waits for data not
+   yet being produced (a chunk leaves at most one task after its last
+   piece). Only chunk boundaries move, which neither `duplexOverPort` nor
+   the HTTP codec sees, so it is wire-compatible with every peer, old or
+   new, in either role. Now 820 and 730 bytes on loopback: fewer than the
+   per-exchange path. A `return()` (an exchange torn down) reaches the
+   producer at once and does not wait for a read ahead that a quiet producer
+   (an SSE stream between events) may never finish.
+
+   The same saving upstream would be the codec yielding a small message (or
+   a body chunk with its framing) as one piece; on the per-exchange path
+   that would save it about 30 bytes per piece too.
+
+2. **Batches up to 64 KB, which the far side decrypts only whole.**
+   `mux-target.ts` gathered frames posted in one task into one
+   `stream.send()` of up to one Noise message (65519 bytes): one yamux frame,
+   one Noise message. A Noise message is decrypted, and any frame in it read,
+   only once all of it has arrived; at a window of about 10 segments a 64 KB
+   message (45 segments) takes several round trips, and every frame in it,
+   the first exchange's answer as much as the last's, was read together at
+   the end of them. The far side then answered them together, and the
+   exchanges moved in bursts, one direction at a time: in `ss`, 40–100 KB
+   queued on one side while the other's queue was empty, alternating, and
+   in more than half of the 100 ms intervals no exchange completed. The
+   per-exchange path writes each stream's pieces as they come, so its Noise
+   messages stayed under 400 bytes.
+
+   Fix: the gathering limit is 16 KiB, about a round trip's worth of
+   segments at such a window. A mux frame of the default size (31 KiB) went
+   out alone at the old limit too, so bulk keeps its one frame per send.
+
+Each change alone, mobile 1% loss, K=100 only (`--ks 100`), exchanges/s,
+median and range:
+
+| | runs | mux | per-exchange, same session |
+|---|---|---|---|
+| neither (before) | 6 | 117 (99–155) | 155 (139–178) |
+| batches of up to 16 KiB only | 10 | 159 (97–184) | |
+| pieces joined only | 10 | 165 (147–196) | |
+| both (after) | 10 | 235 (205–300) | 154 (127–199) |
+
+With the pieces joined, the gathering limit made little difference at or
+under 16 KiB: 243 at 1.4 KB, 214 at 4 KiB, 261 at 16 KiB, and 174 at 64 KB
+(6 runs each).
+
+**After both, 256 B exchanges/s at K = 1 / 10 / 100** (the lossy profiles 5
+runs each, the others 3; the mux "before" on the lossy profiles is from the
+same session, on the others it is "mux after" of the table in the previous
+section):
+
+| Profile | per-exchange | mux before | mux after |
+|---|---|---|---|
+| Mobile, 1% loss | 3 / 21 / 148 | 7 / 42 / 109 | **8 / 45 / 241** |
+| Bad, 3% loss | 1 / 7 / 38 | 2 / 13 / 25 | **2 / 13 / 40** |
+| LAN | 166 / 763 / 1364 | 256 / 1008 / 1690 | **271 / 1338 / 3060** |
+| Broadband, 0.1% loss | 14 / 79 / 712 | 28 / 188 / 893 | **29 / 218 / 1380** |
+| Broadband, no loss | 15 / 154 / 1006 | 29 / 259 / 1186 | **30 / 291 / 1928** |
+| Mobile, no loss | 6 / 55 / 451 | 12 / 100 / 604 | **12 / 111 / 865** |
+| Long fat pipe | 5 / 47 / 451 | 9 / 90 / 693 | **10 / 95 / 829** |
+
+On the bad link the per-run spread is wide (mux after 38–57, per-exchange
+35–52, mux before 18–34): the mux is now level with the per-exchange path
+there, not clearly ahead.
+
+No regression elsewhere. Beside a bulk download on the mux at 256 KiB (1
+run each, before → after): bulk 688 (first measurement) → 682 Mbit/s on LAN, 47.0 → 47.0 on
+broadband without loss, 9.4 → 9.4 on mobile without loss, 18.4 → 18.3 on
+the long fat pipe; ping p50 under bulk 39.5 → 39.4, 198 → 196 and 104 → 103
+ms (LAN 3.6 ms, last measured at 6.1 before the round-trip fixes); 64 KiB
+GET under bulk, whole p50, 50.7 → 50.9, 255 → 266 and 110 → 108 ms. On
+loopback (`scripts/bench-mux.mjs`, 3 runs), the mux's small exchanges went
+from 506 / 1343 / 1906 to 601 / 1746 / 3082 per second at K = 1 / 10 / 100
+(the per-exchange path: 393 / 908 / 1307), its idle ping was 1.69 ms
+(per-exchange 2.51), and its bulk 141 MB/s (139 before; per-exchange 237).
+
+Tests: `tests/chunk-gather.test.ts` (the codec's pieces joined into one
+chunk, a later piece not waited for, the size bound, errors, `return()`
+with a read ahead pending), `tests/mux-wire-bytes.test.ts` (bytes on the
+wire per 256 B exchange on the mux, end to end over Noise and yamux,
+against the per-exchange path), and `tests/mux-target.test.ts` (sends of at
+most 16 KiB).
 
 ## Method
 
@@ -296,6 +431,11 @@ node packages/httpeers-libp2p/scripts/bench-mux-net.mjs --profiles bad --keep-on
 # the exchange-rate rerun
 node packages/httpeers-libp2p/scripts/bench-mux-net.mjs --cases small --profiles lan,broadband,mobile,bad,broadband-noloss,mobile-noloss,longfat
 node packages/httpeers-libp2p/scripts/bench-mux-net.mjs --cases small --transport webrtc
+# the lossy links at K=100 (after gathering chunks)
+node packages/httpeers-libp2p/scripts/bench-mux-net.mjs --cases small --profiles mobile,bad --windows 262144 --runs 5
+node packages/httpeers-libp2p/scripts/bench-mux-net.mjs --cases small --profiles lan,broadband,broadband-noloss,mobile-noloss,longfat --windows 262144 --runs 3
+node packages/httpeers-libp2p/scripts/bench-mux-net.mjs --cases bulk --profiles lan,broadband-noloss,mobile-noloss,longfat --windows 262144 --paths mux --runs 1
+node packages/httpeers-libp2p/scripts/bench-mux-net.mjs --cases small --ks 100 --profiles mobile --windows 262144 --paths mux --runs 10
 ```
 
 The full set here took about four hours (including the exchange-rate rerun), most of it the slow profiles.
@@ -594,7 +734,7 @@ also removes most of the cause (less data queued ahead of the ping).
 | Traffic class | Recommended path | Why |
 |---|---|---|
 | Sockets and tunnels (duplex, long-lived, often interactive beside other traffic) | mux, once the window adapts; until then mux at 256 KiB where the link's BDP is at most about 256 KiB (bulk is capped at about 2.1 Mbit ÷ RTT in seconds) | The isolation is the point: a request beside a download stays within a few round trips of idle on the mux (79 ms on broadband, 394 ms on mobile, no loss) and waits 1–5 s on the per-exchange path. (Measured with HTTP exchanges; duplex tunnels were not measured separately.) One stream per peer also removes the per-protocol stream caps a tunnel-heavy peer runs into. |
-| Small HTTP (API calls, tokens, presence) | mux | Since the round-trip fixes the mux answers in one round trip, the per-exchange path in two, so the mux is 1.5–3× as fast at K=1 and K=10 on every profile (about 2× on most), and 1.3–1.7× at K=100 except with 1% or 3% loss, where the per-exchange path is still about twice as fast at K=100 (see "One round trip, and no lock-step"). WebRTC was not measured again after the fixes. |
+| Small HTTP (API calls, tokens, presence) | mux | Since the round-trip fixes the mux answers in one round trip, the per-exchange path in two, so the mux is 1.5–3× as fast at K=1 and K=10 on every profile (about 2× on most); since its chunks are gathered it is 1.6–2.2× as fast at K=100 too, except with 3% loss, where the two are level (see "One round trip, and no lock-step" and "Lossy links at K=100"). WebRTC was not measured again after the fixes. |
 | Large bodies (downloads, uploads, media) | per-exchange today; mux only with an adaptive window | A fixed 256 KiB window caps bulk on LAN and fat pipes (72% and 19%); 4 MiB removes the cap but also most of the isolation, so no fixed window serves both. |
 | WebRTC links | mux at 256 KiB | The per-exchange path failed in most WebRTC runs (a data channel per exchange); the mux at 256 KiB ran on every profile, while at 4 MiB it failed beside a download on the lossy mobile and bad links. |
 
@@ -606,10 +746,11 @@ Changes this suggests, independent of the decision:
    round trip on the mux.~~ Done in httpeers by presuming the ack (see "One
    round trip, and no lock-step"); the clean fix, which would let that
    module go, is in webrun-rpc.
-3. ~~Find why the mux falls behind at K=100 on long paths.~~ Done for links
-   without loss (lock-step rounds from end-of-task gathering, plus the
-   handshake); with 1% or 3% loss it is still behind at K=100, not
-   root-caused.
+3. ~~Find why the mux falls behind at K=100 on long paths.~~ Done: on links
+   without loss, lock-step rounds from end-of-task gathering, plus the
+   handshake; with 1% or 3% loss, a message per HTTP codec piece (bytes per
+   exchange) and 64 KB batches decrypted whole (see "Lossy links at
+   K=100").
 4. Configure libp2p's connection monitor in `createNode` (see above): today a
    single large download over a slow, lossy link kills the connection on
    both paths.
@@ -628,13 +769,16 @@ The `--out` JSON of the runs the tables come from is in [`bench-results/`](bench
 | `tcp-exchange-rates-rerun.json`, `webrtc-exchange-rates-rerun.json` | the exchange-rate rows (rerun) |
 | `tcp-one-round-trip.json` | after the round-trip fixes: idle pings, exchange rates, idle 64 KiB GETs, all seven profiles (per-run values under `raw`) |
 | `tcp-one-round-trip-bulk.json` | after the fixes: bulk and what runs beside it, mux 256 KiB, the three profiles without loss |
+| `tcp-gathered-chunks.json` | "Lossy links at K=100": exchange rates before (mux) and after (both paths), all seven profiles; bulk after; the K=100-only runs that separate the two changes (per-run values under `raw`) |
 
 The first four hold per-profile medians only (per-run values were not kept
 then; the rerun files have them under `raw`), and their exchange rates are
 the overstated first-run ones the tables no longer use. The per-exchange
 WebRTC follow-up (LAN and broadband without loss), the `DEBUG` confirmation
-run, the round-trip diagnostics, the single-fix comparison and the loopback
-runs were not saved as JSON; their numbers are only in this document.
+run, the round-trip diagnostics, the single-fix comparison of the round-trip
+fixes, the `ss` and Noise-layer diagnostics of the lossy links and the
+loopback runs were not saved as JSON; their numbers are only in this
+document.
 
 ## What still needs a real network
 
