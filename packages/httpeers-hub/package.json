@@ -1,6 +1,6 @@
 {
   "name": "@statewalker/httpeers-hub",
-  "version": "0.1.4",
+  "version": "0.1.5",
   "type": "module",
   "description": "Minting membership, holding the registries, and saying who is in the mesh.",
   "bugs": {
