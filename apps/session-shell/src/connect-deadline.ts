@@ -54,7 +54,7 @@
  * `{ result }` or `{ error: { message } }`; `serve()` registering its fetch
  * listener on the scope it was given and answering with `event.respondWith`;
  * and its catch putting the error's `message` in a JSON body with status 500.
- * All of that holds in 0.7.1 and in 0.12.5.
+ * All of that holds in 0.7.1, 0.12.5 and 0.13.0.
  *
  * THE CHANGE THAT WOULD RETIRE THIS MODULE belongs in webrun-wire's
  * `startRelayServiceWorker`: a `connectTimeout` option that bounds

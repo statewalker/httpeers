@@ -1,15 +1,19 @@
 /**
- * The caller's presumed window ack (`mux-presumed-ack.ts`) through the link,
- * against serving peers that break the presumption:
+ * The caller presumes each port's window ack (webrun-rpc's `presumeAck:
+ * "always"`, set by `mux-link.ts`), through the link, against serving peers
+ * that do not ack as presumed or stop answering:
  *
- *   - a peer that acks otherwise (here: a codec without `end`): the exchange
- *     fails with `PeerStreamResetError`, and the next call opens a new mux
- *     that presumes nothing on that connection, so it and every later call
- *     succeed (without that, every mux to the peer would break the same way);
- *   - a peer that goes silent while calls keep opening ports, which the
- *     presumed acks hide from the mux's own keepalive: its exchanges fail
- *     with `PeerStreamResetError` within a few keepalive intervals, and the
- *     next call redials.
+ *   - a peer that acks without `end` (a codec without half-close) acks what
+ *     matters to the presumption, exact sizing and `pipeline`: every call
+ *     succeeds;
+ *   - a peer that acks otherwise (here: without exact sizing) fails at most
+ *     the first exchange, the one that relied on the presumption, with
+ *     `PeerStreamResetError`; the mux lives on, presumes nothing more, and
+ *     every later call on it succeeds;
+ *   - a peer that goes silent while calls keep opening ports: the mux's
+ *     keepalive counts only what really arrives, never a presumed ack, so
+ *     its exchanges fail with `PeerStreamResetError` within a few keepalive
+ *     intervals, and the next call redials.
  *
  * The serving peer is a stand-in: webrun-rpc's `multiplexPort` and
  * `serveFetchOverDuplex` on the mux protocol, as the link serves it, with the
@@ -70,6 +74,7 @@ async function standIn({
 }) {
   const serverNode = await node(["/ip4/127.0.0.1/tcp/0"]);
   let streams = 0;
+  muxStreams = () => streams;
   await serverNode.handle(
     MUX_PROTOCOL,
     ((stream: Stream) => {
@@ -121,6 +126,9 @@ async function standIn({
   return serverNode;
 }
 
+/** Mux streams the last stand-in accepted. */
+let muxStreams = () => 0;
+
 const failureOf = (p: Promise<unknown>): Promise<unknown> =>
   p.then(
     () => undefined,
@@ -128,10 +136,24 @@ const failureOf = (p: Promise<unknown>): Promise<unknown> =>
   );
 
 describe("the presumed window ack, through the link", () => {
-  it("a peer that acks otherwise fails that mux once; the next mux presumes nothing and works", async () => {
-    // A codec that does not read `end`: its muxes ack without that capability.
+  it("a peer that acks without half-close answers every call", async () => {
     const { halfClose: _, ...withoutEnd } = msgpackCodec;
     const serverNode = await standIn({ codec: withoutEnd as PortCodec });
+    const clientNode = await node();
+    await clientNode.dial(serverNode.getMultiaddrs()[0]);
+    const target = serverNode.peerId.toString() as PeerIdStr;
+    const remote = createRemote({ node: clientNode, muxPerPeer: true });
+    for (let i = 0; i < 4; i++) {
+      const response = await remote(target, new Request("http://peer.local/x"));
+      expect(await response.text()).toBe("hello");
+    }
+    expect(muxStreams()).toBe(1);
+  }, 30_000);
+
+  it("a peer that acks otherwise fails at most the first exchange; the mux lives on and answers the rest", async () => {
+    // A codec that cannot count exact bytes: its muxes ack without `exact`.
+    const { encode: _e, decode: _d, ...inexact } = msgpackCodec;
+    const serverNode = await standIn({ codec: inexact as PortCodec });
     const clientNode = await node();
     await clientNode.dial(serverNode.getMultiaddrs()[0]);
     const target = serverNode.peerId.toString() as PeerIdStr;
@@ -139,13 +161,16 @@ describe("the presumed window ack, through the link", () => {
 
     const failure = await failureOf(remote(target, new Request("http://peer.local/x")));
     expect(failure).toBeInstanceOf(PeerStreamResetError);
-    expect(((failure as Error).cause as Error).message).toMatch(/acknowledged port/);
+    const cause = (failure as Error).cause as Error;
+    expect(cause.name).toBe("MuxPortClosedError");
+    expect((cause.cause as Error).message).toMatch(/acknowledged port/);
 
-    // Without the per-connection memory, every one of these would fail too.
     for (let i = 0; i < 3; i++) {
       const response = await remote(target, new Request("http://peer.local/x"));
       expect(await response.text()).toBe("hello");
     }
+    // The same mux: a contradiction closes no mux.
+    expect(muxStreams()).toBe(1);
   }, 30_000);
 
   it("a peer gone silent while calls keep opening ports fails its exchanges, and the next call redials", async () => {
@@ -162,8 +187,8 @@ describe("the presumed window ack, through the link", () => {
     await new Promise((resolve) => setTimeout(resolve, 350));
     freezeFirst = true;
 
-    // A call every 20 ms: each opens a port, whose presumed ack the mux's own
-    // keepalive would take for a sign of life.
+    // A call every 20 ms: each opens a port and presumes its ack, which must
+    // not count as the peer answering.
     const calls: Promise<unknown>[] = [];
     const opening = setInterval(() => {
       calls.push(
@@ -174,15 +199,23 @@ describe("the presumed window ack, through the link", () => {
       );
     }, 20);
     started.push(async () => clearInterval(opening));
+    // Three silent intervals of 100 ms and a little: about 0.4-0.9 s. A mux
+    // that took the presumed acks for signs of life would take well over a
+    // second, by some other way than its keepalive.
     await expect
       .poll(
         async () => (calls.length > 0 ? await Promise.race([calls[0], "pending"]) : "pending"),
         {
-          timeout: 3_000,
-          interval: 50,
+          timeout: 1_200,
+          interval: 25,
         },
       )
       .toBeInstanceOf(PeerStreamResetError);
+    // And it was the keepalive that closed it.
+    const failure = (await calls[0]) as Error;
+    const gone = failure.cause as Error;
+    expect(gone.name).toBe("PeerGoneError");
+    expect((gone.cause as Error | undefined)?.message).toMatch(/did not answer 3 keepalive pings/);
     // The next call dials a new mux, which answers.
     await expect
       .poll(

@@ -74,7 +74,6 @@ import type { MessageTarget, PortMux } from "@statewalker/webrun-rpc";
 import type { Duplex } from "@statewalker/webrun-streams";
 import { PeerGoneError } from "@statewalker/webrun-streams-libp2p";
 import { gatheringChunks } from "./chunk-gather.js";
-import { presumingAcks } from "./mux-presumed-ack.js";
 import { muxTargetOverStream } from "./mux-target.js";
 
 /** The mux protocol beside a fetch protocol: two meshes on one node keep two muxes apart. */
@@ -189,6 +188,12 @@ export class MuxPortClosedError extends Error {
 /** What webrun-rpc says when the peer closed a port. */
 const PEER_CLOSED_PORT = "webrun-rpc: the peer closed the port";
 
+/**
+ * How webrun-rpc's error begins when it fails a port whose presumed ack the
+ * peer contradicted (`presumeAck`), once the port had sent something.
+ */
+const PRESUMPTION_CONTRADICTED = "webrun-rpc: the peer acknowledged port ";
+
 type MuxLibs = {
   rpc: typeof import("@statewalker/webrun-rpc");
   codec: typeof import("@statewalker/webrun-msgpack")["msgpackCodec"];
@@ -298,11 +303,6 @@ export function libp2pMuxLink(init: Libp2pMuxLinkInit): ClosablePeerLink & {
    * and nothing here outlives the connection it describes.
    */
   const refused = new WeakSet<Connection>();
-  /**
-   * Connections whose peer acked a port otherwise than presumed
-   * (`mux-presumed-ack.ts`): muxes on them run the full window handshake.
-   */
-  const noPresuming = new WeakSet<Connection>();
   let closed = false;
 
   const startSession = (
@@ -310,30 +310,9 @@ export function libp2pMuxLink(init: Libp2pMuxLinkInit): ClosablePeerLink & {
     stream: Stream,
     side: "initiator" | "responder",
     onPort?: (port: MessageTarget) => boolean | undefined,
-    connection?: Connection,
   ): Session => {
     const { target: pipe, signal } = muxTargetOverStream(stream, { maxMessageBytes });
     const dead = new AbortController();
-    // The caller takes each port's window agreement as given when it opens,
-    // which saves the handshake's round trip in both directions
-    // (`mux-presumed-ack.ts`). The serving side needs nothing for it.
-    let session: Session | undefined;
-    const presumed =
-      side === "initiator" && !(connection != null && noPresuming.has(connection))
-        ? presumingAcks({
-            codec: libs.codec,
-            target: pipe as unknown as MessageTarget,
-            keepaliveMs,
-            misses: KEEPALIVE_MISSES,
-            // Only ever after a port opened, so the session is there. A
-            // peer that acked otherwise is not presumed again on this
-            // connection: its next mux runs the full handshake.
-            onBroken: (error, contradicted) => {
-              if (contradicted && connection != null) noPresuming.add(connection);
-              void session?.close(new PeerGoneError(error)).catch(() => {});
-            },
-          })
-        : undefined;
     // THE ONE WAY A SESSION DIES. However the mux closes -- `close()` here,
     // its stream's end or death (`signal`), or on its own (its keepalive
     // finding the peer silent, its pump failing) -- it releases its pipe last,
@@ -342,7 +321,7 @@ export function libp2pMuxLink(init: Libp2pMuxLinkInit): ClosablePeerLink & {
     // and listeners go, whichever path closed it. A close not asked for here
     // dies of a `PeerGoneError`: the stream's own reason when the stream
     // ended, else the mux giving up on its peer.
-    const target = releasing(presumed?.target ?? (pipe as unknown as MessageTarget), () => {
+    const target = releasing(pipe as unknown as MessageTarget, () => {
       if (dead.signal.aborted) return;
       dead.abort(
         peerGone(
@@ -353,8 +332,17 @@ export function libp2pMuxLink(init: Libp2pMuxLinkInit): ClosablePeerLink & {
       );
     });
     const mux = libs.rpc.multiplexPort(target, {
-      codec: presumed?.codec ?? libs.codec,
+      codec: libs.codec,
       side,
+      // The caller takes each port's window agreement as given when it opens
+      // (webrun-rpc's `presumeAck`), which saves the handshake's round trip in
+      // both directions: an exchange takes one round trip. "always", from the
+      // first port: every build that has served this protocol runs webrun-rpc
+      // 0.10 or later with the msgpack codec, and acks every windowed `open`
+      // with exact sizing and `pipeline`. An ack that says otherwise stops
+      // presuming on that mux and fails only a port that already sent
+      // something; the mux lives on. The serving side opens no ports.
+      ...(side === "initiator" ? { presumeAck: "always" as const } : {}),
       window: windowBytes,
       frameSize,
       maxReassembledBytes,
@@ -378,14 +366,12 @@ export function libp2pMuxLink(init: Libp2pMuxLinkInit): ClosablePeerLink & {
         return peerGoneFailure(error, libs.rpc.getPortCloseSignal(port)?.reason, dead.signal);
       },
     };
-    session = opened;
     const onStreamGone = () => {
       // A backstop: the mux, listening first, has normally released its pipe already.
       if (!dead.signal.aborted) dead.abort(peerGone(signal.reason));
     };
     const cleanUp = () => {
       live.delete(opened);
-      presumed?.stop();
       signal.removeEventListener("abort", onStreamGone);
     };
     // A mux that closed while it was being built has aborted `dead` already:
@@ -453,10 +439,7 @@ export function libp2pMuxLink(init: Libp2pMuxLinkInit): ClosablePeerLink & {
       stream.abort(new Error("httpeers-libp2p: the link was closed"));
       throw new Error("httpeers-libp2p: the link was closed");
     }
-    const connection = node
-      .getConnections(peerIdFromString(peerId))
-      .find((c) => c.streams.includes(stream));
-    return startSession(libs, stream, "initiator", undefined, connection);
+    return startSession(libs, stream, "initiator");
   };
 
   const sessionFor = (peerId: PeerIdStr): Promise<Session> => {
@@ -529,7 +512,10 @@ export function libp2pMuxLink(init: Libp2pMuxLinkInit): ClosablePeerLink & {
         call: ((input: AsyncIterable<Uint8Array>) =>
           mappingErrors(
             duplex(gatheringChunks(input[Symbol.asyncIterator](), maxChunkBytes)),
-            (error) => peerClosedPort(session.failure(error, port)),
+            (error) =>
+              peerClosedPort(
+                contradictedPort(session.failure(error, port), rpc.getPortCloseSignal(port)),
+              ),
           )) as Duplex,
         async close() {
           (port as { close?: () => void }).close?.();
@@ -620,7 +606,13 @@ export function libp2pMuxLink(init: Libp2pMuxLinkInit): ClosablePeerLink & {
                 ),
                 closePort,
               );
-              return output;
+              // The mux's death tears the exchange down with what the session
+              // died of, so the handler's request body and its request's
+              // signal fail with `PeerGoneError` too, not with webrun-http-
+              // streams' "abandoned".
+              return returningAsDeath(output, () =>
+                portClosed?.aborted ? session.failure(portClosed.reason, port) : undefined,
+              );
             },
             { maxMessageSize: maxChunkBytes },
           );
@@ -688,8 +680,65 @@ function peerClosedPort(error: unknown): unknown {
     : error;
 }
 
+/**
+ * `error` as a reset exchange (`MuxPortClosedError`, mapped to
+ * `PeerStreamResetError`) when the mux failed the port because the peer's ack
+ * contradicted the presumed one after the port had sent something: the
+ * request may have been lost, as on a reset stream. Matched by identity with
+ * the port's close reason, so an error the peer sent is never taken for it.
+ * The mux lives on and presumes nothing more, so only this exchange fails.
+ */
+function contradictedPort(error: unknown, closed: AbortSignal | undefined): unknown {
+  return error instanceof Error &&
+    closed?.aborted === true &&
+    closed.reason === error &&
+    error.message.startsWith(PRESUMPTION_CONTRADICTED)
+    ? new MuxPortClosedError(
+        "the serving peer acknowledged the exchange's port otherwise than presumed",
+        {
+          cause: error,
+        },
+      )
+    : error;
+}
+
 function isPeerClosedPort(error: unknown): boolean {
   return error instanceof Error && error.message === PEER_CLOSED_PORT;
+}
+
+/**
+ * A served exchange's output, whose `return()` (webrun-rpc's teardown of a
+ * served stream whose port closed) becomes a `throw()` of the session's
+ * `PeerGoneError` when the port closed because the mux died of its peer.
+ * webrun-http-streams then abandons the exchange with that error rather than
+ * its own "abandoned" one: a handler reading its request body, or watching
+ * its request's signal, sees the same `PeerGoneError` as the caller's side.
+ *
+ * The mux fails its ports before it releases its pipe, which is what marks the
+ * session dead, in the same turn; so the check waits one microtask. The
+ * teardown itself (cancelling an idle response body) is not delayed beyond it.
+ */
+function returningAsDeath(
+  it: AsyncGenerator<Uint8Array>,
+  deathOf: () => unknown,
+): AsyncGenerator<Uint8Array> {
+  const out = {
+    next: (...args: [] | [unknown]) => it.next(...args),
+    return: async (value?: unknown): Promise<IteratorResult<Uint8Array>> => {
+      await Promise.resolve();
+      const death = deathOf();
+      if (!(death instanceof PeerGoneError)) return it.return(value as never);
+      // The source settles its `throw()` by rethrowing; the teardown asked
+      // for a return, and gets one.
+      void Promise.resolve(it.throw(death)).catch(() => {});
+      return { done: true, value: value as never };
+    },
+    throw: (error?: unknown) => it.throw(error),
+    [Symbol.asyncIterator]() {
+      return out;
+    },
+  };
+  return out as unknown as AsyncGenerator<Uint8Array>;
 }
 
 /** `input`'s iterator; webrun-rpc hands a served port's input as an async iterable. */
@@ -762,10 +811,13 @@ export interface StallWatch {
  * the caller confirms only once its consumer has read past it. A piece sent
  * then is timed by the caller's read speed, not by credit: a caller that reads
  * nothing for `timeoutMs` right at the start of a response is dropped. A
- * caller of this version answers right behind its `open`
- * (`mux-presumed-ack.ts`), so its exchanges never take this path; an older
- * caller answers about one round trip after the port opens, whether or not it
- * reads, so for an honest one this lasts that round trip.
+ * caller of this version presumes the ack (webrun-rpc's `presumeAck`) and
+ * answers right behind its `open`, so its exchanges never take this path.
+ * Nor does any caller's after its mux's first port: from webrun-rpc 0.11 the
+ * serving side holds back by the window from the `open` on once it has read a
+ * credit on that mux. Only an older caller's first port waits for its
+ * answer, about one round trip after the port opens, whether or not it
+ * reads, so for an honest caller this lasts that round trip.
  *
  * THE END OF THE STREAM is posted once the output is over, when nothing pulls
  * again. Pipelined (the normal case), it is timed while the port's queue still

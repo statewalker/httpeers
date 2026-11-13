@@ -72,7 +72,8 @@
     "@statewalker/httpeers-access": "workspace:^",
     "@types/node": "catalog:",
     "typescript": "catalog:",
-    "vitest": "catalog:"
+    "vitest": "catalog:",
+    "webrun-rpc-0-10": "catalog:"
   },
   "publishConfig": {
     "access": "public"
