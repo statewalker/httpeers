@@ -1,5 +1,15 @@
 # @statewalker/httpeers-member
 
+## 0.4.1
+
+### Patch Changes
+
+- 3dc6be0: The optional peer `@statewalker/webrun-http-browser` may now be `^0.13.0` as well as `^0.7.1`; 0.13 shares webrun-http-streams 0.5 and webrun-rpc 0.11 with `httpeers-libp2p`, so a browser bundle carries one copy of each.
+- Updated dependencies
+- Updated dependencies [3dc6be0]
+  - @statewalker/httpeers-access@0.1.5
+  - @statewalker/httpeers-libp2p@0.4.1
+
 ## 0.4.0
 
 ### Minor Changes
