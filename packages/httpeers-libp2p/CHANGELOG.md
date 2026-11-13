@@ -1,5 +1,69 @@
 # @statewalker/httpeers-libp2p
 
+## 0.4.0
+
+### Minor Changes
+
+- 9075723: The WebRTC transport's STUN/TURN servers can be chosen. Nothing changes by default: with no choice, `@libp2p/webrtc` keeps its own public STUN list.
+  
+  `httpeers-libp2p` exports `HTTPEERS_ICE_SERVERS` (`stun:stun.httpeers.net:3478`, the mesh's own STUN-only server, then `stun:stun.l.google.com:19302`), the `IceServer` type, `webRTCInitOf(iceServers)` (the `webRTC()` init for a choice) and `parseIceServers(text)` (a comma-separated `stun:`/`stuns:` URL list, `none` for host candidates only; TURN URLs are refused because a list cannot carry their credentials). `browserTransports()` takes `{ iceServers }`.
+  
+  `httpeers-member` takes `iceServers` in `createBrowserNode`, `browserPlatform`, `createSession` and `createNodeMemberNode`, and adds `nodePlatformWith({ iceServers })`. Pass `HTTPEERS_ICE_SERVERS` to opt into the mesh's STUN server once it is deployed.
+- 157fa32: A busy, healthy connection is no longer killed by libp2p's connection monitor. That monitor pings every connection every 10 s and, by default, aborts the whole connection when a ping takes longer than its timeout (at least 5 s); under a bulk transfer on a slow or lossy link the ping waits behind the queued data, so the connection was torn down and every exchange on it failed, on both exchange paths.
+  
+  `createNode` now disables libp2p's monitor and installs `connectionLiveness()` instead: the same ping (`/ipfs/ping/1.0.0`, same interval, same adaptive timeout), but a failed ping aborts the connection only when nothing was received on it since the ping was sent. A connection that keeps receiving data is kept. Each connection has its own ping timeout, learned only from answered pings, so one slow or failing connection never lengthens another's.
+  
+  A peer that vanishes silently is still aborted within the ping interval plus that connection's ping timeout: about 15 s with the defaults, as before (measured 13.0 s). While the node is receiving at least 64 KiB on other connections during the failed ping, that is read as a congested shared link and the connection is aborted at its second silent failure in a row instead, within two intervals plus the timeout (about 25 s; measured 23.0 s). Both bounds assume the connection's learned timeout is no longer than the interval; on a slow link where it has grown past the interval, the worst case approaches two intervals plus twice the timeout. That gives an idle connection on a congested link (a relay reservation beside a download) one more interval, not immunity: a queue that delays its pings past two intervals still loses it.
+  
+  Received bytes are seen from the transport's raw connection on TCP, WebSockets and relayed circuits, and from `RTCPeerConnection.getStats()` on WebRTC; a connection that offers neither is aborted on any failed ping, as libp2p does. `createNode` takes `connectionMonitor` to tune it (`pingIntervalMs`, `pingTimeout`, `abortOnPingFailure: "when-silent" | "always" | "never"`, `silentFailuresWhenBusy`) or `false` to run no monitor. `connectionLiveness`, `CONNECTION_LIVENESS_SERVICE` and their types are exported for nodes built by hand. The `libp2p_connection_monitor_ping_time_milliseconds` metric is still recorded when metrics are configured.
+  
+  `httpeers-member`'s Node and browser nodes use it too.
+- 1c11412: Experimental, off by default (#56): `muxPerPeer` on `servePeer`, `createRemote` and `serveTransport` carries every HTTP exchange with a peer as a windowed virtual port over ONE libp2p stream (`multiplexPort` from `@statewalker/webrun-rpc`, msgpack envelopes, fair framing), on its own protocol, `/httpeers/1.0.0/mux`, instead of one libp2p stream per exchange. `true` takes the defaults (`DEFAULT_MUX_WINDOW`, 256 KiB; `DEFAULT_MUX_FRAME_SIZE`, 31 KiB), or pass `{ window, frameSize, maxMessageBytes, maxReassembledBytes, maxPorts, keepaliveMs, fallback, protocol }`.
+  
+  - A stalled reader holds only its own port's window, and a dead stream fails every exchange open on it at once with `PeerStreamResetError`; the next call opens a new mux.
+  - The serving side keeps the per-exchange path's bounds: at most `maxInboundStreams` exchanges at once per connection across its muxes (a refused port surfaces as `PeerStreamResetError`), an exchange whose response write stays blocked on the caller for `drainTimeoutMs` dropped, which the caller sees as `PeerStreamResetError` (a quiet one is not dropped), messages on the stream bounded by the frame size, reassembly capped at one window, and a keepalive.
+  - A peer with the flag serves both protocols; a caller with it falls back to a stream per exchange for a peer without the mux protocol (or, with `fallback: false`, fails with `PeerProtocolUnsupportedError`), and when every mux stream on the connection is taken.
+  - Only the option selects it: nothing reads the environment. `startMember` (`@statewalker/httpeers-member`) takes `muxPerPeer` and forwards it.
+  - Frames posted in the same task leave the mux stream as one write (up to one Noise message), its read buffer stays within a few frames (`messageTargetOverStream` from webrun-streams-libp2p 0.2 grows its buffer with all the traffic a stream has carried, so the mux path frames its stream itself, in the same wire format), and the stall watch keeps one timer per exchange rather than one per piece. On loopback (`scripts/bench-mux.mjs`) one bulk exchange streams about 55% of the per-exchange path's rate at the default window and about 90% at 4 MiB, small exchanges match it, and 256 B messages on long-lived exchanges run at 60–97% of it.
+  - webrun-rpc and webrun-msgpack are loaded with a dynamic `import()` the first time a mux link is used, so the root entry does not load them otherwise.
+  
+  New exports: `MUX_PROTOCOL`, `muxProtocolOf`, `DEFAULT_MUX_WINDOW`, `DEFAULT_MUX_FRAME_SIZE`, `DEFAULT_MUX_KEEPALIVE_MS`, `MUX_MESSAGE_HEADROOM`, `MUX_MAX_STREAMS_PER_CONNECTION`, `MuxPortClosedError`, and the `MuxPerPeer` / `MuxPerPeerOptions` types. `servePeer`'s `stop()` now also closes the muxes its calls opened (a no-op without the flag). Nothing changes without the flag.
+  
+  `@statewalker/httpeers-bridge` takes `@statewalker/webrun-rpc` ^0.10.2 (was ^0.5.1). The MessagePort link (`pairedLinks`) uses plain ports, without a window, which behave as before.
+- 2e3e21f: WebRTC dials are no longer retried. The retry worked around a race in libdatachannel 0.24.5 and older, where the offerer could start DTLS before the remote fingerprint was committed (`DTLS alert: unknown CA`). libdatachannel 0.24.6 fixes it, and node-datachannel bundles it from 0.33.6.
+  
+  `reachHub` and the member's pre-dials (`preDialPeer`, the route ensurer) call `node.dial` directly. A WebRTC path that cannot come up now falls back to the relay circuit after one dial timeout instead of three.
+  
+  `httpeers-libp2p` now depends on `node-datachannel` `^0.33.6` directly, so consumers get the floor (`@libp2p/webrtc` itself accepts `^0.33.4`). Its `./node` entry adds `warnIfOldLibdatachannel()`, which `console.warn`s once if the libdatachannel that `@libp2p/webrtc` loads is older than 0.24.6. It never throws. `versionAtLeast` and `LIBDATACHANNEL_MIN_VERSION` are exported alongside it. `httpeers-member`'s `nodePlatform` calls it when it builds a node.
+  
+  BREAKING (`httpeers-libp2p`): `dialWebRTC`, `defaultWebRTCAttempts` and `WEBRTC_UPGRADE_ATTEMPTS` are removed; call `node.dial`. If your lockfile gives `@libp2p/webrtc` an older node-datachannel than your own copy, add a pnpm override (`node-datachannel: ^0.33.6`).
+- 9e1af46: Takes `@statewalker/webrun-streams-libp2p` 0.2, which ends a call whose stream stopped before the call finished (a dead connection, a reset mid-read, a peer that died after ending its side) with `PeerGoneError` instead of a clean end. `mapPeerCallError` maps it to `PeerStreamResetError`, keeping it as `cause`.
+  
+  `createRemoteOverLink` takes a new option, `mapBodyError`, for errors that end a response body after its head is in. It maps nothing by default, and `mapError` still sees pre-head failures only. `httpeers-libp2p`'s `createRemote` passes one that maps `PeerGoneError` and nothing else, so a peer that dies mid-body fails the read with `PeerStreamResetError`, while an error the serving peer's own body raises (an app error, a handler's `TimeoutError`) still reaches the reader as the peer sent it.
+  
+  The `DEFAULT_MAX_CONCURRENT_OUTBOUND` docs (and the bridge README) now say what the permit bounds: calls waiting for a response head, not open streams.
+
+### Patch Changes
+
+- 49c741d: The experimental mux path (`muxPerPeer`, #56) no longer falls behind the per-exchange path on lossy links with many concurrent small exchanges.
+  
+  - The pieces the HTTP codec writes back to back (a message's head, each body chunk's size line, data and CRLF, the last-chunk marker) now go as one mux message per direction instead of one each, so a 256 B exchange carries about 0.8 KB on the wire each way instead of about 1.2 KB, where the per-exchange path carries about 0.85 KB. Only chunk boundaries move, so peers of any version interoperate. Nothing waits for data that is not already being produced. Tearing an exchange down frees it at once; a producer that is waiting for its next piece (an SSE stream between events) runs its cleanup when that piece comes.
+  - Frames gathered into one write now stop at 16 KiB instead of a whole Noise message (64 KB), which the far side can read only once all of it has arrived: on a lossy link such a batch took several round trips to arrive and delivered every exchange in it at once. Bulk frames (31 KiB) no longer share a write, so bulk takes up to twice the writes; its throughput did not change measurably.
+  
+  On an emulated 10 Mbit/s, 80 ms link with 1% loss, 100 concurrent 256 B exchanges run at about 240/s instead of 110/s (the per-exchange path: about 150/s); with 2 Mbit/s, 200 ms and 3% loss at about 40/s instead of 25/s (per-exchange: 38/s). On the links without loss the same case runs 1.2–1.8 times faster than before.
+- 6f9da2c: The experimental mux path (`muxPerPeer`, #56) answers an exchange in one round trip instead of two, and no longer runs concurrent exchanges in lock-step rounds.
+  
+  - One round trip: the caller takes each port's window agreement as given when it opens the port, so it answers the window handshake right behind its `open` and pipelines its own request at once. The serving side then pipelines its response from the start: head and body arrive together after one round trip, for a GET and for a POST whose handler reads the body. Nothing new goes on the wire (the answer is the same envelope, sent earlier), so callers and serving peers of either version interoperate. The presumption is what every serving build of `/httpeers/1.0.0/mux` acks; if a peer's real ack says otherwise, the caller closes the mux (`PeerStreamResetError`) and the next mux on that connection runs the full handshake; a peer that goes silent while ports keep opening is still detected (the mux is closed with `PeerStreamResetError`, and the next call opens a new one). Until a refusal reaches it, a caller may now send up to one window of request body on a port the serving peer refuses, which that peer drops without buffering.
+  - A call right after the peer died no longer fails with `ConnectionClosedError` when libp2p still lists the dying connection: a connection whose muxer is closed is let go before the dial, and a dial that fails that way is retried once.
+  - No lock-step: a frame gathered for a combined write no longer waits for the end of a long task: the next frame posted 1 ms or more after it sends it (and what was gathered with it) at once. A burst of exchanges served in one task therefore no longer leaves as one write after the last of them.
+  
+  On an emulated 100 Mbit/s, 100 ms link, a ping takes 104 ms instead of 207 ms, and 100 concurrent 256 B exchanges run at about 690/s instead of 305/s (the per-exchange path: 440/s).
+- b7b63de: Mux per peer (#56): a mux that closes itself (its keepalive finding the peer silent while the stream still looks alive, a failing pump, a stream the peer ended or sent a malformed frame on) now dies the way a dead stream does. Exchanges open on it fail with `PeerStreamResetError` (cause `PeerGoneError`) instead of `UnknownPeerCallError`, and the dead session is dropped, so the next call dials a new mux; before, every later call to that peer failed with "the multiplexer is closed". On the serving side a handler reading its request body sees `PeerGoneError`, and the session no longer lingers in the link's tables.
+- Updated dependencies [1c11412]
+- Updated dependencies [9e1af46]
+  - @statewalker/httpeers-bridge@0.3.0
+  - @statewalker/httpeers-core@0.1.4
+
 ## 0.3.2
 
 ### Patch Changes
