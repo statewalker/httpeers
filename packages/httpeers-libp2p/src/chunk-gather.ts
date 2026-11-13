@@ -34,7 +34,9 @@
  * with its error), but an async generator source runs the `return()` or
  * `throw()`, and so its cleanup, only once that pending read settles: a
  * quiet producer (an SSE stream between events) is cleaned up at its next
- * event, not at once.
+ * event, not at once. A served exchange's output from webrun-http-streams
+ * 0.5 is not an async generator: it takes the `return()` or `throw()` at once
+ * and cancels an idle response body then.
  */
 
 const TIMED_OUT = Symbol("timed out");

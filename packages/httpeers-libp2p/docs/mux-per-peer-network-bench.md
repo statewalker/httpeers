@@ -117,33 +117,36 @@ back, one round trip in: a POST's end (`done`) waited for its first chunk's
 confirmation, so a handler that reads the body to its end answered after
 two round trips.
 
-Fix (`src/mux-presumed-ack.ts`): when the caller posts an `open`, it hands
-its own mux, in the same turn, the ack the serving side will send. The mux
-then answers at once, right behind the `open`, and pipelines its own chunks
-from the start; the serving side receives the answer before the request, so
-it pipelines its response from the start too. Nothing new goes on the wire:
-the answer is the same envelope, sent earlier, and a serving peer of either
-version reads it as before, so old and new peers interoperate in both
-directions. What the caller presumes (exact sizing; the `pipeline` and
-`end` capabilities) is what every build that has served
-`/httpeers/1.0.0/mux` acks, since all of them run webrun-rpc 0.10 with the
-msgpack codec. It is checked: if the real ack says otherwise, the caller
-closes the mux (its exchanges fail with `PeerStreamResetError`), and the
-next mux on that connection presumes nothing and runs the full handshake.
-One cost: a caller no longer waits for its first chunk's confirmation, so on
-a port the serving side refuses it may send up to one window of request body
-(256 KiB by default; about 246 KB measured) before the refusal reaches it,
-which the serving side drops without buffering. Because the mux's keepalive counts anything it reads
-as a sign of life, the presumed acks would keep it content with a frozen
-peer as long as calls keep opening ports; the module runs the same check on
-what really arrives and closes the mux after three silent intervals.
+Fix, first in httpeers (`src/mux-presumed-ack.ts`, since removed): when the
+caller posted an `open`, it handed its own mux, in the same turn, the ack the
+serving side would send. The mux then answered at once, right behind the
+`open`, and pipelined its own chunks from the start; the serving side
+received the answer before the request, so it pipelined its response from
+the start too. Nothing new went on the wire: the answer is the same
+envelope, sent earlier. Because the mux's keepalive counted anything it read
+as a sign of life, the presumed acks would have kept it content with a
+frozen peer as long as calls kept opening ports, so the module ran its own
+silence check; and a contradicting ack closed the mux, after which that
+connection presumed nothing.
 
-The clean fix belongs in webrun-rpc, and needs no presumption: a responder
-may enforce the window as soon as an `open` lists `caps` (only a version
-that reads credit lists them), which saves the serving side's round trip on
-the wire alone; and an opener may pipeline before the ack where the
-protocol is known to be windowed (an option of `multiplexPort`), which
-saves the caller's. With both upstream, `mux-presumed-ack.ts` can go.
+**Upstream: done.** webrun-rpc 0.11 (webrun-wire #102) does both halves
+itself, and httpeers now uses it (see "Upstream presumed ack" below): an
+opener given `presumeAck` holds back by the window, agrees `pipeline` and
+posts its answer right behind its `open` before the ack arrives (httpeers'
+caller passes `"always"`, since every build that has served
+`/httpeers/1.0.0/mux` runs webrun-rpc 0.10 or later with the msgpack codec,
+which acks exact sizing and `pipeline`); and a responder holds back by the
+window from the `open` on when the `open` lists `caps` and its mux has
+already read a `credit`, so even a caller that presumes nothing gets a
+GET's head and body together from its second port on. The presumption is
+internal to the mux: no synthetic message reaches its reader, so its
+keepalive counts only what the peer really sends and needs no second check.
+An ack that contradicts the presumption stops presuming on that mux and
+fails only a port that has already sent something (httpeers maps that to
+`PeerStreamResetError`); the mux is never closed. What a refused port costs
+is unchanged: until the refusal reaches it, a caller may send up to one
+window of request body (256 KiB by default; about 246 KB measured), which
+the serving side drops without buffering.
 
 **2. A burst of answers left as one write after the last of them.**
 `mux-target.ts` gathers the frames posted in one task into one
@@ -258,9 +261,11 @@ Two causes, each in httpeers:
    the HTTP codec sees, so it is wire-compatible with every peer, old or
    new, in either role. Now 820 and 730 bytes on loopback: fewer than the
    per-exchange path. A `return()` (an exchange torn down) frees the
-   consumer at once and is passed to the producer at once, but a producer
-   with a read ahead pending (an SSE stream between events) runs it, and
-   its cleanup, only once that read settles, at its next event.
+   consumer at once and is passed to the producer at once. A producer that
+   is an async generator with a read ahead pending would run it, and its
+   cleanup, only once that read settles; webrun-http-streams 0.5's served
+   output is not one, and cancels an idle body (an SSE stream between
+   events) at once.
 
    The same saving upstream would be the codec yielding a small message (or
    a body chunk with its framing) as one piece; on the per-exchange path
@@ -340,6 +345,33 @@ with a read ahead pending), `tests/mux-wire-bytes.test.ts` (bytes on the
 wire per 256 B exchange on the mux, end to end over Noise and yamux,
 against the per-exchange path), and `tests/mux-target.test.ts` (sends of at
 most 16 KiB).
+
+## Upstream presumed ack (webrun-rpc 0.11)
+
+httpeers' caller now presumes each port's window ack through webrun-rpc's
+own `presumeAck: "always"` (0.11), and `src/mux-presumed-ack.ts` is gone
+(see "One round trip, and no lock-step"). The same build takes
+webrun-http-streams 0.5, which cancels an idle served response body (an SSE
+stream between events) as soon as its exchange is torn down.
+
+Checked again with the same link and script, mux 256 KiB, before (main, with
+the httpeers module on webrun-rpc 0.10.2) and after, interleaved per profile
+in one session: `--cases ping,small`, 3 runs each, and `--cases bulk` on LAN
+and the long fat pipe, 1 run.
+
+| Profile | Ping p50 idle (ms): before / after | 256 B exchanges/s K = 1 / 10 / 100: before · after | Bulk Mbit/s: before / after | Ping p50 under bulk (ms): before / after |
+|---|---|---|---|---|
+| LAN | 3.5 / 3.5 | 296/1298/3257 · 291/1400/2931 | 754 / 732 | 3.0 / 3.4 |
+| Long fat pipe | 103.5 / 103.7 | 10/95/851 · 10/95/845 | 18.3 / 18.4 | 103.1 / 103.5 |
+| Mobile, 1% loss | 147.2 / 157.7 | 6/47/192 · 6/45/209 | not run | not run |
+
+No regression: every cell is within the run-to-run spread (per-run values in
+the raw data: LAN K = 100 ran 2883–3267 before and 2899–3045 after, the
+mobile idle ping 139–168 ms before and 144–164 ms after). An exchange still
+takes one round trip: the long fat pipe's ping is 104 ms on a 100 ms link,
+idle and beside a download. The mobile idle ping is higher than the 95.8 ms
+in "One round trip, and no lock-step" in both columns alike, so that is this
+session, not the change.
 
 ## Method
 
@@ -446,6 +478,9 @@ node packages/httpeers-libp2p/scripts/bench-mux-net.mjs --cases small --profiles
 node packages/httpeers-libp2p/scripts/bench-mux-net.mjs --cases small --profiles lan,broadband,broadband-noloss,mobile-noloss,longfat --windows 262144 --runs 3
 node packages/httpeers-libp2p/scripts/bench-mux-net.mjs --cases bulk --profiles lan,broadband-noloss,mobile-noloss,longfat --windows 262144 --paths mux --runs 1
 node packages/httpeers-libp2p/scripts/bench-mux-net.mjs --cases small --ks 100 --profiles mobile --windows 262144 --paths mux --runs 10
+# the upstream presumed ack (once per profile, before and after)
+node packages/httpeers-libp2p/scripts/bench-mux-net.mjs --cases ping,small --profiles lan --windows 262144 --paths mux --runs 3
+node packages/httpeers-libp2p/scripts/bench-mux-net.mjs --cases bulk --profiles lan,longfat --windows 262144 --paths mux --runs 1
 ```
 
 The full set here took about four hours (including the exchange-rate rerun), most of it the slow profiles.
@@ -874,9 +909,10 @@ Changes this suggests, independent of the decision:
 1. Make the mux's per-port window adaptive (target about one BDP; see "Window
    sizing").
 2. ~~Send the caller's window with the port open, so an exchange takes one
-   round trip on the mux.~~ Done in httpeers by presuming the ack (see "One
-   round trip, and no lock-step"); the clean fix, which would let that
-   module go, is in webrun-rpc.
+   round trip on the mux.~~ Done, first in httpeers by presuming the ack,
+   now upstream in webrun-rpc 0.11 (`presumeAck`), and httpeers' module is
+   gone (see "One round trip, and no lock-step" and "Upstream presumed
+   ack").
 3. ~~Find why the mux falls behind at K=100 on long paths.~~ Done: on links
    without loss, lock-step rounds from end-of-task gathering, plus the
    handshake; with 1% or 3% loss, a message per HTTP codec piece (bytes per
@@ -901,6 +937,7 @@ The `--out` JSON of the runs the tables come from is in [`bench-results/`](bench
 | `tcp-exchange-rates-rerun.json`, `webrtc-exchange-rates-rerun.json` | the exchange-rate rows (rerun) |
 | `tcp-one-round-trip.json` | after the round-trip fixes: idle pings, exchange rates, idle 64 KiB GETs, all seven profiles (per-run values under `raw`) |
 | `tcp-one-round-trip-bulk.json` | after the fixes: bulk and what runs beside it, mux 256 KiB, the three profiles without loss |
+| `tcp-upstream-presume-ack.json` | "Upstream presumed ack": before and after, mux 256 KiB, LAN, long fat pipe and mobile with 1% loss, bulk on LAN and the long fat pipe (per-run values under `raw`) |
 | `tcp-gathered-chunks.json` | "Lossy links at K=100": exchange rates before (mux) and after (both paths), all seven profiles; bulk after; the K=100-only runs that separate the two changes (per-run values under `raw`) |
 
 The first four hold per-profile medians only (per-run values were not kept

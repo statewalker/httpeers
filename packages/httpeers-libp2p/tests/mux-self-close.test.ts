@@ -15,9 +15,12 @@
  * And `peerGoneFailure` on its own: only the error the mux failed a port
  * with becomes a `PeerGoneError`, never one the peer sent.
  *
- * The caller's own silence check (`mux-presumed-ack.ts`) watches the same
- * silence and would close the mux first; it is turned off here, so the mux's
- * keepalive is what fires. The far peer is a stand-in on the mux protocol
+ * And a served handler's idle response body (an SSE stream between events) is
+ * cancelled as soon as its mux dies, whether the mux closed itself or its
+ * connection was cut (webrun-http-streams 0.5; before, it was cancelled only
+ * at its next event, so a quiet stream was never cancelled at all).
+ *
+ * The far peer is a stand-in on the mux protocol
  * (webrun-rpc's `multiplexPort`, as the link runs it) that can freeze: stop
  * reading and writing, with its stream left open. Loopback TCP, real Noise
  * and yamux.
@@ -36,7 +39,7 @@ import {
   serveDuplexOverPort,
 } from "@statewalker/webrun-rpc";
 import { PeerGoneError } from "@statewalker/webrun-streams-libp2p";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it } from "vitest";
 import { generateKey } from "../src/identity.js";
 import { libp2pLink } from "../src/link.js";
 import {
@@ -48,16 +51,6 @@ import {
 } from "../src/mux-link.js";
 import { muxTargetOverStream } from "../src/mux-target.js";
 import { createNode, createRemote } from "../src/transport.js";
-
-// The caller's silence check off: the mux's own keepalive must be what closes it.
-vi.mock("../src/mux-presumed-ack.js", async (importOriginal) => {
-  const original = await importOriginal<typeof import("../src/mux-presumed-ack.js")>();
-  return {
-    ...original,
-    presumingAcks: (init: Parameters<typeof original.presumingAcks>[0]) =>
-      original.presumingAcks({ ...init, keepaliveMs: 0 }),
-  };
-});
 
 const started: Array<() => Promise<unknown>> = [];
 afterEach(async () => {
@@ -286,6 +279,107 @@ describe("a mux closed by its own keepalive", () => {
     const hello = await next(new Request("http://peer.local/x"));
     expect(await hello.text()).toBe("hello");
     expect(link.liveSessions()).toBe(1);
+  }, 30_000);
+});
+
+describe("a served idle response body when its mux dies", () => {
+  /**
+   * A serving link whose `/events` answers an SSE stream: one event, then
+   * nothing, until it is cancelled. Resolves `cancelled` with the reason.
+   */
+  async function sseServer() {
+    const serverNode = await node(["/ip4/127.0.0.1/tcp/0"]);
+    const link = libp2pLink({
+      node: serverNode,
+      muxPerPeer: { keepaliveMs: 100 },
+    }) as ReturnType<typeof libp2pLink> & { liveSessions(): number };
+    let onCancel: (reason: unknown) => void = () => {};
+    const cancelled = new Promise<unknown>((resolve) => (onCancel = resolve));
+    let served = 0;
+    const stop = await serveFetchOverLink({
+      link,
+      dispatch: async (req) => {
+        if (new URL(req.url).pathname !== "/events") return new Response("hello");
+        served++;
+        return new Response(
+          new ReadableStream<Uint8Array>({
+            start(controller) {
+              controller.enqueue(new TextEncoder().encode("data: first\n\n"));
+            },
+            cancel: (reason) => onCancel(reason ?? "cancelled"),
+          }),
+          { headers: { "content-type": "text/event-stream" } },
+        );
+      },
+    });
+    started.push(stop);
+    return { serverNode, link, cancelled, served: () => served };
+  }
+
+  /** A calling stand-in: one mux on a fresh stream, frozen on demand. */
+  async function callerMux(clientNode: Libp2p, serverNode: Libp2p, frozen: () => boolean) {
+    const stream = await clientNode.dialProtocol(serverNode.peerId, MUX_PROTOCOL);
+    const { target, signal } = freezable(stream, frozen);
+    const mux = multiplexPort(target, {
+      codec: msgpackCodec,
+      side: "initiator",
+      window: DEFAULT_MUX_WINDOW,
+      frameSize: DEFAULT_MUX_FRAME_SIZE,
+      maxMessageSize,
+      signal,
+    });
+    started.push(() => mux.close());
+    return async (request: Request) => {
+      const port = await mux.openPort({ kind: "httpeers" });
+      return fetchOverDuplex(duplexOverPort(port, { maxMessageSize }), request);
+    };
+  }
+
+  /** The first event, read; the stream then stays open and quiet. */
+  async function firstEvent(response: Response) {
+    const reader = response.body?.getReader();
+    const { value } = (await reader?.read()) ?? {};
+    expect(new TextDecoder().decode(value)).toContain("data: first");
+    return reader;
+  }
+
+  it("is cancelled when the mux closes itself (its keepalive)", async () => {
+    const { serverNode, link, cancelled, served } = await sseServer();
+    const clientNode = await node();
+    await clientNode.dial(serverNode.getMultiaddrs()[0]);
+    let freeze = false;
+    const call = await callerMux(clientNode, serverNode, () => freeze);
+    const reader = await firstEvent(await call(new Request("http://peer.local/events")));
+    expect(served()).toBe(1);
+    // Long enough for the caller to have answered a keepalive ping.
+    await sleep(350);
+    freeze = true;
+
+    // Three missed pings 100 ms apart; the body sends nothing meanwhile.
+    const reason = await Promise.race([cancelled, sleep(3_000).then(() => "not cancelled")]);
+    expect(reason).not.toBe("not cancelled");
+    // With what the session died of, as the caller's side sees it.
+    expect((reason as Error).name).toBe("PeerGoneError");
+    await expect.poll(() => link.liveSessions(), { timeout: 2_000 }).toBe(0);
+    void reader?.cancel().catch(() => {});
+  }, 30_000);
+
+  it("is cancelled when the connection is cut", async () => {
+    const { serverNode, link, cancelled } = await sseServer();
+    const clientNode = await node();
+    await clientNode.dial(serverNode.getMultiaddrs()[0]);
+    const call = await callerMux(clientNode, serverNode, () => false);
+    await firstEvent(await call(new Request("http://peer.local/events")));
+    expect(link.liveSessions()).toBe(1);
+
+    for (const connection of clientNode.getConnections(serverNode.peerId)) {
+      connection.abort(new Error("cut"));
+    }
+    const reason = await Promise.race([cancelled, sleep(3_000).then(() => "not cancelled")]);
+    expect(reason).not.toBe("not cancelled");
+    // With what the session died of, as the caller's side sees it.
+    expect((reason as Error).name).toBe("PeerGoneError");
+    await expect.poll(() => link.liveSessions(), { timeout: 2_000 }).toBe(0);
   }, 30_000);
 });
 
