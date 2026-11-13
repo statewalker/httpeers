@@ -216,9 +216,11 @@ function eitherSignal(a: AbortSignal, b: AbortSignal): { signal: AbortSignal; di
 /**
  * `response`, whose call is closed when `signal` aborts while its body is still open.
  *
- * webrun-http-streams sees an abort only when the body's next chunk arrives: a peer that has
- * sent the head and then nothing would keep the call, and its channel, until it sends again.
- * Closing the connection ends the call at once. The listener goes when the body ends, however.
+ * Since 0.3.2 webrun-http-streams itself ends a body at once when its request's signal aborts,
+ * even with no chunk pending, and since 0.5 it cancels the stream it reads directly. Closing the
+ * connection here as well releases the link's call and channel at the abort, whatever the
+ * transport's own teardown takes, and covers a link whose body is not webrun-http-streams'.
+ * The listener goes when the body ends, however.
  *
  * `mapError` is given an error that ends the body while it streams; `undefined` from it keeps
  * the original. The caller's own abort reason is never mapped. Neither is anything on the path

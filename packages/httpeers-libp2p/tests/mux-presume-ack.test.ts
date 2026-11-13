@@ -199,15 +199,23 @@ describe("the presumed window ack, through the link", () => {
       );
     }, 20);
     started.push(async () => clearInterval(opening));
+    // Three silent intervals of 100 ms and a little: about 0.4-0.9 s. A mux
+    // that took the presumed acks for signs of life would take well over a
+    // second, by some other way than its keepalive.
     await expect
       .poll(
         async () => (calls.length > 0 ? await Promise.race([calls[0], "pending"]) : "pending"),
         {
-          timeout: 3_000,
-          interval: 50,
+          timeout: 1_200,
+          interval: 25,
         },
       )
       .toBeInstanceOf(PeerStreamResetError);
+    // And it was the keepalive that closed it.
+    const failure = (await calls[0]) as Error;
+    const gone = failure.cause as Error;
+    expect(gone.name).toBe("PeerGoneError");
+    expect((gone.cause as Error | undefined)?.message).toMatch(/did not answer 3 keepalive pings/);
     // The next call dials a new mux, which answers.
     await expect
       .poll(

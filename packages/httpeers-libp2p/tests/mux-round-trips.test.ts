@@ -50,8 +50,18 @@ import { createNode, createRemote, serveTransport } from "../src/transport.js";
 import { oldPresumingAcks } from "./old-presumed-ack.js";
 
 const cleanup: Array<() => unknown> = [];
+/**
+ * What the former httpeers caller (`old-presumed-ack.ts`) found wrong with a
+ * real ack: a deployed one would close its mux on it, so any is a failure.
+ */
+const oldCallerBroken: Error[] = [];
+const onOldCallerBroken = (error: Error) => {
+  oldCallerBroken.push(error);
+};
 afterEach(async () => {
   while (cleanup.length > 0) await cleanup.pop()?.();
+  const broken = oldCallerBroken.splice(0);
+  expect(broken.map((e) => e.message)).toEqual([]);
 });
 
 /** Two message targets joined by a link that delivers each message `delayMs` later, in order. */
@@ -140,7 +150,11 @@ function muxPair(
   } else {
     const wrapped =
       callerKit === "old-presuming"
-        ? oldPresumingAcks(msgpackCodec as v010.PortCodec, link.caller as v010.MessageTarget)
+        ? oldPresumingAcks(
+            msgpackCodec as v010.PortCodec,
+            link.caller as v010.MessageTarget,
+            onOldCallerBroken,
+          )
         : { codec: msgpackCodec as v010.PortCodec, target: link.caller as v010.MessageTarget };
     caller = v010.multiplexPort(wrapped.target, {
       codec: wrapped.codec,
@@ -470,7 +484,11 @@ describe("mux round trips end to end, with peers on webrun-rpc 0.10", () => {
         maxMessageBytes: DEFAULT_MUX_FRAME_SIZE + MUX_MESSAGE_HEADROOM,
       });
       const pipe = presuming
-        ? oldPresumingAcks(msgpackCodec as v010.PortCodec, target as unknown as v010.MessageTarget)
+        ? oldPresumingAcks(
+            msgpackCodec as v010.PortCodec,
+            target as unknown as v010.MessageTarget,
+            onOldCallerBroken,
+          )
         : {
             codec: msgpackCodec as v010.PortCodec,
             target: target as unknown as v010.MessageTarget,
