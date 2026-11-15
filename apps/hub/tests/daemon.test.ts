@@ -311,7 +311,7 @@ describe("startDaemon", () => {
     ).toBe(true);
   }, 90_000);
 
-  it("with HUB_MUX_PER_PEER, serves a mux member over the mux and a member without it per exchange", async () => {
+  it("with a tuned mux, serves a mux member over the mux and an opted-out member per exchange", async () => {
     const daemon = await start({ ...(await configFor()), muxPerPeer: { window: 128 * 1024 } });
     const muxStreams = (member: MemberHandle) =>
       member.node
@@ -320,14 +320,15 @@ describe("startDaemon", () => {
         .flatMap((c) => c.streams)
         .filter((s) => s.protocol === MUX_PROTOCOL);
 
-    const withMux = await joinMember(daemon, webRTCNode, undefined, true);
+    // The default (the mux, #56): the member passes no option.
+    const withMux = await joinMember(daemon, webRTCNode);
     const res = await withMux.fetch(new Request(`http://local/peers/${daemon.hubPeerId}/echo/x`));
     expect(res.status).toBe(200);
     expect(await res.json()).toEqual({ path: "/echo/x", caller: "mesh" });
     // The member's calls to the hub ride the mux the hub now serves.
     expect(muxStreams(withMux)).toHaveLength(1);
 
-    const without = await joinMember(daemon, webRTCNode);
+    const without = await joinMember(daemon, webRTCNode, undefined, false);
     const plain = await without.fetch(new Request(`http://local/peers/${daemon.hubPeerId}/echo/x`));
     expect(plain.status).toBe(200);
     expect(await plain.json()).toEqual({ path: "/echo/x", caller: "mesh" });

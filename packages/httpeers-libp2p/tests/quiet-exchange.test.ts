@@ -15,7 +15,7 @@ import type { FetchHandler, PeerIdStr } from "@statewalker/httpeers-core";
 import { afterEach, describe, expect, it } from "vitest";
 import { generateKey } from "../src/identity.js";
 import { createNode, createRemote, serveTransport } from "../src/transport.js";
-import { MUX_PER_PEER } from "./exchange-path-option.js";
+import { MUX_PER_PEER, MUX_PER_PEER_OPTION } from "./exchange-path-option.js";
 
 const DRAIN_TIMEOUT_MS = 300;
 /** Silence well past `DRAIN_TIMEOUT_MS`: several of its periods. */
@@ -46,12 +46,12 @@ async function pair(dispatch: FetchHandler) {
   const stop = await serveTransport({
     node: serverNode,
     dispatch,
-    muxPerPeer: MUX_PER_PEER,
+    muxPerPeer: MUX_PER_PEER_OPTION,
     drainTimeoutMs: DRAIN_TIMEOUT_MS,
   });
   started.push(stop);
   await clientNode.dial(serverNode.getMultiaddrs()[0]);
-  const remote = createRemote({ node: clientNode, muxPerPeer: MUX_PER_PEER });
+  const remote = createRemote({ node: clientNode, muxPerPeer: MUX_PER_PEER_OPTION });
   return { remote, target: serverNode.peerId.toString() as PeerIdStr };
 }
 

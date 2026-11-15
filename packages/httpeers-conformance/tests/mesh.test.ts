@@ -17,7 +17,7 @@ import { access } from "@statewalker/httpeers-access";
 import { createMounts, json, PEER_ID_HEADER } from "@statewalker/httpeers-core";
 import { type MemberHandle, MemberJoinError, startMember } from "@statewalker/httpeers-member";
 import { afterEach, describe, expect, it } from "vitest";
-import { MUX_PER_PEER } from "./exchange-path-option.js";
+import { MUX_PER_PEER_OPTION } from "./exchange-path-option.js";
 import {
   HEARTBEAT_INTERVAL_MS,
   MESH_RULES,
@@ -59,7 +59,7 @@ async function join(
 
   const member = await startMember({
     key: "peers",
-    muxPerPeer: MUX_PER_PEER,
+    muxPerPeer: MUX_PER_PEER_OPTION,
     mounts,
     rules: MESH_RULES,
     config: { relayAddrs: [live.relayAddr], hubPeerId: live.hubPeerId },

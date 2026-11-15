@@ -8,3 +8,9 @@ export const MUX_PER_PEER_TEST_ENV = "HTTPEERS_LIBP2P_MUX_PER_PEER";
 
 /** `true` in the `mux-per-peer` project, `false` in `per-exchange`. */
 export const MUX_PER_PEER = process.env[MUX_PER_PEER_TEST_ENV] === "1";
+
+/**
+ * What the tests pass as `muxPerPeer`: nothing in the `mux-per-peer` project, so it runs the
+ * DEFAULT path (the mux, #56), and `false` in `per-exchange`, the opt-out.
+ */
+export const MUX_PER_PEER_OPTION: false | undefined = MUX_PER_PEER ? undefined : false;

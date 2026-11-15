@@ -37,7 +37,7 @@ import { createRemote } from "@statewalker/httpeers-libp2p";
 import { type MemberHandle, type MemberPlatform, startMember } from "@statewalker/httpeers-member";
 import { createLibp2p } from "libp2p";
 import { afterEach, describe, expect, it } from "vitest";
-import { MUX_PER_PEER } from "./exchange-path-option.js";
+import { MUX_PER_PEER_OPTION } from "./exchange-path-option.js";
 import {
   HEARTBEAT_INTERVAL_MS,
   hubHoldsCircuitTo,
@@ -139,7 +139,7 @@ async function join(
   mounts.provide("/hello", async () => new Response("hello from the member"));
   const member = await startMember({
     key: "peers",
-    muxPerPeer: MUX_PER_PEER,
+    muxPerPeer: MUX_PER_PEER_OPTION,
     mounts,
     rules: MESH_RULES,
     config: { relayAddrs: [live.relayAddr], hubPeerId: live.hubPeerId },
@@ -261,7 +261,7 @@ describe("a relay-mode member's serving side", () => {
     const fromHub = createRemote({
       node: live.hubNode,
       callOnLimitedConnection: true,
-      muxPerPeer: MUX_PER_PEER,
+      muxPerPeer: MUX_PER_PEER_OPTION,
     });
     const error = await fromHub(member.peerId, new Request("http://member.invalid/hello")).then(
       () => null,

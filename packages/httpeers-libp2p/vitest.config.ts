@@ -1,11 +1,12 @@
 import { defineConfig } from "vitest/config";
 
 /**
- * The transport tests run on both exchange paths (#56): one libp2p stream per
- * exchange (the default) and the experimental one mux per peer. The library
- * reads no environment: the projects set `HTTPEERS_LIBP2P_MUX_PER_PEER`, and
- * the tests read it (`tests/exchange-path-option.ts`) and pass `muxPerPeer`
- * down. `tests/exchange-path.test.ts` checks that each project really runs the
+ * The transport tests run on both exchange paths (#56): one mux per peer (the
+ * default: `mux-per-peer` passes no option) and one libp2p stream per exchange
+ * (`per-exchange` passes `muxPerPeer: false`). The library reads no
+ * environment: the projects set `HTTPEERS_LIBP2P_MUX_PER_PEER`, and the tests
+ * read it (`tests/exchange-path-option.ts`) and pass `MUX_PER_PEER_OPTION`
+ * down. Tests that build a transport without the option run the default. `tests/exchange-path.test.ts` checks that each project really runs the
  * path it names; `tests/mux-link.test.ts` passes the option itself, so it runs
  * once, in `per-exchange`.
  */

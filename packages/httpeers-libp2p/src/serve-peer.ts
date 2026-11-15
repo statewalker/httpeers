@@ -82,11 +82,11 @@ export interface ServePeerInit {
    */
   callOnLimitedConnection?: CallOnLimitedConnection;
   /**
-   * EXPERIMENTAL (#56): both directions of this peer over one windowed mux per
-   * peer -- its calls (`call`, and forwarding) open one, and it SERVES the mux
-   * protocol beside the per-exchange one, so callers without the flag are
-   * unaffected. Off when unset. See `MuxPerPeerOptions` and the
-   * package README.
+   * Both directions of this peer over one windowed mux per peer, ON BY
+   * DEFAULT (#56): its calls (`call`, and forwarding) open one, and it SERVES
+   * the mux protocol beside the per-exchange one, so callers that opted out
+   * (or predate the mux) are unaffected. `false` opts out. See
+   * `MuxPerPeerOptions` and the package README.
    */
   muxPerPeer?: MuxPerPeer;
 }

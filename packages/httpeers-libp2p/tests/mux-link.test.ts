@@ -123,7 +123,50 @@ const failureOf = (p: Promise<unknown>): Promise<unknown> =>
     (e: unknown) => e,
   );
 
-describe("one mux per peer (experimental)", () => {
+describe("the mux is the default path (#56)", () => {
+  it("with muxPerPeer unset on both sides, exchanges ride ONE mux stream, none per exchange", async () => {
+    const { clientNode, serverNode, target } = await pair(
+      async () => new Response("ok"),
+      undefined,
+    );
+    const remote = createRemote({ node: clientNode });
+
+    for (let i = 0; i < 3; i++) {
+      const response = await remote(target, new Request("http://peer.local/x"));
+      expect(await response.text()).toBe("ok");
+    }
+    expect(streamsOn(clientNode, serverNode, MUX_PROTOCOL)).toBe(1);
+    expect(streamsOn(clientNode, serverNode, PROTOCOL)).toBe(0);
+  }, 30_000);
+
+  it("a default caller reaches an old-style server (muxPerPeer: false) over a stream per exchange", async () => {
+    const { clientNode, serverNode, target } = await pair(
+      async () => new Response("old server"),
+      false,
+    );
+    const remote = createRemote({ node: clientNode });
+
+    for (let i = 0; i < 3; i++) {
+      const response = await remote(target, new Request("http://peer.local/x"));
+      expect(await response.text()).toBe("old server");
+    }
+    expect(streamsOn(clientNode, serverNode, MUX_PROTOCOL)).toBe(0);
+  }, 30_000);
+
+  it("an old-style caller (muxPerPeer: false) reaches a default server over a stream per exchange", async () => {
+    const { clientNode, serverNode, target } = await pair(
+      async () => new Response("new server"),
+      undefined,
+    );
+    const remote = createRemote({ node: clientNode, muxPerPeer: false });
+
+    const response = await remote(target, new Request("http://peer.local/x"));
+    expect(await response.text()).toBe("new server");
+    expect(streamsOn(clientNode, serverNode, MUX_PROTOCOL)).toBe(0);
+  }, 30_000);
+});
+
+describe("one mux per peer", () => {
   it("carries every exchange with a peer over ONE stream, shared by concurrent first calls", async () => {
     const mounts = createMounts();
     mounts.provide("/open", async () => openBody());

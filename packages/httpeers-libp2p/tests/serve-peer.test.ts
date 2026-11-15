@@ -16,7 +16,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import { generateKey, peerIdOf } from "../src/identity.js";
 import { type Peer, servePeer } from "../src/serve-peer.js";
 import { createNode } from "../src/transport.js";
-import { MUX_PER_PEER } from "./exchange-path-option.js";
+import { MUX_PER_PEER_OPTION } from "./exchange-path-option.js";
 
 const started: Array<{ stop(): Promise<void> }> = [];
 
@@ -47,14 +47,18 @@ describe("servePeer", () => {
     const mounts = createMounts();
     mounts.provide("/hello", async () => json({ hello: true }));
 
-    const server: Peer = await servePeer({ node: serverNode, mounts, muxPerPeer: MUX_PER_PEER });
+    const server: Peer = await servePeer({
+      node: serverNode,
+      mounts,
+      muxPerPeer: MUX_PER_PEER_OPTION,
+    });
     started.push(server);
 
     await clientNode.dial(serverNode.getMultiaddrs()[0]);
     const client = await servePeer({
       node: clientNode,
       mounts: createMounts(),
-      muxPerPeer: MUX_PER_PEER,
+      muxPerPeer: MUX_PER_PEER_OPTION,
     });
     started.push(client);
 
@@ -77,13 +81,13 @@ describe("servePeer", () => {
     const mounts = createMounts();
     mounts.provide("/whoami", echoPeer());
 
-    const server = await servePeer({ node: serverNode, mounts, muxPerPeer: MUX_PER_PEER });
+    const server = await servePeer({ node: serverNode, mounts, muxPerPeer: MUX_PER_PEER_OPTION });
     started.push(server);
     await clientNode.dial(serverNode.getMultiaddrs()[0]);
     const client = await servePeer({
       node: clientNode,
       mounts: createMounts(),
-      muxPerPeer: MUX_PER_PEER,
+      muxPerPeer: MUX_PER_PEER_OPTION,
     });
     started.push(client);
 
@@ -112,7 +116,7 @@ describe("servePeer", () => {
     const server = await servePeer({
       node: serverNode,
       mounts,
-      muxPerPeer: MUX_PER_PEER,
+      muxPerPeer: MUX_PER_PEER_OPTION,
       access: (next) => async (request) => {
         seen.push(new URL(request.url).pathname);
         return next(request);
@@ -124,7 +128,7 @@ describe("servePeer", () => {
     const client = await servePeer({
       node: clientNode,
       mounts: createMounts(),
-      muxPerPeer: MUX_PER_PEER,
+      muxPerPeer: MUX_PER_PEER_OPTION,
     });
     started.push(client);
 
@@ -144,14 +148,14 @@ describe("servePeer", () => {
     const server = await servePeer({
       node: serverNode,
       mounts: createMounts(),
-      muxPerPeer: MUX_PER_PEER,
+      muxPerPeer: MUX_PER_PEER_OPTION,
     });
     started.push(server);
     await clientNode.dial(serverNode.getMultiaddrs()[0]);
     const client = await servePeer({
       node: clientNode,
       mounts: createMounts(),
-      muxPerPeer: MUX_PER_PEER,
+      muxPerPeer: MUX_PER_PEER_OPTION,
     });
     started.push(client);
 
@@ -177,7 +181,7 @@ describe("servePeer", () => {
     const server = await servePeer({
       node: serverNode,
       mounts: createMounts(),
-      muxPerPeer: MUX_PER_PEER,
+      muxPerPeer: MUX_PER_PEER_OPTION,
     });
 
     await server.stop();

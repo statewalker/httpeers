@@ -81,13 +81,14 @@ const signer = signerOf(hubKey); // { mesh: peerIdOf(hubKey), seed }
 const token = await mintToken({ signer, sub, roles: ["member"], ttlMs: 60_000 });
 ```
 
-Experimental: every exchange with a peer over one windowed mux (issue #56). Off
-by default; the API may change or go away:
+By default every exchange with a peer rides one windowed mux per peer (issue
+#56; see "One mux per peer" below). Tune it, or opt out to one libp2p stream
+per exchange:
 
 ```ts
-const peer = await servePeer({ node, mounts, muxPerPeer: true });
-// or tuned, and on the other entry points too:
 const remote = createRemote({ node, muxPerPeer: { window: 4 * 1024 * 1024 } });
+// one stream per exchange, as before #56:
+const peer = await servePeer({ node, mounts, muxPerPeer: false });
 ```
 
 ## Internals
@@ -245,15 +246,13 @@ closed. `serveDuplex` / `openDuplex` run one `Duplex` per libp2p stream on
 `/httpeers-duplex/1.0.0`, addressed by path through their own mount table
 (`createDuplexMounts`).
 
-### One mux per peer (experimental, off by default)
+### One mux per peer (the default)
 
-By default each HTTP exchange is its own libp2p stream on `/httpeers/1.0.0`.
-`muxPerPeer` (on `servePeer`, `createRemote` and `serveTransport`) carries
-them instead as virtual ports of one `multiplexPort` (`@statewalker/webrun-rpc`)
-over ONE libp2p stream per peer, on its own protocol, `/httpeers/1.0.0/mux`
-(`muxProtocolOf(protocol)` for another fetch protocol). Each port has a window
-(`window`, default 256 KiB) and large messages are framed (`frameSize`, default
-31 KiB), so:
+Every HTTP exchange with a peer is a virtual port of one `multiplexPort`
+(`@statewalker/webrun-rpc`) over ONE libp2p stream per peer, on its own
+protocol, `/httpeers/1.0.0/mux` (`muxProtocolOf(protocol)` for another fetch
+protocol). Each port has a window (`window`, default 256 KiB) and large
+messages are framed (`frameSize`, default 31 KiB), so:
 
 - a reader that stops reading holds its own port's window and nothing else:
   the producer stops instead of the receiving peer buffering without limit,
@@ -264,28 +263,56 @@ over ONE libp2p stream per peer, on its own protocol, `/httpeers/1.0.0/mux`
 - one stream per peer, so libp2p's per-protocol and per-connection stream
   caps no longer limit how many exchanges a peer may have open.
 
-The cost is bulk throughput, which the window bounds: with the default
-256 KiB window, one exchange streams about 55% of what it does on its own
-stream (loopback), while pings beside it answer in 4 ms rather than 140 ms; a
-4 MiB window carries about 90%, with pings beside it at 40 ms. Small exchanges
-match or beat the per-exchange path; 256 B messages on long-lived exchanges
-run at 60–97% of it (fewer the more exchanges share the mux).
-`scripts/bench-mux.mjs` compares the two paths (`pnpm build` first; loopback
-only, not run in CI; `--path`/`--cases` to profile a part).
+`muxPerPeer` (on `servePeer`, `createRemote` and `serveTransport`) is on when
+unset or `true`; `MuxPerPeerOptions` tunes it; **`muxPerPeer: false` opts
+out** to one libp2p stream per exchange on `/httpeers/1.0.0`, the path before
+#56.
+
+**Why it is the default.** Measured on a real link (residential broadband to
+a datacenter, about 11 ms RTT, both paths over direct TCP;
+[#56](https://github.com/statewalker/httpeers/issues/56#issuecomment-6897312101)):
+
+| | stream per exchange | mux per peer |
+|---|---|---|
+| Ping p50 / p99, idle (ms) | 20.3 / 55.2 | 12.5 / 23.4 |
+| 256 B exchanges/s, K = 1 / 10 / 100 | 48 / 241 / 322 | 74 / 422 / 730 |
+| 256 B messages/s on K echo exchanges, K = 100 | 1060 | 2785 |
+
+An exchange takes one round trip on the mux and two on its own stream (each
+new stream costs one), so small exchanges run 1.5–2.3× as fast. Beside a bulk
+download, a request on the mux waits a few round trips (24.5 ms p50 there);
+on its own stream it queues behind the download's bytes (0.3–0.7 s on an
+emulated link like that one, #123). The emulated profiles in
 [`docs/mux-per-peer-network-bench.md`](docs/mux-per-peer-network-bench.md)
-measures both paths on an emulated network (latency, rate limits, loss; TCP
-and WebRTC; `scripts/bench-mux-net.mjs`). Measurement on real networks, and
-the decision per kind of traffic, are still open.
+(LAN to 3% loss, TCP and Node↔Node WebRTC) agree, and the per-exchange path
+failed most WebRTC runs.
+
+**What it costs.**
+- **Bulk on high bandwidth-delay links.** The window bounds one exchange's
+  throughput to about window ÷ RTT: the default 256 KiB caps bulk at about
+  72% on a 1 Gbit LAN and 19% on a 100 Mbit, 100 ms path (emulated), where a
+  stream per exchange fills the link. A larger `window` lifts the cap and
+  gives back some of the isolation. An adaptive window is the follow-up.
+- **CPU on loopback.** With no latency to save, framing costs: 256 B messages
+  on long-lived exchanges run at 60–97% of the per-exchange rate on loopback,
+  and one bulk exchange at about 55% with the default window.
+
+`scripts/bench-mux.mjs` compares the two paths (`pnpm build` first; not run in
+CI; `--path`/`--cases` to profile a part): on loopback by default, or across
+two hosts (`--serve --listen` on one, `--peer` on the other).
+`scripts/bench-mux-net.mjs` runs both on an emulated network.
 
 Frames posted in the same task leave as one write (up to one Noise message),
 so a burst of small messages, or a run of bulk frames, costs one yamux frame,
 one encryption and one socket write rather than one each. The first frame
 since the last flush is never held back.
 
-**Compatibility.** A peer with the flag SERVES both protocols, so callers
-without it are unaffected. A caller with the flag whose peer does not speak
-the mux protocol falls back to a stream per exchange for that peer's current
-connection; `muxPerPeer: { fallback: false }` fails such calls with
+**Compatibility (the fallback).** A peer on the mux SERVES both protocols, so
+callers that opted out, or run a version from before the mux, are served as
+before. A caller on the mux whose peer does not speak the mux protocol (an
+older version, or `muxPerPeer: false`) falls back to a stream per exchange for
+that peer's current connection, so old and new peers interoperate both ways;
+`muxPerPeer: { fallback: false }` fails such calls with
 `PeerProtocolUnsupportedError` instead.
 
 **Serving-side bounds.** The per-exchange path's contract
@@ -327,15 +354,16 @@ mux arrived on, never anything a port carries.
 
 **Selecting it.** Only the option does: the library reads no environment.
 `startMember` (`@statewalker/httpeers-member`) forwards `muxPerPeer` to its
-`servePeer`. The suites pass it down themselves: this package's transport
-tests and `httpeers-conformance` run on both paths (vitest projects
-`per-exchange` and `mux-per-peer`, which set a variable only the tests read),
-and `httpeers-browser-conformance`'s `test:forwarded-body` runs in each browser
-on both.
+`servePeer`, and the hub daemon reads `HUB_MUX_PER_PEER` (`off` opts out).
+The suites run both paths: this package's transport tests and
+`httpeers-conformance` in vitest projects `mux-per-peer` (the option unset:
+the default) and `per-exchange` (`muxPerPeer: false`), and
+`httpeers-browser-conformance`'s `test:forwarded-body` in each browser on
+both.
 
 **Loaded on demand.** `@statewalker/webrun-rpc` and `@statewalker/webrun-msgpack`
 are imported dynamically the first time a mux link is used, so a consumer
-that never sets the flag does not load them.
+that opts out does not load them.
 
 ### Dependencies
 
@@ -344,7 +372,7 @@ libp2p (`libp2p`, `@libp2p/*`, `@chainsafe/libp2p-noise`, `@chainsafe/libp2p-yam
 `@statewalker/httpeers-bridge` (HTTP over the link), and
 `@statewalker/webrun-streams`, `@statewalker/webrun-streams-libp2p`,
 `@statewalker/webrun-http-streams` (duplex streams over libp2p), and
-`@statewalker/webrun-rpc`, `@statewalker/webrun-msgpack` (the experimental mux).
+`@statewalker/webrun-rpc`, `@statewalker/webrun-msgpack` (the mux).
 
 Tests: `pnpm --filter @statewalker/httpeers-libp2p test`. Files run serially
 because they start real libp2p nodes, and the transport tests run twice, once

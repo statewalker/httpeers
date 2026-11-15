@@ -1,6 +1,6 @@
 /**
  * GUARDS THE PARAMETRISATION. Every test in this package runs twice (see
- * `vitest.config.ts`), and the transport tests pass `muxPerPeer: MUX_PER_PEER`
+ * `vitest.config.ts`), and the transport tests pass `muxPerPeer: MUX_PER_PEER_OPTION`
  * (`exchange-path-option.ts`). A switch that silently did nothing would make
  * the second run a copy of the first and report the mux path as tested. This
  * checks, in each project, which protocol a peer built that way rides.
@@ -13,7 +13,7 @@ import { generateKey } from "../src/identity.js";
 import { MUX_PROTOCOL } from "../src/mux-link.js";
 import { servePeer } from "../src/serve-peer.js";
 import { createNode, PROTOCOL } from "../src/transport.js";
-import { MUX_PER_PEER } from "./exchange-path-option.js";
+import { MUX_PER_PEER, MUX_PER_PEER_OPTION } from "./exchange-path-option.js";
 
 const started: Array<() => Promise<unknown>> = [];
 
@@ -43,12 +43,12 @@ describe(`the exchange path in force (${muxInForce ? "mux per peer" : "stream pe
     const mounts = createMounts();
     // A body that stays open, so the call's stream is still there to look at.
     mounts.provide("/open", async () => new Response(new ReadableStream({ start() {} })));
-    const server = await servePeer({ node: serverNode, mounts, muxPerPeer: MUX_PER_PEER });
+    const server = await servePeer({ node: serverNode, mounts, muxPerPeer: MUX_PER_PEER_OPTION });
     started.push(() => server.stop());
     const client = await servePeer({
       node: clientNode,
       mounts: createMounts(),
-      muxPerPeer: MUX_PER_PEER,
+      muxPerPeer: MUX_PER_PEER_OPTION,
     });
     started.push(() => client.stop());
     await clientNode.dial(serverNode.getMultiaddrs()[0]);
