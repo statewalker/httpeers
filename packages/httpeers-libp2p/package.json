@@ -71,6 +71,7 @@
     "@biomejs/biome": "catalog:",
     "@statewalker/httpeers-access": "workspace:^",
     "@types/node": "catalog:",
+    "httpeers-libp2p-0-5": "catalog:",
     "typescript": "catalog:",
     "vitest": "catalog:",
     "webrun-rpc-0-10": "catalog:"
