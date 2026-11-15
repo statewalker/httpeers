@@ -1,5 +1,19 @@
 # @statewalker/httpeers-member
 
+## 0.5.0
+
+### Minor Changes
+
+- Release of the changes since the last published version:
+  
+  - @statewalker/httpeers-libp2p crosses a breaking line
+
+### Patch Changes
+
+- ec6a281: `startMember` now carries a member's exchanges over one windowed mux per peer when `muxPerPeer` is unset, following `@statewalker/httpeers-libp2p`'s new default (httpeers#56). Pass `muxPerPeer: false` to keep one libp2p stream per exchange. Members on either path interoperate with hubs and peers on the other.
+- Updated dependencies [ec6a281]
+  - @statewalker/httpeers-libp2p@0.5.0
+
 ## 0.4.1
 
 ### Patch Changes
