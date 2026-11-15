@@ -3,7 +3,7 @@
 //
 //   pnpm --filter @statewalker/httpeers-libp2p build
 //   node packages/httpeers-libp2p/scripts/bench-mux.mjs [--runs 3] [--seconds 3] [--window 262144] [--frame-size 31744]
-//     [--path stream|mux] [--cases ping,small,echo,bulk] [--bulk-pings 300]
+//     [--path stream|mux] [--cases ping,small,echo,bulk] [--bulk-pings 300] [--bulk-seconds 10]
 //
 // `--path` and `--cases` run a part only, e.g. under `node --cpu-prof` (which
 // the forked serving child inherits) to profile one path and one case.
@@ -67,8 +67,16 @@ const FRAME = opt("--frame-size", undefined);
 /** `--path stream|mux` runs one path only; `--cases ping,small,echo,bulk` a subset (for profiling). */
 const ONLY_PATH = opt("--path", undefined);
 const CASES = new Set(opt("--cases", "ping,small,echo,bulk").split(","));
-/** Pings sent while the bulk exchange runs, which is how long it runs. */
+/**
+ * Pings sent while the bulk exchange runs, which is how long it runs: `--bulk-pings` of them, or
+ * as many as `--bulk-seconds` allows, whichever ends first. The time bound keeps a run's length
+ * independent of the path: where a ping waits behind the bulk bytes (one stream per exchange on a
+ * link with a deep queue: 0.7 s each at 70 Mbit/s with a 300 ms queue), 300 pings took minutes
+ * and looked like a hang (#123). The samples taken are all reported; "Pings/s meanwhile" says how
+ * many there were.
+ */
 const BULK_PINGS = Number(opt("--bulk-pings", "300"));
+const BULK_SECONDS = Number(opt("--bulk-seconds", "10"));
 /** `--peer <multiaddr>`: call a server already running on another host instead of forking one. */
 const PEER = opt("--peer", undefined);
 /** The mux's tuning from the command line; the defaults where not given. */
@@ -136,9 +144,9 @@ const quantile = (xs, q) => {
 const median = (xs) => quantile(xs, 0.5);
 const round = (x, d = 2) => Math.round(x * 10 ** d) / 10 ** d;
 
-async function pings(remote, target, n) {
+async function pings(remote, target, n, until = Number.POSITIVE_INFINITY) {
   const out = [];
-  for (let i = 0; i < n; i++) {
+  for (let i = 0; i < n && performance.now() < until; i++) {
     const at = performance.now();
     const res = await remote(target, new Request("http://peer.local/ping"));
     await res.arrayBuffer();
@@ -230,7 +238,7 @@ async function oneRun(mux) {
     await new Promise((r) => setTimeout(r, SECONDS * 1000));
     result.bulkAloneMBps = (bytes - bytesAt) / 1e6 / ((performance.now() - startedAt) / 1000);
     [bytesAt, startedAt] = [bytes, performance.now()];
-    const loaded = await pings(remote, target, BULK_PINGS);
+    const loaded = await pings(remote, target, BULK_PINGS, performance.now() + BULK_SECONDS * 1000);
     const elapsed = (performance.now() - startedAt) / 1000;
     reading = false;
     result.pingBulkP50 = median(loaded);

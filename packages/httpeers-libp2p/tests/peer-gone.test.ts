@@ -126,6 +126,56 @@ describe("a peer that dies mid-body", () => {
     }, 20_000);
   }
 
+  // #123: a bulk exchange whose stream is reset while its reader lags behind (the connection
+  // stays up) must settle the reader with an error once it has read what arrived before the
+  // reset: never a clean end, never a reader left waiting.
+  it("a stream reset mid-bulk, connection alive, rejects a lagging reader promptly", async () => {
+    const serverNode = await node(["/ip4/127.0.0.1/tcp/0"]);
+    const clientNode = await node();
+    const chunk = new Uint8Array(64 * 1024);
+    await serveTransport({
+      node: serverNode,
+      muxPerPeer: MUX_PER_PEER,
+      dispatch: async () =>
+        new Response(
+          new ReadableStream<Uint8Array>({
+            pull(controller) {
+              controller.enqueue(chunk);
+            },
+          }),
+        ),
+    });
+    await clientNode.dial(serverNode.getMultiaddrs()[0]);
+
+    const remote = createRemote({ node: clientNode, muxPerPeer: MUX_PER_PEER });
+    const target = serverNode.peerId.toString() as PeerIdStr;
+    const response = await remote(target, new Request("http://peer.local/bulk"));
+    const reader = response.body?.getReader();
+    if (reader === undefined) throw new Error("expected a body");
+    await reader.read();
+    // The reader stalls while the body keeps coming: a backlog builds on the calling side.
+    await new Promise((resolve) => setTimeout(resolve, 300));
+
+    const streams = serverNode
+      .getConnections()
+      .flatMap((connection) => connection.streams)
+      .filter((stream) => stream.protocol?.startsWith("/httpeers/"));
+    expect(streams.length).toBeGreaterThan(0);
+    for (const stream of streams) stream.abort(new Error("injected reset"));
+    expect(serverNode.getConnections().length).toBe(1);
+
+    const startedAt = performance.now();
+    const outcome = await (async () => {
+      try {
+        for (;;) if ((await reader.read()).done) return "clean end";
+      } catch (error) {
+        return error;
+      }
+    })();
+    expect(outcome).toBeInstanceOf(PeerStreamResetError);
+    expect(performance.now() - startedAt).toBeLessThan(5_000);
+  }, 20_000);
+
   it("maps PeerGoneError by name, keeping it as cause", () => {
     const reset = new Error("stream reset");
     reset.name = "StreamResetError";
