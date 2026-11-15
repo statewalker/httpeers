@@ -23,6 +23,7 @@
   "scripts": {
     "build": "pnpm -r run build",
     "test": "pnpm -r run test",
+    "test:nightly": "r=0; pnpm --filter @statewalker/httpeers-browser-conformance run test:browser || r=1; pnpm --filter @statewalker/httpeers-share run test:e2e || r=1; pnpm --filter @statewalker/httpeers-hub-daemon run test:ui || r=1; pnpm --filter @statewalker/webrun-biscuit run test:cross || r=1; exit $r",
     "typecheck": "pnpm -r run typecheck",
     "typecheck:tests": "pnpm -r run typecheck:tests",
     "lint": "biome check --write .",
