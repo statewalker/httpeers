@@ -99,15 +99,23 @@ export const DEFAULT_MAX_STREAMS = 512;
  * and then stops reading without closing — the serving side has no
  * `.return`/abort escape the way `connect`'s caller side does.
  *
- * WHERE IT STILL APPLIES. The mux path (the default) enforces it itself
- * (`droppingStalledWrites`, `mux-link.ts`). One stream per exchange
- * (`muxPerPeer: false`) passes it to `webrun-streams-libp2p`, whose 0.7 honours
- * it only on its deprecated protocol, i.e. against peers on httpeers-libp2p
- * 0.5 and older: between two current peers each exchange is a port of its
- * windowed native-port mux, which has no drain timeout. There a caller that
- * stops reading parks the served exchange, holding at most a window (4 MiB)
- * of response, until it reads, cancels, or its connection closes; its only
- * timer (`timeout`) also fails quiet exchanges, so it is not set.
+ * WHERE IT APPLIES. Every serving side, on either path, serves both the mux
+ * protocol and one stream per exchange. The mux enforces it itself
+ * (`droppingStalledWrites`, `mux-link.ts`). One stream per exchange passes it
+ * to `webrun-streams-libp2p`'s `serveConnections`, which serves
+ * `/httpeers/1.0.0/ports/window` (each exchange a port of its windowed
+ * native-port mux) and, for peers on httpeers-libp2p 0.5 and older, its
+ * deprecated protocol on `/httpeers/1.0.0`. From `webrun-streams-libp2p`
+ * 0.7.1 (statewalker/webrun-wire#195, required by the catalog) a caller on the
+ * port protocol holds at most about one window on the server (the server's
+ * own, 4 MiB, whatever larger window the caller announces) plus one frame,
+ * nothing is written while the stream needs to drain, and a write blocked on
+ * that drain for `drainTimeoutMs` drops the exchange. One gap: a caller whose
+ * own transport took the whole window before it stopped reading leaves the
+ * server waiting for port CREDIT, not for a drain, which this does not time;
+ * such an exchange holds about a chunk on the server (the window's bytes sit
+ * with the caller) until the caller reads, cancels, or its connection
+ * closes (`tests/stalled-port-caller.test.ts`).
  *
  * It multiplies with `DEFAULT_MAX_STREAMS`: a peer that opens the full
  * stream cap and never reads any of them pins `DEFAULT_MAX_STREAMS *

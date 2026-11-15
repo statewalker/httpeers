@@ -319,12 +319,18 @@ that peer's current connection, so old and new peers interoperate both ways;
 `PeerProtocolUnsupportedError` instead.
 
 **Serving-side bounds.** The per-exchange path's contract
-(`DEFAULT_MAX_STREAMS` × `DEFAULT_DRAIN_TIMEOUT_MS`) carries over. (The
-per-exchange path itself keeps `drainTimeoutMs` only against peers on its
-deprecated protocol, httpeers-libp2p 0.5 and older: between two current peers
-`webrun-streams-libp2p` 0.7 has no drain timeout, and a caller that stops
-reading parks the served exchange, holding at most a window, until it reads,
-cancels or its connection closes.)
+(`DEFAULT_MAX_STREAMS` × `DEFAULT_DRAIN_TIMEOUT_MS`) carries over. (Every
+serving side also serves one stream per exchange, on
+`/httpeers/1.0.0/ports/window` and the deprecated `/httpeers/1.0.0`, through
+`webrun-streams-libp2p`. From its 0.7.1, which the catalog requires
+(statewalker/webrun-wire#195), a caller there that stops reading holds about
+one window on the server, the server's own 4 MiB whatever the caller
+announces, plus one frame, and a write blocked on the stream's drain for
+`drainTimeoutMs` (15 s) drops the exchange. A caller whose transport took the
+whole window before it stopped leaves the server waiting for credit instead,
+which is not timed: that exchange stays parked, holding about a chunk on the
+server, until the caller reads, cancels or disconnects;
+`tests/stalled-port-caller.test.ts`.)
 
 - at most `maxInboundStreams` (512) exchanges are served at once per
   connection, counted across all of its muxes; a port past that is refused

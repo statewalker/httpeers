@@ -94,6 +94,12 @@ export interface ServeDuplexInit {
   maxInboundStreams?: number;
   /** A relayed circuit is a limited connection; libp2p refuses this protocol on one unless told otherwise. */
   runOnLimitedConnection?: boolean;
+  /**
+   * How long a served stream's write may stay blocked on a caller that stopped
+   * reading before the stream is dropped. Left unset, `webrun-streams-libp2p`'s
+   * default (5 minutes) applies; 0 or `Infinity` never drops.
+   */
+  drainTimeoutMs?: number;
 }
 
 /** Register the duplex protocol. Returns the teardown `serveConnections` gives us. */
@@ -103,6 +109,7 @@ export async function serveDuplex(init: ServeDuplexInit): Promise<() => Promise<
       node: init.node,
       protocol: init.protocol ?? DUPLEX_PROTOCOL,
       ...(init.maxInboundStreams == null ? {} : { maxInboundStreams: init.maxInboundStreams }),
+      ...(init.drainTimeoutMs == null ? {} : { drainTimeoutMs: init.drainTimeoutMs }),
       ...(init.runOnLimitedConnection == null
         ? {}
         : { runOnLimitedConnection: init.runOnLimitedConnection }),
