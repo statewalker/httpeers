@@ -56,7 +56,12 @@ describe("cors", () => {
   // A shared cache must not hand a navigation's answer (no grant) to a listed origin's fetch.
   it("varies on Origin for every request to a site that lists origins, allowed or not", async () => {
     const site = app([PAGE]);
-    for (const headers of [{}, { Origin: "https://evil.example" }, { Origin: PAGE }]) {
+    const variants: Record<string, string>[] = [
+      {},
+      { Origin: "https://evil.example" },
+      { Origin: PAGE },
+    ];
+    for (const headers of variants) {
       const res = await site.request("/", req(headers));
       expect(res.headers.get("vary")).toContain("Origin");
     }
