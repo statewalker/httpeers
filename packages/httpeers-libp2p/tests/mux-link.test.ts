@@ -70,7 +70,8 @@ async function node(listen: string[] = []): Promise<Libp2p> {
 /** A served node and a client node already connected to it. */
 async function pair(
   dispatch: FetchHandler,
-  serveMux: MuxPerPeer | undefined = true,
+  // Unset means the serving side's default (the mux, #56): pass `false` for an old-style server.
+  serveMux?: MuxPerPeer,
   serving: Partial<Parameters<typeof serveTransport>[0]> = {},
 ) {
   const serverNode = await node(["/ip4/127.0.0.1/tcp/0"]);

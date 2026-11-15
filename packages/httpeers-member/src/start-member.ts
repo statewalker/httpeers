@@ -108,9 +108,10 @@ export interface StartMemberInit {
   heartbeatIntervalMs?: number;
   keepaliveIntervalMs?: number;
   /**
-   * EXPERIMENTAL (httpeers#56): this member's exchanges over one windowed mux
-   * per peer instead of one libp2p stream each; forwarded to `servePeer`. Off
-   * when unset. See `@statewalker/httpeers-libp2p`'s README.
+   * This member's exchanges over one windowed mux per peer instead of one
+   * libp2p stream each, forwarded to `servePeer`: ON when unset, the
+   * httpeers-libp2p default since httpeers#56. `false` keeps one stream per
+   * exchange. See `@statewalker/httpeers-libp2p`'s README.
    */
   muxPerPeer?: MuxPerPeer;
 }
