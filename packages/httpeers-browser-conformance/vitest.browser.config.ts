@@ -18,7 +18,10 @@ import { playwright } from "@vitest/browser-playwright";
 const packagesUrl = new URL("../", import.meta.url);
 const webrunUrl = new URL("../../../webrun-wire/packages/", import.meta.url);
 
+// A sibling webrun-wire checkout is optional: without one (CI, the nightly run), the webrun-*
+// packages resolve from node_modules like any published dependency.
 function aliasesIn(baseUrl: URL) {
+  if (!existsSync(fileURLToPath(baseUrl))) return [];
   return readdirSync(fileURLToPath(baseUrl)).flatMap((name) => {
     const srcUrl = new URL(`${name}/src/`, baseUrl);
     if (!existsSync(new URL("index.ts", srcUrl))) return [];

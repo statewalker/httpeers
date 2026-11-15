@@ -1,0 +1,33 @@
+name: Nightly
+
+# The suites the CI of a pull request does not run (statewalker/statewalker-ci's nightly.yml): root
+# `test:nightly` runs, each to the end even when one fails,
+#   - @statewalker/httpeers-browser-conformance `test:browser` (Chromium; only `test:forwarded-body`
+#     runs per pull request),
+#   - @statewalker/httpeers-share `test:e2e` (the Bridge under node, bun and deno),
+#   - @statewalker/httpeers-hub-daemon `test:ui` (the hub's pages in Chromium),
+#   - @statewalker/webrun-biscuit `test:cross` (against the reference implementation, WASM).
+# A failure opens one `bug` + `ci-baseline` issue here; later failures comment on it while it is
+# open.
+#
+# bun and deno come from npm, pinned, so no downloaded install script runs in this job, which
+# holds an issues:write token.
+
+on:
+  schedule:
+    - cron: "43 3 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  issues: write
+
+jobs:
+  nightly:
+    uses: statewalker/statewalker-ci/.github/workflows/nightly.yml@main
+    with:
+      setup: |
+        pnpm --filter @statewalker/httpeers-browser-conformance exec playwright install --with-deps --only-shell chromium
+        npm install --global bun@1.4.4 deno@2.9.6
+        bun --version
+        deno --version
