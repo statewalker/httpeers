@@ -18,6 +18,9 @@ jobs:
       secret-scan: true
       # A publish step anywhere but the `publish` job below fails.
       release-path: true
+      # Each public package's types against npm's latest: a breaking change needs a declared bump
+      # (a minor on 0.x).
+      api-diff: true
 
   # A POST, with its body, through the REAL forwarders (createGateway -> the member edge ->
   # libp2p) in Chromium and Firefox, against a loopback relay and hub. The shared CI above runs
