@@ -1,0 +1,15 @@
+# gitleaks configuration for the CI secret scan (statewalker-ci, `secret-scan: true`).
+# The default rules apply; the allowlist below drops false positives only.
+[extend]
+useDefault = true
+
+[[allowlists]]
+description = "False positives of generic-api-key"
+regexTarget = "match"
+regexes = [
+  # A TypeScript type annotation (`privateKey: Ed25519PrivateKey`), not a key.
+  '''(?i)[a-z]*key\??:\s*Ed25519PrivateKey''',
+  # Placeholder door secrets of the hub's tests (apps/hub/tests), never used outside them.
+  '''TEST_DOOR_SECRET = "test-door-secret-0123456789abcdef"''',
+  '''DOOR_SECRET = "ui-e2e-door-secret-0123456789"''',
+]

@@ -8,6 +8,11 @@ on:
 jobs:
   ci:
     uses: statewalker/statewalker-ci/.github/workflows/ci.yml@main
+    with:
+      # gitleaks on the files and on every commit of the pull request, before the install.
+      secret-scan: true
+      # A publish step anywhere but the `publish` job below fails.
+      release-path: true
 
   # A POST, with its body, through the REAL forwarders (createGateway -> the member edge ->
   # libp2p) in Chromium and Firefox, against a loopback relay and hub. The shared CI above runs
