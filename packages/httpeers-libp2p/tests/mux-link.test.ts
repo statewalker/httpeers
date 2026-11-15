@@ -233,9 +233,10 @@ describe("one mux per peer (experimental)", () => {
 
     // CONTROL: the same stall on one stream per exchange breaks that bound.
     // Without it the bound above could be measuring a producer that was never
-    // asked for more. It does not run to the cap: the stream's own flow control
-    // stops it at about 2.2 MB (34 chunks), and mux's figure moves by a chunk
-    // in flight, so "8 x mux" (2 MB to 2.6 MB) failed on a loaded runner (#120).
+    // asked for more. It does not run to the cap: yamux's receive window stops
+    // it, at 34 chunks (2.2 MB) when the window cannot grow on a loaded runner
+    // and at about 66 idle. mux's figure moves by a chunk in flight, so the old
+    // "8 x mux" (2 MB to 2.6 MB) straddled that floor and flaked (#120).
     const perExchange = await run(false);
     expect(perExchange.producedWhileStalled).toBeGreaterThan(bound);
   }, 60_000);
