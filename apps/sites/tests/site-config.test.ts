@@ -60,6 +60,24 @@ describe("readSiteConfig", () => {
     expect(config).not.toHaveProperty("nonsense");
   });
 
+  it("drops a notFound page that leaves the site or points into .site/, loudly", async () => {
+    // webrun-files 0.12 resolves `..` before the store sees the path, so
+    // `/abc.net/../other.example/...` would serve another site's files.
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    for (const notFound of [
+      "/../other.example/.site/config.json",
+      "/../../x",
+      "/%2e%2e/other.example/index.html",
+      "/.site/config.json",
+      "oops.html",
+    ]) {
+      const api = new MemFilesApi({ initialFiles: { [CONFIG]: JSON.stringify({ notFound }) } });
+      expect((await readSiteConfig(api, "abc.net")).notFound).toBe(DEFAULT_SITE_CONFIG.notFound);
+    }
+    expect(warn).toHaveBeenCalledTimes(5);
+    warn.mockRestore();
+  });
+
   it("ignores fields of the wrong type rather than trusting them", async () => {
     const api = new MemFilesApi({
       initialFiles: { [CONFIG]: JSON.stringify({ spa: "yes", notFound: 7, cors: "*" }) },
