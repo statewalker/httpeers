@@ -92,7 +92,7 @@ catalogs:
       version: 1.2.16
     '@statewalker/shared-slots':
       specifier: ^0.2.1
-      version: 0.2.4
+      version: 0.2.5
     '@statewalker/webrun-files':
       specifier: ^0.9.0 || ^0.10.0
       version: 0.10.5
@@ -474,7 +474,7 @@ importers:
         version: link:../../packages/httpeers-member
       '@statewalker/shared-slots':
         specifier: 'catalog:'
-        version: 0.2.4
+        version: 0.2.5
       '@statewalker/webrun-http-browser':
         specifier: 'catalog:'
         version: 0.13.0
@@ -3059,8 +3059,8 @@ packages:
   '@standard-schema/spec@1.1.0':
     resolution: {integrity: sha512-l2aFy5jALhniG5HgqrD6jXLi/rUWrKvqN/qJx6yoJsgKhblVd+iqqU4RCXavm/jPityDo5TCvKMnpjKnOriy0w==}
 
-  '@statewalker/shared-slots@0.2.4':
-    resolution: {integrity: sha512-1U88fXm+kZHY84JKMY0+027EE9CvfBbIX7FryjWHWms98iNuuxIkT1JRilc/UzWQJyXOW3iSa0noneWHppWbCA==}
+  '@statewalker/shared-slots@0.2.5':
+    resolution: {integrity: sha512-xCWgxdiuIGd7UfugPLf7XHcA2uf0BnaFzp+Y3HviRFsRQCSYQ541BueAAk1K9X2OLXsXeTlp46NGjNS7cHX1Ew==}
 
   '@statewalker/webrun-files-mem@0.10.5':
     resolution: {integrity: sha512-wqG60HcJHexyC/hClsHoSg+fRCfdYJ52/2R0PXkrMRaGmvwEUjhlQerTxYAHNSrvJwt61RIAsEWVFYRK980hfg==}
@@ -7662,7 +7662,7 @@ snapshots:
 
   '@standard-schema/spec@1.1.0': {}
 
-  '@statewalker/shared-slots@0.2.4': {}
+  '@statewalker/shared-slots@0.2.5': {}
 
   '@statewalker/webrun-files-mem@0.10.5':
     dependencies:
