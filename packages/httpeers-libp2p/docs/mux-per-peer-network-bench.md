@@ -959,3 +959,12 @@ document.
 - Machines that do not share CPUs: here both peers and the emulator shared
   four vCPUs, which mostly matters for the LAN numbers.
 - BBR senders (many servers run BBR; this used CUBIC on both ends).
+
+**How to measure on a real link.** `scripts/bench-mux.mjs` runs across two
+machines: `--serve --listen /ip4/0.0.0.0/tcp/4011` on the far host (it
+serves both paths and prints its multiaddrs), then
+`--peer <one of those multiaddrs>` on the near one, which prints the same
+table as the loopback run, with both paths measured over that link. The
+server answers anyone who reaches its port with endless bodies and echoes,
+so open the port to the calling host alone, and only for the run. Pass the
+same `--window` / `--frame-size` on both hosts.

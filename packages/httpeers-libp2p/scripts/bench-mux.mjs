@@ -23,9 +23,24 @@
 //   - 256 B messages/s over K long-lived echo exchanges (a request body
 //     streamed in 256 B chunks, echoed back chunk for chunk).
 //
-// LOOPBACK ONLY: no latency, loss or bandwidth limit, and both processes
+// LOOPBACK by default: no latency, loss or bandwidth limit, and both processes
 // share one machine's CPUs. It says how the two paths compare in CPU and
 // framing cost, not how they behave on a real network (#56 step 2).
+//
+// TWO HOSTS (a real network, #56 step 2): serve on one machine, call from
+// another. The serving side serves both paths at once (a mux server also
+// answers one stream per exchange), so one server measures both:
+//
+//   host B:  node packages/httpeers-libp2p/scripts/bench-mux.mjs --serve \
+//              --listen /ip4/0.0.0.0/tcp/4011 [--window 262144] [--frame-size 31744]
+//            (prints its multiaddrs; stop it with Ctrl-C)
+//   host A:  node packages/httpeers-libp2p/scripts/bench-mux.mjs \
+//              --peer /ip4/<B's address>/tcp/4011/p2p/<B's peer id> [--runs 3] [--cases ...]
+//
+// Each run dials B from a fresh node, so each run gets a fresh connection.
+// The server answers anyone who reaches the port with endless bulk bodies and
+// echoes: run it only for the measurement, behind a firewall rule that admits
+// host A alone. `--window` and `--frame-size` must match on both hosts.
 
 import { fork } from "node:child_process";
 import { fileURLToPath } from "node:url";
@@ -54,6 +69,8 @@ const ONLY_PATH = opt("--path", undefined);
 const CASES = new Set(opt("--cases", "ping,small,echo,bulk").split(","));
 /** Pings sent while the bulk exchange runs, which is how long it runs. */
 const BULK_PINGS = Number(opt("--bulk-pings", "300"));
+/** `--peer <multiaddr>`: call a server already running on another host instead of forking one. */
+const PEER = opt("--peer", undefined);
 /** The mux's tuning from the command line; the defaults where not given. */
 const muxOptions = {
   ...(WINDOW ? { window: Number(WINDOW) } : {}),
@@ -65,10 +82,13 @@ const SMALL = 256;
 // --- the serving child -------------------------------------------------------
 
 if (args.includes("--serve")) {
-  const mux = args.includes("--mux");
+  // Started by hand on another host (no IPC channel to a parent): serve both
+  // paths, on `--listen`, until stopped.
+  const standalone = process.send == null;
+  const mux = standalone || args.includes("--mux");
   const node = await createNode({
     privateKey: await generateKey(),
-    listen: ["/ip4/127.0.0.1/tcp/0"],
+    listen: [opt("--listen", "/ip4/127.0.0.1/tcp/0")],
     transports: [tcp()],
   });
   const chunk = new Uint8Array(BULK_CHUNK);
@@ -91,11 +111,19 @@ if (args.includes("--serve")) {
       return new Response(null, { status: 404 });
     },
   });
-  process.send({ addr: node.getMultiaddrs()[0].toString() });
-  process.on("message", async () => {
+  const stop = async () => {
     await node.stop();
     process.exit(0);
-  });
+  };
+  if (standalone) {
+    console.log("Serving both paths; call it from the other host with --peer and one of:");
+    for (const addr of node.getMultiaddrs()) console.log(`  ${addr}`);
+    process.on("SIGINT", stop);
+    process.on("SIGTERM", stop);
+  } else {
+    process.send({ addr: node.getMultiaddrs()[0].toString() });
+    process.on("message", stop);
+  }
   await new Promise(() => {});
 }
 
@@ -136,15 +164,16 @@ async function forSeconds(seconds, worker, k) {
 }
 
 async function oneRun(mux) {
-  const child = fork(
-    fileURLToPath(import.meta.url),
-    ["--serve", ...(mux ? ["--mux"] : []), ...args],
-    {
-      // The child's stderr is the serving side's log of exchanges reset at teardown.
-      stdio: ["ignore", "inherit", "ignore", "ipc"],
-    },
-  );
-  const { addr } = await new Promise((resolve) => child.once("message", resolve));
+  const child =
+    PEER == null
+      ? fork(fileURLToPath(import.meta.url), ["--serve", ...(mux ? ["--mux"] : []), ...args], {
+          // The child's stderr is the serving side's log of exchanges reset at teardown.
+          stdio: ["ignore", "inherit", "ignore", "ipc"],
+        })
+      : undefined;
+  const { addr } = child
+    ? await new Promise((resolve) => child.once("message", resolve))
+    : { addr: PEER };
   const node = await createNode({ privateKey: await generateKey(), transports: [tcp()] });
   await node.dial(multiaddr(addr));
   const target = addr.split("/p2p/")[1];
@@ -212,8 +241,10 @@ async function oneRun(mux) {
     await Promise.race([pump.catch(() => {}), new Promise((r) => setTimeout(r, 500))]);
   } finally {
     await node.stop();
-    child.send("stop");
-    await new Promise((resolve) => child.once("exit", resolve));
+    if (child) {
+      child.send("stop");
+      await new Promise((resolve) => child.once("exit", resolve));
+    }
   }
   return result;
 }
@@ -295,7 +326,7 @@ const rows = [
 ];
 const labels = Object.keys(table);
 console.log(
-  `\nLOOPBACK ONLY. Median of ${RUNS} runs, ${SECONDS} s per throughput case; mux window ${WINDOW ?? `${DEFAULT_MUX_WINDOW} (default)`} B, frame size ${FRAME ?? `${DEFAULT_MUX_FRAME_SIZE} (default)`} B.\n`,
+  `\n${PEER == null ? "LOOPBACK ONLY" : `TWO HOSTS, serving peer ${PEER}`}. Median of ${RUNS} runs, ${SECONDS} s per throughput case; mux window ${WINDOW ?? `${DEFAULT_MUX_WINDOW} (default)`} B, frame size ${FRAME ?? `${DEFAULT_MUX_FRAME_SIZE} (default)`} B.\n`,
 );
 console.log(`| | ${labels.join(" | ")} |`);
 console.log(`|---|${labels.map(() => "---").join("|")}|`);
