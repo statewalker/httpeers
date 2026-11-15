@@ -19,6 +19,7 @@
     "dev:hub": "node scripts/copy-assets.mjs && vite --config vite.hub.config.ts",
     "test": "vitest run",
     "typecheck": "tsc --noEmit",
+    "typecheck:tests": "tsc -p tsconfig.tests.json",
     "lint": "biome check src tests scripts",
     "lint:check": "biome check src tests scripts",
     "prebuild": "node scripts/copy-assets.mjs",
