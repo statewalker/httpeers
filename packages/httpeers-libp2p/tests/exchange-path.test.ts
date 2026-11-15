@@ -4,10 +4,16 @@
  * (`exchange-path-option.ts`). A switch that silently did nothing would make
  * the second run a copy of the first and report the mux path as tested. This
  * checks, in each project, which protocol a peer built that way rides.
+ *
+ * One stream per exchange is `webrun-streams-libp2p`'s `connect`/`serve`,
+ * which since its 0.7 negotiate `portProtocolOf(PROTOCOL)` + `/window` between
+ * two current peers (`PROTOCOL` itself is its deprecated fallback for older
+ * ones, covered by `mux-interop-0-5.test.ts`).
  */
 
 import { tcp } from "@libp2p/tcp";
 import { createMounts } from "@statewalker/httpeers-core";
+import { portProtocolOf } from "@statewalker/webrun-streams-libp2p";
 import { afterEach, describe, expect, it } from "vitest";
 import { generateKey } from "../src/identity.js";
 import { MUX_PROTOCOL } from "../src/mux-link.js";
@@ -35,6 +41,8 @@ async function node(listen: string[] = []) {
 }
 
 const muxInForce = MUX_PER_PEER;
+/** What one stream per exchange negotiates between two current peers. */
+const PER_EXCHANGE_PROTOCOL = `${portProtocolOf(PROTOCOL)}/window`;
 
 describe(`the exchange path in force (${muxInForce ? "mux per peer" : "stream per exchange"})`, () => {
   it("is the one this project names", async () => {
@@ -61,9 +69,10 @@ describe(`the exchange path in force (${muxInForce ? "mux per peer" : "stream pe
       .flatMap((c) => c.streams.map((s) => s.protocol));
     if (muxInForce) {
       expect(protocols).toContain(MUX_PROTOCOL);
+      expect(protocols).not.toContain(PER_EXCHANGE_PROTOCOL);
       expect(protocols).not.toContain(PROTOCOL);
     } else {
-      expect(protocols).toContain(PROTOCOL);
+      expect(protocols).toContain(PER_EXCHANGE_PROTOCOL);
       expect(protocols).not.toContain(MUX_PROTOCOL);
     }
     // Not awaited: a cancel of a body that never sends settles only when the node stops.

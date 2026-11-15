@@ -19,8 +19,9 @@
  *
  * `serveConnections` is used here rather than registering the protocol by
  * hand (`node.handle`), because it already threads `ConnectionContext`
- * through and owns the serving-side input queue / backpressure handling
- * (`duplexOverStream`) a hand port would have to reimplement.
+ * through and owns the per-call flow control (since its 0.7, a windowed
+ * native-port mux; `duplexOverStream` before) a hand port would have to
+ * reimplement.
  */
 import { noise } from "@chainsafe/libp2p-noise";
 import { yamux } from "@chainsafe/libp2p-yamux";
@@ -97,6 +98,16 @@ export const DEFAULT_MAX_STREAMS = 512;
  * being dropped. This is the ONLY bound on a peer that requests something
  * and then stops reading without closing — the serving side has no
  * `.return`/abort escape the way `connect`'s caller side does.
+ *
+ * WHERE IT STILL APPLIES. The mux path (the default) enforces it itself
+ * (`droppingStalledWrites`, `mux-link.ts`). One stream per exchange
+ * (`muxPerPeer: false`) passes it to `webrun-streams-libp2p`, whose 0.7 honours
+ * it only on its deprecated protocol, i.e. against peers on httpeers-libp2p
+ * 0.5 and older: between two current peers each exchange is a port of its
+ * windowed native-port mux, which has no drain timeout. There a caller that
+ * stops reading parks the served exchange, holding at most a window (4 MiB)
+ * of response, until it reads, cancels, or its connection closes; its only
+ * timer (`timeout`) also fails quiet exchanges, so it is not set.
  *
  * It multiplies with `DEFAULT_MAX_STREAMS`: a peer that opens the full
  * stream cap and never reads any of them pins `DEFAULT_MAX_STREAMS *

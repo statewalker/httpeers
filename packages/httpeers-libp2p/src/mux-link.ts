@@ -56,9 +56,11 @@
  *     link holds; stopping the node closes their streams, which does the same.
  *
  * LOADED ON DEMAND. `@statewalker/webrun-rpc` and `@statewalker/webrun-msgpack`
- * are imported dynamically the first time a mux link opens or serves, so a
- * consumer that opts out (`muxPerPeer: false`) does not load them, and a
- * bundler can keep them out of the main chunk.
+ * are imported dynamically the first time a mux link opens or serves. Since
+ * `webrun-streams-libp2p` 0.7 (whose `connect`/`serve`, the per-exchange path,
+ * run on them) they are loaded with it in any case, so this no longer keeps
+ * them out of a consumer that opts out (`muxPerPeer: false`) or out of the
+ * main chunk.
  *
  * IDENTITY is still by closure: the serving side reads `remotePeer` from the
  * libp2p connection the mux stream arrived on, the Noise-proven id, and

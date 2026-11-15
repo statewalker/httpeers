@@ -265,8 +265,11 @@ messages are framed (`frameSize`, default 31 KiB), so:
 
 `muxPerPeer` (on `servePeer`, `createRemote` and `serveTransport`) is on when
 unset or `true`; `MuxPerPeerOptions` tunes it; **`muxPerPeer: false` opts
-out** to one libp2p stream per exchange on `/httpeers/1.0.0`, the path before
-#56.
+out** to one libp2p stream per exchange, the path before #56. That path is
+`webrun-streams-libp2p`'s `connect`/`serve`: since its 0.7 each exchange is a
+port of its windowed native-port mux (`/httpeers/1.0.0/ports/window`, a 4 MiB
+window), falling back to its deprecated protocol on `/httpeers/1.0.0` itself
+against peers on httpeers-libp2p 0.5 and older (answered on both ends).
 
 **Why it is the default.** Measured on a real link (residential broadband to
 a datacenter, about 11 ms RTT, both paths over direct TCP;
@@ -316,7 +319,12 @@ that peer's current connection, so old and new peers interoperate both ways;
 `PeerProtocolUnsupportedError` instead.
 
 **Serving-side bounds.** The per-exchange path's contract
-(`DEFAULT_MAX_STREAMS` × `DEFAULT_DRAIN_TIMEOUT_MS`) carries over:
+(`DEFAULT_MAX_STREAMS` × `DEFAULT_DRAIN_TIMEOUT_MS`) carries over. (The
+per-exchange path itself keeps `drainTimeoutMs` only against peers on its
+deprecated protocol, httpeers-libp2p 0.5 and older: between two current peers
+`webrun-streams-libp2p` 0.7 has no drain timeout, and a caller that stops
+reading parks the served exchange, holding at most a window, until it reads,
+cancels or its connection closes.)
 
 - at most `maxInboundStreams` (512) exchanges are served at once per
   connection, counted across all of its muxes; a port past that is refused
@@ -361,9 +369,10 @@ the default) and `per-exchange` (`muxPerPeer: false`), and
 `httpeers-browser-conformance`'s `test:forwarded-body` in each browser on
 both.
 
-**Loaded on demand.** `@statewalker/webrun-rpc` and `@statewalker/webrun-msgpack`
-are imported dynamically the first time a mux link is used, so a consumer
-that opts out does not load them.
+**Loaded on demand, no longer split out.** `@statewalker/webrun-rpc` and
+`@statewalker/webrun-msgpack` are imported dynamically the first time a mux
+link is used. Since `webrun-streams-libp2p` 0.7, whose `connect`/`serve` run on
+them, they load with it anyway, so a consumer that opts out loads them too.
 
 ### Dependencies
 

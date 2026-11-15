@@ -37,6 +37,11 @@ export interface Libp2pLinkInit {
   node: Libp2p;
   /** Defaults to `PROTOCOL`. Two meshes on one node need two protocols. */
   protocol?: string;
+  /**
+   * The mux path's bound on a blocked response write; on one stream per
+   * exchange, only against peers on the deprecated protocol (see
+   * `DEFAULT_DRAIN_TIMEOUT_MS`).
+   */
   drainTimeoutMs?: number;
   maxInboundStreams?: number;
   maxOutboundStreams?: number;

@@ -1,0 +1,5 @@
+---
+"@statewalker/httpeers-libp2p": minor
+---
+
+Move to `@statewalker/webrun-rpc` ^0.15.0, `@statewalker/webrun-streams-libp2p` ^0.7.0 and `@statewalker/webrun-msgpack` ^0.14.0. The mux path (the default) keeps its fixed 256 KiB window and its wire. One stream per exchange (`muxPerPeer: false`) and the duplex protocol (`openDuplex`/`serveDuplex`) run on webrun-streams-libp2p's `connect`/`serve`, which now carry each call as a port of a windowed native-port mux (`<protocol>/ports/window`, a 4 MiB window): two peers on this version negotiate that, and against httpeers-libp2p 0.5.0 and older both ends fall back to the old protocol on `<protocol>` itself, each way (tested). Between two peers on this version, that path has no drain timeout: `drainTimeoutMs` still bounds a blocked write on the mux path and against older peers, but there a caller that stops reading parks the served exchange, holding at most a window, until it reads, cancels or its connection closes. A response ends the exchange: request bytes not yet sent are abandoned. `webrun-rpc` and `webrun-msgpack` are now loaded with webrun-streams-libp2p even by a consumer that opts out of the mux.
