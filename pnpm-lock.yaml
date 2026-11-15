@@ -94,17 +94,17 @@ catalogs:
       specifier: ^0.2.1
       version: 0.2.5
     '@statewalker/webrun-files':
-      specifier: ^0.9.0 || ^0.10.0
-      version: 0.10.5
+      specifier: ^0.12.0
+      version: 0.12.0
     '@statewalker/webrun-files-mem':
-      specifier: ^0.10.0
-      version: 0.10.5
+      specifier: ^0.12.0
+      version: 0.12.0
     '@statewalker/webrun-files-node':
-      specifier: ^0.10.0
-      version: 0.10.5
+      specifier: ^0.12.0
+      version: 0.12.0
     '@statewalker/webrun-files-s3':
-      specifier: ^0.10.0
-      version: 0.10.5
+      specifier: ^0.12.0
+      version: 0.12.0
     '@statewalker/webrun-http-browser':
       specifier: ^0.13.0
       version: 0.13.0
@@ -322,10 +322,10 @@ importers:
         version: link:../session-shell
       '@statewalker/webrun-files':
         specifier: 'catalog:'
-        version: 0.10.5
+        version: 0.12.0
       '@statewalker/webrun-files-mem':
         specifier: 'catalog:'
-        version: 0.10.5
+        version: 0.12.0
       '@statewalker/webrun-http-browser':
         specifier: 'catalog:'
         version: 0.13.0
@@ -630,16 +630,16 @@ importers:
         version: 2.1.3(hono@4.13.13)
       '@statewalker/webrun-files':
         specifier: 'catalog:'
-        version: 0.10.5
+        version: 0.12.0
       '@statewalker/webrun-files-mem':
         specifier: 'catalog:'
-        version: 0.10.5
+        version: 0.12.0
       '@statewalker/webrun-files-node':
         specifier: 'catalog:'
-        version: 0.10.5
+        version: 0.12.0
       '@statewalker/webrun-files-s3':
         specifier: 'catalog:'
-        version: 0.10.5(@aws-sdk/client-s3@3.1146.0)
+        version: 0.12.0(@aws-sdk/client-s3@3.1146.0)
       hono:
         specifier: 'catalog:'
         version: 4.13.13
@@ -911,7 +911,7 @@ importers:
         version: 2.5.15
       '@statewalker/webrun-files':
         specifier: 'catalog:'
-        version: 0.10.5
+        version: 0.12.0
       '@types/node':
         specifier: 'catalog:'
         version: 26.6.4
@@ -3062,19 +3062,19 @@ packages:
   '@statewalker/shared-slots@0.2.5':
     resolution: {integrity: sha512-xCWgxdiuIGd7UfugPLf7XHcA2uf0BnaFzp+Y3HviRFsRQCSYQ541BueAAk1K9X2OLXsXeTlp46NGjNS7cHX1Ew==}
 
-  '@statewalker/webrun-files-mem@0.10.5':
-    resolution: {integrity: sha512-wqG60HcJHexyC/hClsHoSg+fRCfdYJ52/2R0PXkrMRaGmvwEUjhlQerTxYAHNSrvJwt61RIAsEWVFYRK980hfg==}
+  '@statewalker/webrun-files-mem@0.12.0':
+    resolution: {integrity: sha512-q8UZAUs3YIvJDPkYKHFvOhBTas0IKP41SJKDVQwxJbmcGrMyH2AbNRltX086VfA6PhO5TXoQW/UQNAEhUOGGUA==}
 
-  '@statewalker/webrun-files-node@0.10.5':
-    resolution: {integrity: sha512-2sasny+kCBJa5JblXND9N0fhfDJ1gkG5I38gpr9WY4QQOq0BDQIaGX+WZnSTX6IOPlQFc9+QzisJSaZuVsohjQ==}
+  '@statewalker/webrun-files-node@0.12.0':
+    resolution: {integrity: sha512-csbL7FFDwvizDTLEEYEBQmCzRinlX5MI32RJjmxuzCzz5i49qkVkc/znbYwZ4Zm13R+baQ9yqbR2RsnhCjq9EA==}
 
-  '@statewalker/webrun-files-s3@0.10.5':
-    resolution: {integrity: sha512-mjJy1YtWG6B3E+HZ7B/AZ4RrKM4G1WilBUD+3jpM6Nqw5zHmd9vHtX1P5C0O87zZNtNzDolnMSHqDYcJ4e4nvw==}
+  '@statewalker/webrun-files-s3@0.12.0':
+    resolution: {integrity: sha512-gjPYYADPB0WTtpB96b7L2lW+nC/Amu6Ox5KZQkihi2esdFQg9DaT+MIH2b5ImifbKc5A+XpEcWcMWW4aO9InmA==}
     peerDependencies:
       '@aws-sdk/client-s3': ^3.1032.0
 
-  '@statewalker/webrun-files@0.10.5':
-    resolution: {integrity: sha512-zHNomZV6PLbSBSUxWBLiYrPdNI5gTu+j+7B6kBFDdIgaFEVPeh0kAiJcG1pU+wXe695N4ir+XybkYHcaZ9jcWA==}
+  '@statewalker/webrun-files@0.12.0':
+    resolution: {integrity: sha512-8Ygw0JjouDAJ2nNXx8plZkZQ/Pesfdmdtrsyi97sArvjAmzyZ4xZ2e3eyqXEt4MUlc6oG4Q7bVnOvzzQpVWMaA==}
 
   '@statewalker/webrun-http-browser@0.13.0':
     resolution: {integrity: sha512-/Glv+XWWljJ8slqlkZYntTlWAwDkK8/t4XQTtcyEOqWeOWzdG+Qmkk9NgcudNsRdeGC0fjPqdTsknwMI9sgoQQ==}
@@ -7667,20 +7667,20 @@ snapshots:
 
   '@statewalker/shared-slots@0.2.5': {}
 
-  '@statewalker/webrun-files-mem@0.10.5':
+  '@statewalker/webrun-files-mem@0.12.0':
     dependencies:
-      '@statewalker/webrun-files': 0.10.5
+      '@statewalker/webrun-files': 0.12.0
 
-  '@statewalker/webrun-files-node@0.10.5':
+  '@statewalker/webrun-files-node@0.12.0':
     dependencies:
-      '@statewalker/webrun-files': 0.10.5
+      '@statewalker/webrun-files': 0.12.0
 
-  '@statewalker/webrun-files-s3@0.10.5(@aws-sdk/client-s3@3.1146.0)':
+  '@statewalker/webrun-files-s3@0.12.0(@aws-sdk/client-s3@3.1146.0)':
     dependencies:
       '@aws-sdk/client-s3': 3.1146.0
-      '@statewalker/webrun-files': 0.10.5
+      '@statewalker/webrun-files': 0.12.0
 
-  '@statewalker/webrun-files@0.10.5': {}
+  '@statewalker/webrun-files@0.12.0': {}
 
   '@statewalker/webrun-http-browser@0.13.0':
     dependencies:

@@ -7,7 +7,7 @@
  */
 import type { FilesApi } from "@statewalker/webrun-files";
 import { statFile } from "./lookup.js";
-import { SITE_CONFIG_DIR } from "./resolve.js";
+import { isConfigPath, normalizeRequestPath, SITE_CONFIG_DIR } from "./resolve.js";
 
 export interface SiteConfig {
   /** Serve `/index.html` with 200 for unmatched paths, for client-side routing. */
@@ -97,7 +97,10 @@ export async function readSiteConfig(files: FilesApi, site: string): Promise<Sit
   const o = (typeof raw === "object" && raw !== null ? raw : {}) as Record<string, unknown>;
   return {
     spa: typeof o.spa === "boolean" ? o.spa : DEFAULT_SITE_CONFIG.spa,
-    notFound: typeof o.notFound === "string" ? o.notFound : DEFAULT_SITE_CONFIG.notFound,
+    notFound:
+      typeof o.notFound === "string"
+        ? notFoundPage(site, o.notFound)
+        : DEFAULT_SITE_CONFIG.notFound,
     cacheControl:
       typeof o.cacheControl === "string" ? o.cacheControl : DEFAULT_SITE_CONFIG.cacheControl,
     cacheRules: Array.isArray(o.cacheRules)
@@ -107,6 +110,21 @@ export async function readSiteConfig(files: FilesApi, site: string): Promise<Sit
       typeof o.precompressed === "boolean" ? o.precompressed : DEFAULT_SITE_CONFIG.precompressed,
     cors: Array.isArray(o.cors) ? corsOrigins(site, o.cors) : DEFAULT_SITE_CONFIG.cors,
   };
+}
+
+/**
+ * `notFound` as given, if it stays inside the site: an absolute path with no `..`
+ * segment (also when percent-decoded) and nothing under `.site/`. The store
+ * resolves `..` (webrun-files 0.12), so `/../other.example/…` would otherwise
+ * serve another site's files, and `.site/` is never served. Else the default, loudly.
+ */
+function notFoundPage(site: string, value: string): string {
+  const path = normalizeRequestPath(value);
+  if (path !== undefined && !isConfigPath(path)) return value;
+  console.warn(
+    `sites: ${site} sets notFound to ${JSON.stringify(value)}, which is no path inside the site; ignoring it`,
+  );
+  return DEFAULT_SITE_CONFIG.notFound;
 }
 
 /** The well-formed entries of `cacheRules`; the others are dropped one by one, loudly. */
