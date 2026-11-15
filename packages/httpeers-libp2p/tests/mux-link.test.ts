@@ -224,17 +224,20 @@ describe("one mux per peer (experimental)", () => {
       return { producedWhileStalled, slowestPingMs: Math.max(...pings) };
     };
 
-    const mux = await run(true);
     // The window, plus what the serving side holds between the body and the
-    // port: a few chunks. Without the window this is the whole cap.
-    expect(mux.producedWhileStalled).toBeLessThan(DEFAULT_MUX_WINDOW + 16 * CHUNK);
+    // port: a few chunks.
+    const bound = DEFAULT_MUX_WINDOW + 16 * CHUNK;
+    const mux = await run(true);
+    expect(mux.producedWhileStalled).toBeLessThan(bound);
     expect(mux.slowestPingMs).toBeLessThan(500);
 
-    // CONTROL: the same stall on one stream per exchange runs the producer to
-    // the cap. Without it the bound above could be measuring a producer that
-    // was never asked for more.
+    // CONTROL: the same stall on one stream per exchange breaks that bound.
+    // Without it the bound above could be measuring a producer that was never
+    // asked for more. It does not run to the cap: the stream's own flow control
+    // stops it at about 2.2 MB (34 chunks), and mux's figure moves by a chunk
+    // in flight, so "8 x mux" (2 MB to 2.6 MB) failed on a loaded runner (#120).
     const perExchange = await run(false);
-    expect(perExchange.producedWhileStalled).toBeGreaterThan(8 * mux.producedWhileStalled);
+    expect(perExchange.producedWhileStalled).toBeGreaterThan(bound);
   }, 60_000);
 
   it("falls back to a stream per exchange for a peer that does not speak the mux", async () => {
