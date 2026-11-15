@@ -41,7 +41,7 @@ pnpm --filter @statewalker/httpeers-browser-conformance test:forwarded-body
 `PLAYWRIGHT_FIREFOX_PATH` / `PLAYWRIGHT_CHROMIUM_PATH` point `test:forwarded-body` at a
 browser executable outside Playwright's default install; `--browsers chromium` runs one engine,
 and `--paths per-exchange` or `--paths mux` one exchange path (both by default: one libp2p stream
-per exchange, and httpeers-libp2p's experimental one mux per peer, issue #56).
+per exchange, and httpeers-libp2p's default, one mux per peer, issue #56).
 
 ## Examples
 

@@ -45,7 +45,7 @@ import {
 } from "@statewalker/httpeers-libp2p";
 import { createLibp2p } from "libp2p";
 import { afterEach, describe, expect, it } from "vitest";
-import { MUX_PER_PEER } from "./exchange-path-option.js";
+import { MUX_PER_PEER, MUX_PER_PEER_OPTION } from "./exchange-path-option.js";
 import { hubHoldsCircuitTo, type Mesh, startMesh } from "./mesh-harness.js";
 
 const CHUNKS = 20;
@@ -122,7 +122,7 @@ async function relayedMember(
   memberPeer = await servePeer({
     node,
     mounts,
-    muxPerPeer: MUX_PER_PEER,
+    muxPerPeer: MUX_PER_PEER_OPTION,
     ...peerInit(live.hubPeerId),
   });
 
@@ -209,7 +209,10 @@ describe("a member reaches its hub over a kept relay circuit", () => {
     const { live, node, kept } = await relayedMember(() => ({}));
 
     const error = await refusal(
-      createRemote({ node, muxPerPeer: MUX_PER_PEER })(live.hubPeerId, inviteRequest("unused")),
+      createRemote({ node, muxPerPeer: MUX_PER_PEER_OPTION })(
+        live.hubPeerId,
+        inviteRequest("unused"),
+      ),
     );
     expect(error).toBeInstanceOf(PeerCallError);
     expect((error as PeerCallError).kind).toBe("limited-connection");
@@ -218,7 +221,7 @@ describe("a member reaches its hub over a kept relay circuit", () => {
     const narrow = createRemote({
       node,
       callOnLimitedConnection: (peerId) => peerId === "other",
-      muxPerPeer: MUX_PER_PEER,
+      muxPerPeer: MUX_PER_PEER_OPTION,
     });
     const narrowed = await refusal(narrow(live.hubPeerId, inviteRequest("unused")));
     expect((narrowed as PeerCallError).kind).toBe("limited-connection");
@@ -236,7 +239,7 @@ describe("a member reaches its hub over a kept relay circuit", () => {
     const fromHub = createRemote({
       node: live.hubNode,
       callOnLimitedConnection: true,
-      muxPerPeer: MUX_PER_PEER,
+      muxPerPeer: MUX_PER_PEER_OPTION,
     });
     const error = await refusal(
       fromHub(node.peerId.toString(), new Request("http://member.invalid/hello")),
@@ -257,7 +260,7 @@ describe("a member reaches its hub over a kept relay circuit", () => {
     const fromHub = createRemote({
       node: live.hubNode,
       callOnLimitedConnection: true,
-      muxPerPeer: MUX_PER_PEER,
+      muxPerPeer: MUX_PER_PEER_OPTION,
     });
     const response = await fromHub(
       node.peerId.toString(),

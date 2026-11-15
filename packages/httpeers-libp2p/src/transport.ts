@@ -495,8 +495,8 @@ export interface ServeTransportInit {
   /** Accept streams on limited connections too -- serving only. See `Libp2pLinkInit.serveOnLimitedConnection`. */
   runOnLimitedConnection?: boolean;
   /**
-   * EXPERIMENTAL (#56): one windowed mux per peer instead of one stream per
-   * exchange. Off when unset. See `MuxPerPeerOptions` and the
+   * One windowed mux per peer instead of one stream per exchange: on by
+   * default (#56); `false` opts out. See `MuxPerPeerOptions` and the
    * package README.
    */
   muxPerPeer?: MuxPerPeer;
@@ -562,8 +562,8 @@ export interface CreateRemoteInit {
   /** Open streams on limited connections to the peers this allows. See `CallOnLimitedConnection`. */
   callOnLimitedConnection?: CallOnLimitedConnection;
   /**
-   * EXPERIMENTAL (#56): one windowed mux per peer instead of one stream per
-   * exchange. Off when unset. See `MuxPerPeerOptions` and the
+   * One windowed mux per peer instead of one stream per exchange: on by
+   * default (#56); `false` opts out. See `MuxPerPeerOptions` and the
    * package README.
    */
   muxPerPeer?: MuxPerPeer;

@@ -11,11 +11,7 @@
  * empty door secret.
  */
 
-import {
-  type IceServer,
-  type MuxPerPeerOptions,
-  parseIceServers,
-} from "@statewalker/httpeers-libp2p";
+import { type IceServer, type MuxPerPeer, parseIceServers } from "@statewalker/httpeers-libp2p";
 
 export interface HubConfig {
   /** The data root; the hub owns `<dataDir>/hub`. */
@@ -71,15 +67,16 @@ export interface HubConfig {
   iceServers?: IceServer[];
   /**
    * `HUB_MUX_PER_PEER` (`true`/`false`, also `1`/`0`, `yes`/`no`, `on`/`off`;
-   * default off): EXPERIMENTAL (#56). The hub's `servePeer` serves the
-   * one-mux-per-peer protocol beside the per-exchange one, and its own calls
-   * (forwarding) use it. Members without the flag are unaffected: they keep
-   * one stream per exchange. `HUB_MUX_WINDOW` (bytes, at least
+   * default on, the library's default since #56). On, the hub's `servePeer`
+   * serves the one-mux-per-peer protocol beside the per-exchange one, and its
+   * own calls (forwarding) use it; members that opted out, or predate the
+   * mux, keep one stream per exchange. `off` is `false`: one stream per
+   * exchange for everything. `HUB_MUX_WINDOW` (bytes, at least
    * {@link MIN_MUX_WINDOW}) sets the per-exchange window, else the library's
-   * default (`DEFAULT_MUX_WINDOW`, 256 KiB); it is refused without the flag.
-   * Absent when off.
+   * default (`DEFAULT_MUX_WINDOW`, 256 KiB); it is refused with the mux off.
+   * Absent when neither is set (the library's default applies).
    */
-  muxPerPeer?: MuxPerPeerOptions;
+  muxPerPeer?: MuxPerPeer;
   llmUpstream?: string;
   litellmMasterKey?: string;
 }
@@ -142,20 +139,21 @@ function flag(env: NodeJS.ProcessEnv, name: string): boolean | undefined {
   throw new Error(`config: ${name} must be true or false, got "${raw}"`);
 }
 
-function muxPerPeerOf(env: NodeJS.ProcessEnv): MuxPerPeerOptions | undefined {
-  const on = flag(env, "HUB_MUX_PER_PEER") ?? false;
+function muxPerPeerOf(env: NodeJS.ProcessEnv): MuxPerPeer | undefined {
+  const on = flag(env, "HUB_MUX_PER_PEER");
   const window = positiveInteger(env, "HUB_MUX_WINDOW");
-  if (window != null && !on) {
+  if (window != null && on === false) {
     // A window for a path that is off would be silently ignored.
-    throw new Error("config: HUB_MUX_WINDOW is set but HUB_MUX_PER_PEER is not on");
+    throw new Error("config: HUB_MUX_WINDOW is set but HUB_MUX_PER_PEER is off");
   }
   if (window != null && window < MIN_MUX_WINDOW) {
     throw new Error(
       `config: HUB_MUX_WINDOW must be at least ${MIN_MUX_WINDOW} bytes, got "${window}"`,
     );
   }
-  if (!on) return undefined;
-  return window != null ? { window } : {};
+  if (on === false) return false;
+  if (window != null) return { window };
+  return on === true ? {} : undefined;
 }
 
 function iceServerList(env: NodeJS.ProcessEnv, name: string): IceServer[] | undefined {

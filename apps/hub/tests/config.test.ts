@@ -95,30 +95,29 @@ describe("loadConfig", () => {
     );
   });
 
-  it("reads HUB_MUX_PER_PEER as an opt-in flag, off by default", () => {
+  it("reads HUB_MUX_PER_PEER as an opt-out: unset keeps the library's default, the mux (#56)", () => {
     expect("muxPerPeer" in loadConfig({})).toBe(false);
     for (const on of ["true", "TRUE", "1", "yes", "on", " On "]) {
       expect(loadConfig({ HUB_MUX_PER_PEER: on }).muxPerPeer).toEqual({});
     }
     for (const off of ["false", "0", "no", "off"]) {
-      expect("muxPerPeer" in loadConfig({ HUB_MUX_PER_PEER: off })).toBe(false);
+      expect(loadConfig({ HUB_MUX_PER_PEER: off }).muxPerPeer).toBe(false);
     }
     expect(() => loadConfig({ HUB_MUX_PER_PEER: "maybe" })).toThrow(/HUB_MUX_PER_PEER/);
   });
 
-  it("reads HUB_MUX_WINDOW only with the flag on, and at least MIN_MUX_WINDOW bytes", () => {
+  it("reads HUB_MUX_WINDOW unless the mux is off, and at least MIN_MUX_WINDOW bytes", () => {
     expect(loadConfig({ HUB_MUX_PER_PEER: "1", HUB_MUX_WINDOW: "1048576" }).muxPerPeer).toEqual({
       window: 1048576,
     });
+    // The mux is the default, so a window alone tunes it.
+    expect(loadConfig({ HUB_MUX_WINDOW: "1048576" }).muxPerPeer).toEqual({ window: 1048576 });
     expect(
       loadConfig({ HUB_MUX_PER_PEER: "1", HUB_MUX_WINDOW: String(MIN_MUX_WINDOW) }).muxPerPeer,
     ).toEqual({ window: MIN_MUX_WINDOW });
     // A window for a path that is off would be silently ignored: refused instead.
-    expect(() => loadConfig({ HUB_MUX_WINDOW: "1048576" })).toThrow(
-      /HUB_MUX_WINDOW.*HUB_MUX_PER_PEER/,
-    );
     expect(() => loadConfig({ HUB_MUX_PER_PEER: "off", HUB_MUX_WINDOW: "1048576" })).toThrow(
-      /HUB_MUX_WINDOW/,
+      /HUB_MUX_WINDOW.*HUB_MUX_PER_PEER/,
     );
     for (const bad of ["0", "-1", "1.5", "big", String(MIN_MUX_WINDOW - 1)]) {
       expect(() => loadConfig({ HUB_MUX_PER_PEER: "1", HUB_MUX_WINDOW: bad })).toThrow(

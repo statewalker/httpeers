@@ -1,6 +1,7 @@
 /**
- * EXPERIMENTAL (issue #56): every exchange with a peer as a windowed virtual
- * port over ONE libp2p stream, instead of one libp2p stream per exchange.
+ * THE DEFAULT PATH (issue #56): every exchange with a peer as a windowed
+ * virtual port over ONE libp2p stream, instead of one libp2p stream per
+ * exchange. `muxPerPeer: false` opts out.
  *
  * WHAT CHANGES ON THE WIRE. A caller opens one stream to the peer on a
  * separate protocol id (`muxProtocolOf(protocol)`, `/httpeers/1.0.0/mux` by
@@ -19,9 +20,9 @@
  * WHAT IT GUARANTEES:
  *
  *   - **Old and new peers never misread each other.** The mux has its own
- *     protocol id. A serving side with the flag serves BOTH protocols, so
- *     callers without it are unaffected. A caller with the flag whose peer
- *     does not speak the mux protocol (multistream-select answers "na") falls
+ *     protocol id. A serving side on the mux serves BOTH protocols, so
+ *     callers that opted out, or predate the mux, are unaffected. A caller on
+ *     the mux whose peer does not speak the mux protocol (multistream-select answers "na") falls
  *     back to one stream per exchange for that peer's current connection
  *     (`fallback`, on by default), or fails with `PeerProtocolUnsupportedError`.
  *   - **One mux per peer and direction, opened lazily.** Concurrent first
@@ -56,8 +57,8 @@
  *
  * LOADED ON DEMAND. `@statewalker/webrun-rpc` and `@statewalker/webrun-msgpack`
  * are imported dynamically the first time a mux link opens or serves, so a
- * consumer that never sets the flag does not load (or bundle into its main
- * chunk) either.
+ * consumer that opts out (`muxPerPeer: false`) does not load them, and a
+ * bundler can keep them out of the main chunk.
  *
  * IDENTITY is still by closure: the serving side reads `remotePeer` from the
  * libp2p connection the mux stream arrived on, the Noise-proven id, and
@@ -131,7 +132,7 @@ export const DEFAULT_MUX_KEEPALIVE_MS = 5_000;
 /** Keepalive intervals in a row with nothing from the peer before the mux closes (webrun-rpc's default). */
 const KEEPALIVE_MISSES = 3;
 
-/** Tuning for the experimental mux path. Every field is optional. */
+/** Tuning for the mux path. Every field is optional. */
 export interface MuxPerPeerOptions {
   /** Per-port window, in bytes. Default {@link DEFAULT_MUX_WINDOW}. */
   window?: number;
@@ -166,13 +167,19 @@ export interface MuxPerPeerOptions {
   protocol?: string;
 }
 
-/** The flag as callers pass it: `true` for the defaults, or the tuning itself. */
+/**
+ * The option as callers pass it: unset or `true` for the mux with its defaults, the tuning
+ * itself, or `false` for one stream per exchange.
+ */
 export type MuxPerPeer = boolean | MuxPerPeerOptions;
 
-/** The flag in force, or `undefined` for the default per-exchange path. Only the option decides. */
+/**
+ * The mux tuning in force, or `undefined` for one stream per exchange. The mux is the default
+ * (#56): only an explicit `false` opts out. Only the option decides.
+ */
 export function resolveMuxPerPeer(option: MuxPerPeer | undefined): MuxPerPeerOptions | undefined {
-  if (option == null || option === false) return undefined;
-  return option === true ? {} : option;
+  if (option === false) return undefined;
+  return option == null || option === true ? {} : option;
 }
 
 /**
@@ -524,8 +531,8 @@ export function libp2pMuxLink(init: Libp2pMuxLinkInit): ClosablePeerLink & {
     },
 
     async serve(handlerFor: (peer: ProvenPeer) => Duplex): Promise<() => Promise<void>> {
-      // The per-exchange protocol first: a caller without the flag is served
-      // exactly as before.
+      // The per-exchange protocol first: a caller that opted out (or predates
+      // the mux) is served exactly as before.
       const stopPerExchange = await perExchange.serve(handlerFor);
       const libs = await loadMuxLibs();
       const accepted = new Set<Session>();

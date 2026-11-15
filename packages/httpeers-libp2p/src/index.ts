@@ -103,9 +103,9 @@ export {
 export type { CallOnLimitedConnection } from "./link.js";
 export { lastPeerIdOf } from "./multiaddr-parts.js";
 /**
- * EXPERIMENTAL (#56): one windowed mux per peer instead of one libp2p stream
- * per exchange, behind `muxPerPeer` on `servePeer` / `createRemote` /
- * `serveTransport`. Off by default; see the README.
+ * One windowed mux per peer instead of one libp2p stream per exchange: the
+ * default on `servePeer` / `createRemote` / `serveTransport` (#56);
+ * `muxPerPeer: false` opts out. See the README.
  */
 export {
   DEFAULT_MUX_FRAME_SIZE,
