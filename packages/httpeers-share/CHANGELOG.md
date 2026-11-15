@@ -1,5 +1,13 @@
 # @statewalker/httpeers-share
 
+## 0.4.1
+
+### Patch Changes
+
+- Release of the changes since the last published version:
+  
+  - @statewalker/httpeers-hub ^0.1.5 -> ^0.1.6
+
 ## 0.4.0
 
 ### Minor Changes
