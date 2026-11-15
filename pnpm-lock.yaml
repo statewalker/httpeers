@@ -3972,6 +3972,9 @@ packages:
   graceful-fs@4.2.11:
     resolution: {integrity: sha512-RbJ5/jmFcNNCcDV5o9eTnBLJ/HszWV0P73bc+Ff4nS/rJj+YaS6IGyiOL0VoBYX+l1Wrl3k63h/KrH+nhJ0XvQ==}
 
+  graceful-fs@4.2.12:
+    resolution: {integrity: sha512-iuyGF2E4oafQfPsRrG2wtY2ILupMhvtdrhzrxB+0VcjsPpSPttpfYdjnGFGsTi5MaJFjI1jOKHPQ6UTbTj9TAw==}
+
   happy-dom@21.0.4:
     resolution: {integrity: sha512-tFm+GaLBgo6o0awHnvHaNoraVo27qJ+2tZEtZ+cIa08hXbeitrxAJajLI05hsUy/2/YTKcUjQYzHe5mCcraLBw==}
     engines: {node: '>=20.0.0'}
@@ -8538,6 +8541,9 @@ snapshots:
 
   graceful-fs@4.2.11: {}
 
+  graceful-fs@4.2.12:
+    optional: true
+
   happy-dom@21.0.4:
     dependencies:
       '@types/node': 26.6.4
@@ -8782,7 +8788,7 @@ snapshots:
       '@types/node': 26.6.6
       chalk: 4.1.2
       ci-info: 3.9.0
-      graceful-fs: 4.2.11
+      graceful-fs: 4.2.12
       picomatch: 2.3.2
     optional: true
 
