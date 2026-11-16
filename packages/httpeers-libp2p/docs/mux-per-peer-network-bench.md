@@ -699,6 +699,36 @@ is at most about 256 KiB: one window per round trip caps a bulk transfer at
 about 2.1 Mbit ÷ RTT in seconds (e.g. 70 Mbit/s at 30 ms, 21 Mbit/s at
 100 ms). `window` remains a per-deployment override above that.
 
+## The adaptive window (#128)
+
+Built on what "Window sizing" recommends: webrun-rpc 0.15's adaptive per-port window (webrun-wire#188), which is httpeers-libp2p's default since #128 (`DEFAULT_MUX_ADAPTIVE_WINDOW`).
+- A port starts at 256 KiB. After the ack, the receiving side grows the window it grants while the sender fills it and the round trip stays near its minimum. It shrinks back when the round trip inflates, but never below the window agreed at the open.
+- Each growth is judged by the delivery rate it brings, and taken back when the rate does not rise.
+- Like BBR's ProbeRTT, a port drains to its floor every 10 s to re-measure the base round trip.
+
+These runs were measured with webrun-rpc 0.15.0 on the TCP profiles: 2 runs for the profiles without loss, 3 for the lossy ones, in one session (`--windows auto,262144`).
+
+| Profile | Bulk Mbit/s: per-exchange / adaptive / fixed 256 KiB | Ping p50 beside bulk, ms: per-exchange / adaptive / fixed 256 KiB |
+|---|---|---|
+| LAN, 1 Gbit, 1 ms | 953 / **939** / 746 | 86.0 / **7.9** / 3.2 |
+| Long fat pipe, 100 Mbit, 100 ms | 96.1 / **83.3** / 18.5 | 868 / **132** / 103 |
+| Broadband, 50 Mbit, 30 ms, no loss | 48.4 / **47.1** / 47.1 | 1736 / **39.4** / 39.4 |
+| Mobile, 10 Mbit, 80 ms, no loss | 10.8 / **9.4** / 9.4 | 7743 / **196** / 198 |
+| Broadband, 0.1% loss | 13.3 / **12.2** / 15.8 | 4947 / **148** / 135 |
+| Mobile, 1% loss | — (0 of 3 runs completed) / **1.5** / 1.4 | — / **1063** / 1129 |
+
+Idle pings and idle 64 KiB GETs match the fixed window on every profile.
+
+What it says:
+1. **Bulk on fast and long paths.** The cap is gone where 256 KiB was the limit: 4.5× on the long fat pipe (87% of the per-exchange path) and +26% on the LAN (98.5%).
+2. **Beside a download, a request still waits round trips, not seconds.** The adaptive window grows only while the round trip stays near its minimum, so the queue it adds is bounded: 132 against 868 ms on the long fat pipe, 7.9 against 86 ms on the LAN. Where 256 KiB is already about one BDP or more (broadband, mobile), it stays at the agreed window and behaves as the fixed one.
+3. **What it does not do yet:**
+   - The LAN ping is above the fixed window's 3.2 ms. On this 4-vCPU emulation, fixed windows of 512 KiB and 1 MiB gave 834 and 906 Mbit/s with pings of 4.8 and 8.1 ms, so full LAN throughput costs a few ms here.
+   - The long fat pipe ramps up in a few seconds and varies from run to run: 83–92 Mbit/s across sessions.
+   - On the lossy profiles the window cannot shrink below the agreed 256 KiB, so it does not cut the queueing there. Bulk on lossy broadband varied by ±15% across runs of both configurations (12–16 Mbit/s).
+
+   The tuning lives in webrun-rpc's controller, and the follow-ups are tracked on #128.
+
 ## WebRTC (Node ↔ Node, node-datachannel)
 
 Feasible with the same emulation: the data channel's UDP crosses the

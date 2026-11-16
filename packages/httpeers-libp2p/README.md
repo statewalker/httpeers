@@ -251,7 +251,8 @@ closed. `serveDuplex` / `openDuplex` run one `Duplex` per libp2p stream on
 Every HTTP exchange with a peer is a virtual port of one `multiplexPort`
 (`@statewalker/webrun-rpc`) over ONE libp2p stream per peer, on its own
 protocol, `/httpeers/1.0.0/mux` (`muxProtocolOf(protocol)` for another fetch
-protocol). Each port has a window (`window`, default 256 KiB) and large
+protocol). Each port has a window (`window`: adaptive by default, from
+256 KiB toward one bandwidth-delay product; a number fixes it) and large
 messages are framed (`frameSize`, default 31 KiB), so:
 
 - a reader that stops reading holds its own port's window and nothing else:
@@ -291,11 +292,16 @@ emulated link like that one, #123). The emulated profiles in
 failed most WebRTC runs.
 
 **What it costs.**
-- **Bulk on high bandwidth-delay links.** The window bounds one exchange's
-  throughput to about window ÷ RTT: the default 256 KiB caps bulk at about
-  72% on a 1 Gbit LAN and 19% on a 100 Mbit, 100 ms path (emulated), where a
-  stream per exchange fills the link. A larger `window` lifts the cap and
-  gives back some of the isolation. An adaptive window is the follow-up.
+- **Bulk on high bandwidth-delay links, now mostly lifted.** A port's window
+  bounds one exchange's throughput to about window ÷ RTT. A fixed 256 KiB
+  window capped bulk at about 78% of the per-exchange path on a 1 Gbit LAN
+  and 19% on a 100 Mbit, 100 ms path (emulated). The default window is now
+  adaptive (#128, webrun-rpc 0.15): it starts at 256 KiB and grows toward
+  one bandwidth-delay product, which gives 98.5% and 87% there. A request
+  beside the download then waits 7.9 and 132 ms (86 and 868 ms on its own
+  stream); a fixed 256 KiB window keeps that to 3.2 and 103 ms. Pass
+  `window: <bytes>` for a fixed window. See
+  [the bench document](docs/mux-per-peer-network-bench.md#the-adaptive-window-128).
 - **CPU on loopback.** With no latency to save, framing costs: 256 B messages
   on long-lived exchanges run at 60–97% of the per-exchange rate on loopback,
   and one bulk exchange at about 55% with the default window.
