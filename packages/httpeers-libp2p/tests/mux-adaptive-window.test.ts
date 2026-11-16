@@ -1,18 +1,18 @@
 /**
- * THE ADAPTIVE WINDOW (#128), end to end: the mux's default per-port window
- * follows about one bandwidth-delay product instead of a fixed 256 KiB.
+ * THE ADAPTIVE WINDOW (#128), an opt-in: `window: "auto"` (or the object form)
+ * makes a port's window follow about one bandwidth-delay product; the default
+ * stays a fixed 256 KiB until the maintainer decides otherwise (#128).
  *
  * Through a TCP proxy that delays every chunk (RTT 50 ms, no rate limit, over
  * real Noise and yamux), one bulk download:
  *
- *   - with a fixed 256 KiB window (`window: 262144`) is capped near one window
- *     per round trip, about 5 MB/s;
- *   - with the default adaptive window grows past that, since the path has
- *     room and the round trip does not inflate.
+ *   - on the default (fixed 256 KiB) is capped near one window per round
+ *     trip, about 5 MB/s;
+ *   - with `window: "auto"` grows past that, since the path has room and the
+ *     round trip does not inflate.
  *
- * The control keeps `window: <number>` meaning a fixed window. Interop with
- * httpeers-libp2p 0.5 (which does not resize) is `mux-interop-0-5.test.ts`,
- * which runs on the defaults; the tuning itself is unit-tested in webrun-rpc.
+ * Interop of the adaptive window with httpeers-libp2p 0.5 is run here too;
+ * the tuning itself is unit-tested in webrun-rpc.
  */
 
 import net from "node:net";
@@ -122,7 +122,9 @@ async function download(muxPerPeer: MuxPerPeer): Promise<number> {
 }
 
 describe("the adaptive mux window (#128)", () => {
-  it("is the default, and starts where the fixed one did", () => {
+  it("is opt-in: the default stays the fixed 256 KiB window, and auto starts where it did", () => {
+    expect(resolveMuxWindow(undefined)).toBe(DEFAULT_MUX_WINDOW);
+    expect(resolveMuxWindow("auto")).toEqual(DEFAULT_MUX_ADAPTIVE_WINDOW);
     expect(DEFAULT_MUX_ADAPTIVE_WINDOW.initial).toBe(DEFAULT_MUX_WINDOW);
     expect(DEFAULT_MUX_ADAPTIVE_WINDOW.min).toBeLessThanOrEqual(DEFAULT_MUX_WINDOW);
     expect(DEFAULT_MUX_ADAPTIVE_WINDOW.max).toBeGreaterThan(DEFAULT_MUX_WINDOW);
@@ -131,9 +133,9 @@ describe("the adaptive mux window (#128)", () => {
   it("is not capped at one 256 KiB window per round trip, where a fixed window is", async () => {
     // One 256 KiB window per 50 ms round trip: about 5.2 MB/s.
     const capped = DEFAULT_MUX_WINDOW / ((2 * ONE_WAY_MS) / 1000);
-    const fixed = await download({ window: DEFAULT_MUX_WINDOW });
+    const fixed = await download(true);
     expect(fixed).toBeLessThan(1.3 * capped);
-    const adaptive = await download(true);
+    const adaptive = await download({ window: "auto" });
     expect(adaptive).toBeGreaterThan(2 * capped);
   }, 60_000);
 });
@@ -141,9 +143,11 @@ describe("the adaptive mux window (#128)", () => {
 describe("sizing the adaptive window (resolveMuxWindow)", () => {
   const KiB = 1024;
   const MiB = 1024 * KiB;
-  it("a number is a fixed window, unset is the default", () => {
-    expect(resolveMuxWindow(DEFAULT_MUX_WINDOW)).toBe(DEFAULT_MUX_WINDOW);
-    expect(resolveMuxWindow(undefined)).toEqual(DEFAULT_MUX_ADAPTIVE_WINDOW);
+  it("a number is a fixed window; unset is the fixed default; auto is the adaptive default", () => {
+    expect(resolveMuxWindow(128 * KiB)).toBe(128 * KiB);
+    expect(resolveMuxWindow(undefined)).toBe(DEFAULT_MUX_WINDOW);
+    expect(resolveMuxWindow("auto")).toEqual(DEFAULT_MUX_ADAPTIVE_WINDOW);
+    expect(resolveMuxWindow({})).toEqual(DEFAULT_MUX_ADAPTIVE_WINDOW);
   });
 
   it("derives the unset fields from the ones given, so a partial object is always valid", () => {

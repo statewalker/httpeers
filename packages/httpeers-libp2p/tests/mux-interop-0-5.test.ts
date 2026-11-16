@@ -33,6 +33,7 @@ import * as v05 from "httpeers-libp2p-0-5";
 import { afterEach, describe, expect, it } from "vitest";
 import { createDuplexMounts, openDuplex, serveDuplex } from "../src/duplex.js";
 import { generateKey } from "../src/identity.js";
+import type { MuxPerPeerOptions } from "../src/mux-link.js";
 import { createNode, createRemote, PROTOCOL, serveTransport } from "../src/transport.js";
 
 const cleanup: Array<() => unknown> = [];
@@ -47,10 +48,13 @@ const DIRECTIONS: Direction[] = [
   "0.5.0 caller, new serving side",
 ];
 
-/** The exchange path each side runs: `true` the mux (the default), `false` one stream per exchange. */
+/**
+ * The exchange path each side runs: `true` the mux (the default), `false` one
+ * stream per exchange, or the mux's options (only on the new side).
+ */
 interface Paths {
-  server: boolean;
-  client: boolean;
+  server: boolean | MuxPerPeerOptions;
+  client: boolean | MuxPerPeerOptions;
 }
 const MUX: Paths = { server: true, client: true };
 
@@ -90,7 +94,7 @@ async function pair(
   const stop = oldServes
     ? await v05.serveTransport({
         node: serverNode as never,
-        muxPerPeer: paths.server,
+        muxPerPeer: paths.server as boolean,
         dispatch: echo,
       })
     : await serveTransport({ node: serverNode, muxPerPeer: paths.server, dispatch: echo });
@@ -103,7 +107,10 @@ async function pair(
     const remote = createRemote({ node: clientNode, muxPerPeer: paths.client });
     return (request) => remote(target, request);
   }
-  const remote = v05.createRemote({ node: clientNode as never, muxPerPeer: paths.client });
+  const remote = v05.createRemote({
+    node: clientNode as never,
+    muxPerPeer: paths.client as boolean,
+  });
   return (request) => remote(target as never, request);
 }
 
@@ -182,6 +189,35 @@ const PER_EXCHANGE_CASES: Array<[string, Paths]> = [
   ["one stream per exchange on both sides", { server: false, client: false }],
   ["a mux caller, a serving side that opted out", { server: false, client: true }],
 ];
+
+describe.each(DIRECTIONS)(
+  "mux interop, the new side on the adaptive window (#128): %s",
+  (direction) => {
+    // Only the new side opts in; the 0.5.0 side keeps its fixed window.
+    const adaptive = { window: "auto" as const };
+    const paths: Paths =
+      direction === "new caller, 0.5.0 serving side"
+        ? { server: true, client: adaptive }
+        : { server: adaptive, client: true };
+
+    it("answers a GET and a POST of several windows, and concurrent exchanges", async () => {
+      const call = await pair(direction, 0, paths);
+      const g = await call(get());
+      expect(g.status).toBe(200);
+      expect((await g.arrayBuffer()).byteLength).toBe(64);
+      const large = pattern(1024 * 1024, 11);
+      const l = await call(post(large));
+      expect(new Uint8Array(await l.arrayBuffer())).toEqual(large);
+      const bodies = Array.from({ length: 8 }, (_, i) => pattern(40 * 1024 + i, i + 20));
+      const answers = await Promise.all(
+        bodies.map(async (body) => new Uint8Array(await (await call(post(body))).arrayBuffer())),
+      );
+      answers.forEach((answer, i) => {
+        expect(answer).toEqual(bodies[i]);
+      });
+    });
+  },
+);
 
 describe.each(DIRECTIONS)("per-exchange interop with httpeers-libp2p 0.5.0: %s", (direction) => {
   it.each(PER_EXCHANGE_CASES)(

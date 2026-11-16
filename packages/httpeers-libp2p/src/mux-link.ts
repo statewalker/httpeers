@@ -95,17 +95,24 @@ export const MUX_PROTOCOL = "/httpeers/1.0.0/mux";
 export const DEFAULT_MUX_WINDOW = 256 * 1024;
 
 /**
- * THE DEFAULT WINDOW IS ADAPTIVE (#128): webrun-rpc's adaptive window (0.15,
- * webrun-wire#188). Each port starts at {@link DEFAULT_MUX_WINDOW}, and after
- * the ack the window each side grants on it follows about one
- * bandwidth-delay product: it grows where 256 KiB caps a bulk transfer (a
- * fast or long path) and shrinks back toward the agreed window where more
- * would only queue, which keeps a request beside a download prompt. It never
- * grants less than the window agreed at the open, so a peer on an older
- * webrun-rpc (httpeers-libp2p 0.6 and earlier) runs as before at that window.
- * A larger window asked for is held to `initial` only by an opener that lists
- * the `"window"` capability (webrun-rpc 0.13 and later); an older opener
- * keeps the window it asked for, as it did against a fixed window.
+ * THE ADAPTIVE WINDOW (#128), an opt-in: `window: "auto"` (these sizes) or
+ * `window: { initial, min, max, budget }`. It is webrun-rpc's adaptive window
+ * (0.15, webrun-wire#188). Each port starts at `initial`, and after the ack
+ * the window each side grants on it follows about one bandwidth-delay
+ * product: it grows where 256 KiB caps a bulk transfer (a fast or long path)
+ * and shrinks back toward the agreed window where more would only queue. It
+ * never grants less than the window agreed at the open, so a peer on an
+ * older webrun-rpc (httpeers-libp2p 0.6 and earlier) runs as before at that
+ * window. A larger window asked for is held to `initial` only by an opener
+ * that lists the `"window"` capability (webrun-rpc 0.13 and later); an older
+ * opener keeps the window it asked for, as it did against a fixed window.
+ *
+ * NOT THE DEFAULT (yet): measured on emulated links it lifts bulk 4.5× on a
+ * 100 Mbit, 100 ms path and +30% on a 1 Gbit LAN, but a request beside a
+ * download waits longer there than behind a fixed 256 KiB (142 vs 103 ms,
+ * 9.9 vs 3.1 ms), and on a lossy path it gains nothing and adds latency
+ * (`docs/mux-per-peer-network-bench.md`, #128). The default stays
+ * {@link DEFAULT_MUX_WINDOW} until the maintainer decides.
  *
  * The sizes are webrun-rpc's `"auto"`, except `budget`:
  * - `min` 64 KiB: two frames, enough for a request beside a download.
@@ -134,15 +141,19 @@ export interface MuxAdaptiveWindow {
 }
 
 /**
- * The `window` the mux passes to webrun-rpc: a number as given (a fixed
- * window), or the adaptive window's four sizes, the unset ones derived from
- * the given ones so that `min <= initial <= max <= budget` holds. Sizes the
- * caller gave that contradict each other throw a `RangeError` here, when the
- * link is built, not on every exchange.
+ * The `window` the mux passes to webrun-rpc: unset, the fixed
+ * {@link DEFAULT_MUX_WINDOW}; a number as given (a fixed window); `"auto"`,
+ * {@link DEFAULT_MUX_ADAPTIVE_WINDOW}; an object, the adaptive window's four
+ * sizes, the unset ones derived from the given ones so that
+ * `min <= initial <= max <= budget` holds. Sizes the caller gave that
+ * contradict each other throw a `RangeError` here, when the link is built,
+ * not on every exchange.
  */
 export function resolveMuxWindow(
-  option: number | MuxAdaptiveWindow | undefined,
+  option: number | "auto" | MuxAdaptiveWindow | undefined,
 ): number | Required<MuxAdaptiveWindow> {
+  if (option === undefined) return DEFAULT_MUX_WINDOW;
+  if (option === "auto") return { ...DEFAULT_MUX_ADAPTIVE_WINDOW };
   const valid = (n: number) => Number.isSafeInteger(n) && n > 0;
   if (typeof option === "number") {
     if (!valid(option)) {
@@ -152,7 +163,7 @@ export function resolveMuxWindow(
     }
     return option;
   }
-  const w = option ?? {};
+  const w = option;
   const d = DEFAULT_MUX_ADAPTIVE_WINDOW;
   const initial = w.initial ?? Math.min(d.initial, w.max ?? w.budget ?? d.initial);
   const max = w.max ?? Math.max(initial, Math.min(d.max, w.budget ?? d.max));
@@ -213,10 +224,11 @@ const KEEPALIVE_MISSES = 3;
 /** Tuning for the mux path. Every field is optional. */
 export interface MuxPerPeerOptions {
   /**
-   * Per-port window: a number of bytes for a fixed window, or the adaptive
-   * window's sizing. Default: adaptive, {@link DEFAULT_MUX_ADAPTIVE_WINDOW}.
+   * Per-port window: a number of bytes for a fixed window (default
+   * {@link DEFAULT_MUX_WINDOW}), or the adaptive window (#128): `"auto"` for
+   * {@link DEFAULT_MUX_ADAPTIVE_WINDOW}, or its sizes as an object.
    */
-  window?: number | MuxAdaptiveWindow;
+  window?: number | "auto" | MuxAdaptiveWindow;
   /** Fair-framing size, and the size stream chunks are split to, in bytes. Default {@link DEFAULT_MUX_FRAME_SIZE}. */
   frameSize?: number;
   /**
@@ -227,7 +239,7 @@ export interface MuxPerPeerOptions {
   maxMessageBytes?: number;
   /**
    * What the mux holds of a peer's framed messages past their windows, summed
-   * over its ports, in bytes. Default: one `window` (the adaptive window's `initial`).
+   * over its ports, in bytes. Default: one `window` (an adaptive window's `initial`).
    */
   maxReassembledBytes?: number;
   /**

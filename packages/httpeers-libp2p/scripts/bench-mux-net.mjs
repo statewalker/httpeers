@@ -163,7 +163,11 @@ async function makeNode(init, monitor) {
 if (args.includes("--serve")) {
   const transport = opt("--transport", "tcp");
   const window = opt("--window", undefined);
-  const mux = args.includes("--mux") ? (window ? { window: Number(window) } : {}) : false;
+  const mux = args.includes("--mux")
+    ? window
+      ? { window: window === "auto" ? "auto" : Number(window) }
+      : {}
+    : false;
   const node = await makeNode(
     {
       privateKey: await generateKey(),
@@ -491,7 +495,7 @@ function callOnce(config) {
 
 const RUNS = Number(opt("--runs", "3"));
 const TRANSPORT = opt("--transport", "tcp");
-// `auto`: the default adaptive window (#128); a number: a fixed window of that many bytes.
+// `auto`: the adaptive window (`window: "auto"`, #128); a number: a fixed window of that many bytes.
 const WINDOWS = opt("--windows", `auto,${DEFAULT_MUX_WINDOW},${4 * 1024 * 1024}`)
   .split(",")
   .map((w) => (w === "auto" ? w : Number(w)));
@@ -517,7 +521,7 @@ const configs = [
   ...(PATHS.includes("mux")
     ? WINDOWS.map((w) =>
         w === "auto"
-          ? { label: "mux adaptive", mux: true }
+          ? { label: "mux adaptive", mux: true, window: "auto" }
           : { label: `mux ${Math.round(w / 1024)} KiB`, mux: true, window: w },
       )
     : []),
