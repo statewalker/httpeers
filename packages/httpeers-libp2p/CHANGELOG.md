@@ -1,5 +1,11 @@
 # @statewalker/httpeers-libp2p
 
+## 0.7.0
+
+### Minor Changes
+
+- 6664e3b: An adaptive per-port window for the mux, as an opt-in (#128, on webrun-rpc 0.15's adaptive window). Pass `muxPerPeer: { window: "auto" }`, or `window: { initial, min, max, budget }` with any of the four sizes; unset sizes follow the given ones. A port then starts at `initial` (256 KiB). After the ack, the window each side grants follows about one bandwidth-delay product: it grows where a fixed window capped a bulk transfer, on fast or long paths, and shrinks back where more would only queue. It never goes below the window agreed at the open, so peers on older versions interoperate unchanged. `"auto"` means `DEFAULT_MUX_ADAPTIVE_WINDOW`: 256 KiB to start, a 64 KiB floor, 16 MiB per port and 32 MiB per peer in all. Sizes that contradict each other throw when the link is built. The default stays a fixed 256 KiB window: on emulated links, adaptive lifts bulk 4.5× on a 100 Mbit, 100 ms path, but a request beside a download waits longer than behind the fixed window (the bench document has the figures).
+
 ## 0.6.0
 
 ### Minor Changes
