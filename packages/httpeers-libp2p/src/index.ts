@@ -108,12 +108,14 @@ export { lastPeerIdOf } from "./multiaddr-parts.js";
  * `muxPerPeer: false` opts out. See the README.
  */
 export {
+  DEFAULT_MUX_ADAPTIVE_WINDOW,
   DEFAULT_MUX_FRAME_SIZE,
   DEFAULT_MUX_KEEPALIVE_MS,
   DEFAULT_MUX_WINDOW,
   MUX_MAX_STREAMS_PER_CONNECTION,
   MUX_MESSAGE_HEADROOM,
   MUX_PROTOCOL,
+  type MuxAdaptiveWindow,
   type MuxPerPeer,
   type MuxPerPeerOptions,
   MuxPortClosedError,

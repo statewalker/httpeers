@@ -5,7 +5,7 @@
 //   pnpm --filter @statewalker/httpeers-libp2p build
 //   sudo node packages/httpeers-libp2p/scripts/bench-mux-net.mjs \
 //     [--profiles lan,broadband,mobile,bad] [--transport tcp|webrtc] [--runs 3] \
-//     [--windows 262144,4194304] [--paths stream,mux] [--out results.json] \
+//     [--windows auto,262144,4194304] [--paths stream,mux] [--out results.json] \
 //     [--keep-on-ping-failure | --libp2p-monitor] [--cases ping,small,blob,bulk] [--ks 1,10,100]
 //
 // `--cases` runs a subset (e.g. `small` for the exchange rates alone);
@@ -163,7 +163,11 @@ async function makeNode(init, monitor) {
 if (args.includes("--serve")) {
   const transport = opt("--transport", "tcp");
   const window = opt("--window", undefined);
-  const mux = args.includes("--mux") ? (window ? { window: Number(window) } : {}) : false;
+  const mux = args.includes("--mux")
+    ? window
+      ? { window: window === "auto" ? "auto" : Number(window) }
+      : {}
+    : false;
   const node = await makeNode(
     {
       privateKey: await generateKey(),
@@ -491,9 +495,10 @@ function callOnce(config) {
 
 const RUNS = Number(opt("--runs", "3"));
 const TRANSPORT = opt("--transport", "tcp");
-const WINDOWS = opt("--windows", `${DEFAULT_MUX_WINDOW},${4 * 1024 * 1024}`)
+// `auto`: the adaptive window (`window: "auto"`, #128); a number: a fixed window of that many bytes.
+const WINDOWS = opt("--windows", `auto,${DEFAULT_MUX_WINDOW},${4 * 1024 * 1024}`)
   .split(",")
-  .map(Number);
+  .map((w) => (w === "auto" ? w : Number(w)));
 const PATHS = opt("--paths", "stream,mux").split(",");
 const OUT = opt("--out", undefined);
 const MONITOR = args.includes("--libp2p-monitor")
@@ -514,7 +519,11 @@ for (const name of PROFILE_NAMES)
 const configs = [
   ...(PATHS.includes("stream") ? [{ label: "per-exchange", mux: false }] : []),
   ...(PATHS.includes("mux")
-    ? WINDOWS.map((w) => ({ label: `mux ${Math.round(w / 1024)} KiB`, mux: true, window: w }))
+    ? WINDOWS.map((w) =>
+        w === "auto"
+          ? { label: "mux adaptive", mux: true, window: "auto" }
+          : { label: `mux ${Math.round(w / 1024)} KiB`, mux: true, window: w },
+      )
     : []),
 ];
 

@@ -95,6 +95,93 @@ export const MUX_PROTOCOL = "/httpeers/1.0.0/mux";
 export const DEFAULT_MUX_WINDOW = 256 * 1024;
 
 /**
+ * THE ADAPTIVE WINDOW (#128), an opt-in: `window: "auto"` (these sizes) or
+ * `window: { initial, min, max, budget }`. It is webrun-rpc's adaptive window
+ * (0.15, webrun-wire#188). Each port starts at `initial`, and after the ack
+ * the window each side grants on it follows about one bandwidth-delay
+ * product: it grows where 256 KiB caps a bulk transfer (a fast or long path)
+ * and shrinks back toward the agreed window where more would only queue. It
+ * never grants less than the window agreed at the open, so a peer on an
+ * older webrun-rpc (httpeers-libp2p 0.6 and earlier) runs as before at that
+ * window. A larger window asked for is held to `initial` only by an opener
+ * that lists the `"window"` capability (webrun-rpc 0.13 and later); an older
+ * opener keeps the window it asked for, as it did against a fixed window.
+ *
+ * NOT THE DEFAULT (yet): measured on emulated links it lifts bulk 4.5× on a
+ * 100 Mbit, 100 ms path and +30% on a 1 Gbit LAN, but a request beside a
+ * download waits longer there than behind a fixed 256 KiB (142 vs 103 ms,
+ * 9.9 vs 3.1 ms), and on a lossy path it gains nothing and adds latency
+ * (`docs/mux-per-peer-network-bench.md`, #128). The default stays
+ * {@link DEFAULT_MUX_WINDOW} until the maintainer decides.
+ *
+ * The sizes are webrun-rpc's `"auto"`, except `budget`:
+ * - `min` 64 KiB: two frames, enough for a request beside a download.
+ * - `max` 16 MiB, as yamux's stream window: 1.3 Gbit/s at 100 ms.
+ * - `budget` 32 MiB (`"auto"`: 64 MiB): the most one peer's ports may grow
+ *   to in all. A hub serves many peers, so it is halved here.
+ */
+export const DEFAULT_MUX_ADAPTIVE_WINDOW = {
+  initial: DEFAULT_MUX_WINDOW,
+  min: 64 * 1024,
+  max: 16 * 1024 * 1024,
+  budget: 32 * 1024 * 1024,
+} as const;
+
+/**
+ * Sizing of the adaptive window, in bytes. Unset fields follow the ones given
+ * ({@link resolveMuxWindow}): `initial` 256 KiB, or `max` if that is smaller;
+ * `min` 64 KiB, or `initial` if that is smaller; `max` 16 MiB, or `initial` /
+ * `budget` where they ask for more / less; `budget` 32 MiB, or `max` if larger.
+ */
+export interface MuxAdaptiveWindow {
+  initial?: number;
+  min?: number;
+  max?: number;
+  budget?: number;
+}
+
+/**
+ * The `window` the mux passes to webrun-rpc: unset, the fixed
+ * {@link DEFAULT_MUX_WINDOW}; a number as given (a fixed window); `"auto"`,
+ * {@link DEFAULT_MUX_ADAPTIVE_WINDOW}; an object, the adaptive window's four
+ * sizes, the unset ones derived from the given ones so that
+ * `min <= initial <= max <= budget` holds. Sizes the caller gave that
+ * contradict each other throw a `RangeError` here, when the link is built,
+ * not on every exchange.
+ */
+export function resolveMuxWindow(
+  option: number | "auto" | MuxAdaptiveWindow | undefined,
+): number | Required<MuxAdaptiveWindow> {
+  if (option === undefined) return DEFAULT_MUX_WINDOW;
+  if (option === "auto") return { ...DEFAULT_MUX_ADAPTIVE_WINDOW };
+  const valid = (n: number) => Number.isSafeInteger(n) && n > 0;
+  if (typeof option === "number") {
+    if (!valid(option)) {
+      throw new RangeError(
+        `httpeers-libp2p: a fixed per-port mux size must be a positive integer, got ${option}`,
+      );
+    }
+    return option;
+  }
+  const w = option;
+  const d = DEFAULT_MUX_ADAPTIVE_WINDOW;
+  const initial = w.initial ?? Math.min(d.initial, w.max ?? w.budget ?? d.initial);
+  const max = w.max ?? Math.max(initial, Math.min(d.max, w.budget ?? d.max));
+  const min = w.min ?? Math.min(d.min, initial);
+  const budget = w.budget ?? Math.max(d.budget, max);
+  const sizes = { initial, min, max, budget };
+  if (
+    ![initial, min, max, budget].every(valid) ||
+    !(min <= initial && initial <= max && max <= budget)
+  ) {
+    throw new RangeError(
+      `httpeers-libp2p: the adaptive per-port mux sizes need positive integers with min <= initial <= max <= budget, got ${JSON.stringify(sizes)}`,
+    );
+  }
+  return sizes;
+}
+
+/**
  * 31 KiB. A small message waits for at most one frame of another port's large
  * one (about 0.2 ms at loopback speed). Stream chunks are split to fit it too,
  * so no message on the stream is much larger.
@@ -136,8 +223,12 @@ const KEEPALIVE_MISSES = 3;
 
 /** Tuning for the mux path. Every field is optional. */
 export interface MuxPerPeerOptions {
-  /** Per-port window, in bytes. Default {@link DEFAULT_MUX_WINDOW}. */
-  window?: number;
+  /**
+   * Per-port window: a number of bytes for a fixed window (default
+   * {@link DEFAULT_MUX_WINDOW}), or the adaptive window (#128): `"auto"` for
+   * {@link DEFAULT_MUX_ADAPTIVE_WINDOW}, or its sizes as an object.
+   */
+  window?: number | "auto" | MuxAdaptiveWindow;
   /** Fair-framing size, and the size stream chunks are split to, in bytes. Default {@link DEFAULT_MUX_FRAME_SIZE}. */
   frameSize?: number;
   /**
@@ -148,7 +239,7 @@ export interface MuxPerPeerOptions {
   maxMessageBytes?: number;
   /**
    * What the mux holds of a peer's framed messages past their windows, summed
-   * over its ports, in bytes. Default: one `window`.
+   * over its ports, in bytes. Default: one `window` (an adaptive window's `initial`).
    */
   maxReassembledBytes?: number;
   /**
@@ -293,7 +384,8 @@ export function libp2pMuxLink(init: Libp2pMuxLinkInit): ClosablePeerLink & {
   const { node, perExchange, options } = init;
   const protocol = options.protocol ?? muxProtocolOf(init.protocol);
   const fallback = options.fallback ?? true;
-  const windowBytes = options.window ?? DEFAULT_MUX_WINDOW;
+  const portWindow = resolveMuxWindow(options.window);
+  const windowBytes = typeof portWindow === "number" ? portWindow : portWindow.initial;
   const frameSize = options.frameSize ?? DEFAULT_MUX_FRAME_SIZE;
   const maxMessageBytes = options.maxMessageBytes ?? frameSize + MUX_MESSAGE_HEADROOM;
   const maxReassembledBytes = options.maxReassembledBytes ?? windowBytes;
@@ -352,7 +444,7 @@ export function libp2pMuxLink(init: Libp2pMuxLinkInit): ClosablePeerLink & {
       // presuming on that mux and fails only a port that already sent
       // something; the mux lives on. The serving side opens no ports.
       ...(side === "initiator" ? { presumeAck: "always" as const } : {}),
-      window: windowBytes,
+      window: portWindow,
       frameSize,
       maxReassembledBytes,
       maxPorts,
