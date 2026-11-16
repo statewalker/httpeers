@@ -1,5 +1,18 @@
 # @statewalker/httpeers-member
 
+## 0.7.0
+
+### Minor Changes
+
+- Release of the changes since the last published version:
+  
+  - @statewalker/httpeers-libp2p crosses a breaking line
+
+### Patch Changes
+
+- Updated dependencies [6664e3b]
+  - @statewalker/httpeers-libp2p@0.7.0
+
 ## 0.6.0
 
 ### Minor Changes
