@@ -141,18 +141,18 @@ export interface MuxAdaptiveWindow {
  * link is built, not on every exchange.
  */
 export function resolveMuxWindow(
-  window: number | MuxAdaptiveWindow | undefined,
+  option: number | MuxAdaptiveWindow | undefined,
 ): number | Required<MuxAdaptiveWindow> {
   const valid = (n: number) => Number.isSafeInteger(n) && n > 0;
-  if (typeof window === "number") {
-    if (!valid(window)) {
+  if (typeof option === "number") {
+    if (!valid(option)) {
       throw new RangeError(
-        `httpeers-libp2p: a mux window must be a positive integer, got ${window}`,
+        `httpeers-libp2p: a fixed per-port mux size must be a positive integer, got ${option}`,
       );
     }
-    return window;
+    return option;
   }
-  const w = window ?? {};
+  const w = option ?? {};
   const d = DEFAULT_MUX_ADAPTIVE_WINDOW;
   const initial = w.initial ?? Math.min(d.initial, w.max ?? w.budget ?? d.initial);
   const max = w.max ?? Math.max(initial, Math.min(d.max, w.budget ?? d.max));
@@ -164,7 +164,7 @@ export function resolveMuxWindow(
     !(min <= initial && initial <= max && max <= budget)
   ) {
     throw new RangeError(
-      `httpeers-libp2p: an adaptive mux window needs positive integers with min <= initial <= max <= budget, got ${JSON.stringify(sizes)}`,
+      `httpeers-libp2p: the adaptive per-port mux sizes need positive integers with min <= initial <= max <= budget, got ${JSON.stringify(sizes)}`,
     );
   }
   return sizes;
