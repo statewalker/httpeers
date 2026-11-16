@@ -102,8 +102,10 @@ export const DEFAULT_MUX_WINDOW = 256 * 1024;
  * fast or long path) and shrinks back toward the agreed window where more
  * would only queue, which keeps a request beside a download prompt. It never
  * grants less than the window agreed at the open, so a peer on an older
- * webrun-rpc (httpeers-libp2p 0.6 and earlier) runs as before; a larger
- * window that peer asks for is held to `initial`.
+ * webrun-rpc (httpeers-libp2p 0.6 and earlier) runs as before at that window.
+ * A larger window asked for is held to `initial` only by an opener that lists
+ * the `"window"` capability (webrun-rpc 0.13 and later); an older opener
+ * keeps the window it asked for, as it did against a fixed window.
  *
  * The sizes are webrun-rpc's `"auto"`, except `budget`:
  * - `min` 64 KiB: two frames, enough for a request beside a download.
@@ -118,12 +120,54 @@ export const DEFAULT_MUX_ADAPTIVE_WINDOW = {
   budget: 32 * 1024 * 1024,
 } as const;
 
-/** Sizing of the adaptive window, in bytes; unset fields take {@link DEFAULT_MUX_ADAPTIVE_WINDOW}'s. */
+/**
+ * Sizing of the adaptive window, in bytes. Unset fields follow the ones given
+ * ({@link resolveMuxWindow}): `initial` 256 KiB, or `max` if that is smaller;
+ * `min` 64 KiB, or `initial` if that is smaller; `max` 16 MiB, or `initial` /
+ * `budget` where they ask for more / less; `budget` 32 MiB, or `max` if larger.
+ */
 export interface MuxAdaptiveWindow {
   initial?: number;
   min?: number;
   max?: number;
   budget?: number;
+}
+
+/**
+ * The `window` the mux passes to webrun-rpc: a number as given (a fixed
+ * window), or the adaptive window's four sizes, the unset ones derived from
+ * the given ones so that `min <= initial <= max <= budget` holds. Sizes the
+ * caller gave that contradict each other throw a `RangeError` here, when the
+ * link is built, not on every exchange.
+ */
+export function resolveMuxWindow(
+  window: number | MuxAdaptiveWindow | undefined,
+): number | Required<MuxAdaptiveWindow> {
+  const valid = (n: number) => Number.isSafeInteger(n) && n > 0;
+  if (typeof window === "number") {
+    if (!valid(window)) {
+      throw new RangeError(
+        `httpeers-libp2p: a mux window must be a positive integer, got ${window}`,
+      );
+    }
+    return window;
+  }
+  const w = window ?? {};
+  const d = DEFAULT_MUX_ADAPTIVE_WINDOW;
+  const initial = w.initial ?? Math.min(d.initial, w.max ?? w.budget ?? d.initial);
+  const max = w.max ?? Math.max(initial, Math.min(d.max, w.budget ?? d.max));
+  const min = w.min ?? Math.min(d.min, initial);
+  const budget = w.budget ?? Math.max(d.budget, max);
+  const sizes = { initial, min, max, budget };
+  if (
+    ![initial, min, max, budget].every(valid) ||
+    !(min <= initial && initial <= max && max <= budget)
+  ) {
+    throw new RangeError(
+      `httpeers-libp2p: an adaptive mux window needs positive integers with min <= initial <= max <= budget, got ${JSON.stringify(sizes)}`,
+    );
+  }
+  return sizes;
 }
 
 /**
@@ -328,10 +372,7 @@ export function libp2pMuxLink(init: Libp2pMuxLinkInit): ClosablePeerLink & {
   const { node, perExchange, options } = init;
   const protocol = options.protocol ?? muxProtocolOf(init.protocol);
   const fallback = options.fallback ?? true;
-  const portWindow =
-    typeof options.window === "number"
-      ? options.window
-      : { ...DEFAULT_MUX_ADAPTIVE_WINDOW, ...options.window };
+  const portWindow = resolveMuxWindow(options.window);
   const windowBytes = typeof portWindow === "number" ? portWindow : portWindow.initial;
   const frameSize = options.frameSize ?? DEFAULT_MUX_FRAME_SIZE;
   const maxMessageBytes = options.maxMessageBytes ?? frameSize + MUX_MESSAGE_HEADROOM;

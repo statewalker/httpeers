@@ -22,7 +22,12 @@ import type { PeerIdStr } from "@statewalker/httpeers-core";
 import { afterEach, describe, expect, it } from "vitest";
 import { generateKey } from "../src/identity.js";
 import type { MuxPerPeer } from "../src/mux-link.js";
-import { DEFAULT_MUX_ADAPTIVE_WINDOW, DEFAULT_MUX_WINDOW } from "../src/mux-link.js";
+import {
+  DEFAULT_MUX_ADAPTIVE_WINDOW,
+  DEFAULT_MUX_WINDOW,
+  libp2pMuxLink,
+  resolveMuxWindow,
+} from "../src/mux-link.js";
 import { createNode, createRemote, serveTransport } from "../src/transport.js";
 
 const cleanup: Array<() => unknown> = [];
@@ -131,4 +136,57 @@ describe("the adaptive mux window (#128)", () => {
     const adaptive = await download(true);
     expect(adaptive).toBeGreaterThan(2 * capped);
   }, 60_000);
+});
+
+describe("sizing the adaptive window (resolveMuxWindow)", () => {
+  const KiB = 1024;
+  const MiB = 1024 * KiB;
+  it("a number is a fixed window, unset is the default", () => {
+    expect(resolveMuxWindow(DEFAULT_MUX_WINDOW)).toBe(DEFAULT_MUX_WINDOW);
+    expect(resolveMuxWindow(undefined)).toEqual(DEFAULT_MUX_ADAPTIVE_WINDOW);
+  });
+
+  it("derives the unset fields from the ones given, so a partial object is always valid", () => {
+    // Each of these, merged field by field over the defaults, broke min <= initial <= max <= budget.
+    expect(resolveMuxWindow({ initial: 32 * KiB })).toEqual({
+      initial: 32 * KiB,
+      min: 32 * KiB,
+      max: 16 * MiB,
+      budget: 32 * MiB,
+    });
+    expect(resolveMuxWindow({ budget: 8 * MiB })).toEqual({
+      initial: 256 * KiB,
+      min: 64 * KiB,
+      max: 8 * MiB,
+      budget: 8 * MiB,
+    });
+    expect(resolveMuxWindow({ initial: 64 * MiB })).toEqual({
+      initial: 64 * MiB,
+      min: 64 * KiB,
+      max: 64 * MiB,
+      budget: 64 * MiB,
+    });
+    expect(resolveMuxWindow({ max: 128 * KiB })).toEqual({
+      initial: 128 * KiB,
+      min: 64 * KiB,
+      max: 128 * KiB,
+      budget: 32 * MiB,
+    });
+  });
+
+  it("refuses sizes the user gave that contradict each other, when the link is built", () => {
+    expect(() => resolveMuxWindow({ min: 1 * MiB, max: 512 * KiB })).toThrow(RangeError);
+    expect(() => resolveMuxWindow({ initial: 0 })).toThrow(RangeError);
+    expect(() => resolveMuxWindow(0)).toThrow(RangeError);
+    expect(() =>
+      libp2pMuxLink({
+        // Never dialled: the sizing is checked before the link is used.
+        node: {} as never,
+        perExchange: {} as never,
+        protocol: "/httpeers/1.0.0",
+        maxInboundStreams: 512,
+        options: { window: { min: 1 * MiB, max: 512 * KiB } },
+      } as never),
+    ).toThrow(RangeError);
+  });
 });
