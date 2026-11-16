@@ -318,19 +318,24 @@ that peer's current connection, so old and new peers interoperate both ways;
 `muxPerPeer: { fallback: false }` fails such calls with
 `PeerProtocolUnsupportedError` instead.
 
-**Serving-side bounds.** The per-exchange path's contract
-(`DEFAULT_MAX_STREAMS` × `DEFAULT_DRAIN_TIMEOUT_MS`) carries over. (Every
-serving side also serves one stream per exchange, on
-`/httpeers/1.0.0/ports/window` and the deprecated `/httpeers/1.0.0`, through
-`webrun-streams-libp2p`. From its 0.7.1, which the catalog requires
-(statewalker/webrun-wire#195), a caller there that stops reading holds about
-one window on the server, the server's own 4 MiB whatever the caller
-announces, plus one frame, and a write blocked on the stream's drain for
-`drainTimeoutMs` (15 s) drops the exchange. A caller whose transport took the
-whole window before it stopped leaves the server waiting for credit instead,
-which is not timed: that exchange stays parked, holding about a chunk on the
-server, until the caller reads, cancels or disconnects;
-`tests/stalled-port-caller.test.ts`.)
+**Serving-side bounds.** On the mux, the per-exchange path's old contract
+(`DEFAULT_MAX_STREAMS` × `DEFAULT_DRAIN_TIMEOUT_MS`) carries over, as listed
+below. It no longer holds in full for one stream per exchange, which every
+serving side also serves (on `/httpeers/1.0.0/ports/window` and the
+deprecated `/httpeers/1.0.0`, through `webrun-streams-libp2p`), nor for the
+duplex protocol. From `webrun-streams-libp2p` 0.7.1, which the catalog
+requires (statewalker/webrun-wire#195), a caller there that stops reading
+holds about one window on the server (the server's own 4 MiB, whatever the
+caller announces) plus one frame, and a write blocked on the stream's drain
+for `drainTimeoutMs` (15 s) drops the exchange. But the ordinary case, a
+caller that just stops consuming the body (a stock `connect` that takes the
+`Response` and never reads it), leaves the server waiting for port credit,
+which is not timed: the handler stays parked, holding about a chunk, until
+the caller reads, cancels or disconnects. The drain bound applies only when
+the caller's transport backpressures first (`tests/stalled-port-caller.test.ts`).
+statewalker/webrun-wire#201 (time-bound a sender stalled on credit) closes
+the gap; the default call path, the mux, already times credit stalls
+(`droppingStalledWrites`).
 
 - at most `maxInboundStreams` (512) exchanges are served at once per
   connection, counted across all of its muxes; a port past that is refused

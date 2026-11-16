@@ -95,9 +95,15 @@ export interface ServeDuplexInit {
   /** A relayed circuit is a limited connection; libp2p refuses this protocol on one unless told otherwise. */
   runOnLimitedConnection?: boolean;
   /**
-   * How long a served stream's write may stay blocked on a caller that stopped
-   * reading before the stream is dropped. Left unset, `webrun-streams-libp2p`'s
-   * default (5 minutes) applies; 0 or `Infinity` never drops.
+   * How long a served stream's write may stay blocked on the stream's drain
+   * before the stream is dropped. Left unset, `webrun-streams-libp2p`'s default
+   * (5 minutes) applies. Passed on unchanged: on the port protocol 0 or
+   * `Infinity` means no bound, but on the deprecated protocol (callers on
+   * httpeers-libp2p 0.5 and older) 0 drops a backpressured stream at once and
+   * `Infinity` overflows Node's timer to about 1 ms, so use a large finite
+   * value for "never". Like one stream per exchange, it does not bound a caller
+   * that stops consuming once a window is out (statewalker/webrun-wire#201;
+   * see `DEFAULT_DRAIN_TIMEOUT_MS` in `transport.ts`).
    */
   drainTimeoutMs?: number;
 }

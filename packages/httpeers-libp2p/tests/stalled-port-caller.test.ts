@@ -23,11 +23,12 @@
  *
  *   - a stock node, whose yamux stream window (up to 16 MiB) takes the whole
  *     clamped port window (4 MiB) before backpressure reaches the server: the
- *     server then waits for port CREDIT. Checked for the bound only: 0.7.1's
+ *     server then waits for port CREDIT, as it does for any caller that just
+ *     stops consuming the body. Checked for the bound only: 0.7.1's
  *     `drainTimeoutMs` counts a write blocked on the stream's drain, not one
  *     waiting for credit, so such an exchange stays parked (holding about a
  *     chunk on the server, the window sits with the caller) until the caller
- *     reads, cancels or its connection closes;
+ *     reads, cancels or its connection closes (statewalker/webrun-wire#201);
  *   - a node whose yamux grants at most 256 KiB per stream, so the server's
  *     stream fills and NEEDS A DRAIN first: checked for the bound and for the
  *     drop after `drainTimeoutMs`, which shows httpeers' `drainTimeoutMs`

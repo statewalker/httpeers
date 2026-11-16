@@ -37,7 +37,12 @@ export interface Libp2pLinkInit {
   node: Libp2p;
   /** Defaults to `PROTOCOL`. Two meshes on one node need two protocols. */
   protocol?: string;
-  /** The bound on a blocked response write, on both paths. See `DEFAULT_DRAIN_TIMEOUT_MS`. */
+  /**
+   * The bound on a response write blocked on the caller: on the mux, for credit
+   * or drain; on one stream per exchange, only for a drain (a caller that just
+   * stops consuming is not bounded there until statewalker/webrun-wire#201).
+   * See `DEFAULT_DRAIN_TIMEOUT_MS`.
+   */
   drainTimeoutMs?: number;
   maxInboundStreams?: number;
   maxOutboundStreams?: number;
