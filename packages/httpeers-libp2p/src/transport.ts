@@ -19,8 +19,9 @@
  *
  * `serveConnections` is used here rather than registering the protocol by
  * hand (`node.handle`), because it already threads `ConnectionContext`
- * through and owns the serving-side input queue / backpressure handling
- * (`duplexOverStream`) a hand port would have to reimplement.
+ * through and owns the per-call flow control (since its 0.7, a windowed
+ * native-port mux; `duplexOverStream` before) a hand port would have to
+ * reimplement.
  */
 import { noise } from "@chainsafe/libp2p-noise";
 import { yamux } from "@chainsafe/libp2p-yamux";
@@ -94,14 +95,46 @@ export const DEFAULT_MAX_STREAMS = 512;
 
 /**
  * How long a served stream waits for a backpressured peer to drain before
- * being dropped. This is the ONLY bound on a peer that requests something
- * and then stops reading without closing — the serving side has no
- * `.return`/abort escape the way `connect`'s caller side does.
+ * being dropped. Where it applies (below), this is the ONLY bound on a peer
+ * that requests something and then stops reading without closing — the
+ * serving side has no `.return`/abort escape the way `connect`'s caller side
+ * does. On the one-stream-per-exchange and duplex protocols it does NOT bound
+ * a caller that simply stops consuming the body (the gap below).
+ *
+ * WHERE IT APPLIES. Every serving side, on either path, serves both the mux
+ * protocol and one stream per exchange. The mux enforces it itself
+ * (`droppingStalledWrites`, `mux-link.ts`). One stream per exchange passes it
+ * to `webrun-streams-libp2p`'s `serveConnections`, which serves
+ * `/httpeers/1.0.0/ports/window` (each exchange a port of its windowed
+ * native-port mux) and, for peers on httpeers-libp2p 0.5 and older, its
+ * deprecated protocol on `/httpeers/1.0.0`. From `webrun-streams-libp2p`
+ * 0.7.1 (statewalker/webrun-wire#195, required by the catalog) a caller on the
+ * port protocol holds at most about one window on the server (the server's
+ * own, 4 MiB, whatever larger window the caller announces) plus one frame,
+ * nothing is written while the stream needs to drain, and a write blocked on
+ * that drain for `drainTimeoutMs` drops the exchange.
+ *
+ * THE GAP, the ordinary case there: a caller on the port protocol (one stream
+ * per exchange, or the duplex protocol) that stops consuming the body, a
+ * stock `connect` with its default window that takes the `Response` and never
+ * reads it included, leaves the server waiting for port CREDIT once a window
+ * is out, and 0.7.1 does not time that wait. The handler stays parked, with no
+ * time bound, until the caller reads, cancels, or its connection closes; it
+ * holds about a chunk on the server (the window's bytes sit with the caller).
+ * The drain bound applies only when the caller's transport backpressures
+ * before the window is used up (`tests/stalled-port-caller.test.ts`).
+ * statewalker/webrun-wire#201 (time-bound a sender stalled on credit) closes
+ * it. The default call path, the mux, is not affected: `droppingStalledWrites`
+ * times a write blocked on credit as well.
  *
  * It multiplies with `DEFAULT_MAX_STREAMS`: a peer that opens the full
  * stream cap and never reads any of them pins `DEFAULT_MAX_STREAMS *
  * drainTimeoutMs` stream-milliseconds of server-side buffer before every one
- * of them is finally dropped. `webrun-streams-libp2p`'s own default (5
+ * of them is finally dropped. That product, and the "clears within one
+ * operational window" below, hold on the mux and wherever the drain bound
+ * applies, NOT for the gap above: there up to `DEFAULT_MAX_STREAMS` parked
+ * exchanges per connection (about a chunk each) stay until the caller lets go
+ * or disconnects, until statewalker/webrun-wire#201. `webrun-streams-libp2p`'s own default (5
  * minutes) times a 512-stream cap is ~42.7 stream-hours of exposure — too
  * generous to leave in force once the cap itself has been raised well past
  * libp2p's default. 15 seconds is chosen instead: long enough that a

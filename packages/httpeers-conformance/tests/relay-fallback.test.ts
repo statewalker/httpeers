@@ -50,8 +50,13 @@ import { hubHoldsCircuitTo, type Mesh, startMesh } from "./mesh-harness.js";
 
 const CHUNKS = 20;
 
-/** The protocol a call rides: the mux's when the suite runs on that path (`test:mux`). */
-const CALL_PROTOCOL = MUX_PER_PEER ? MUX_PROTOCOL : PROTOCOL;
+/**
+ * The protocol a call rides: the mux's when the suite runs on that path
+ * (`test:mux`); otherwise the port protocol `webrun-streams-libp2p` 0.7's
+ * `connect` negotiates between two current peers (`portProtocolOf(PROTOCOL)`
+ * plus `/window`; `PROTOCOL` itself is its fallback for older peers).
+ */
+const CALL_PROTOCOL = MUX_PER_PEER ? MUX_PROTOCOL : `${PROTOCOL}/ports/window`;
 
 let mesh: Mesh | null = null;
 let member: Libp2p | null = null;

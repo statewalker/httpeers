@@ -18,6 +18,7 @@ const BOTH_PATHS = [
   "tests/serve-peer.test.ts",
   "tests/peer-gone.test.ts",
   "tests/quiet-exchange.test.ts",
+  "tests/early-response.test.ts",
 ];
 
 export default defineConfig({
