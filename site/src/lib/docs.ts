@@ -74,6 +74,10 @@ export const relatedPages: Record<string, { href: string; label: string }[]> = {
   "packages/webrun-biscuit": [
     { href: "/docs/access#tokens", label: "Access control: how httpeers uses Biscuit" },
     { href: "/docs/access#attenuation", label: "Access control: attenuation" },
+    {
+      href: "/docs/access#application-grants",
+      label: "Access control: rights an application passes on",
+    },
   ],
   "packages/httpeers-hub": [{ href: "/docs/membership", label: "Joining a mesh, explained" }],
   "packages/httpeers-qr": [

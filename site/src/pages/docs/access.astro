@@ -173,6 +173,20 @@ const narrowed = Biscuit.fromBase64(token)
     a token Carol can use. Delegation to another member is listed under <em>Not implemented</em> in
     httpeers-access; Carol needs a token of her own from the hub.
   </p>
+
+  <h3 id="application-grants">Rights an application passes on</h3>
+  <p>
+    Rights inside an application can travel. <code>Authorization</code> passes through the mesh untouched
+    (<a href="/docs/architecture#headers">the two headers</a>), so an application can sign its own Biscuits with
+    its own key and its own vocabulary. Alice attenuates the grant Bob's application gave her, for example to
+    <code>check if operation("GET"); check if caller("&lt;carol&gt;");</code>, and hands it to Carol by any
+    channel. Bob's handler verifies it against the application's public key and asserts the caller the transport
+    proved (<code>lookupPeer</code>), so the right is bound to the peer it was given to: Carol may read, may not
+    write, and Alice cannot use Carol's copy. The membership token still decides whether Carol may reach Bob at
+    all; the application token decides what she may do there. The
+    <a href="/examples/app-grants">application grant example</a> runs exactly that. Verifying the grant is the
+    handler's code, not httpeers-access's: the library checks membership only.
+  </p>
   <p>
     The hub can also restrict a token to named peers when it mints it (<code>audience</code>). That restriction sits
     in the signed authority block and is evaluated by the destination against its own <code>self_peer</code>, so a
@@ -214,7 +228,7 @@ const narrowed = Biscuit.fromBase64(token)
 
   <h2 id="unsupported">What is not implemented</h2>
   <ul>
-    <li>Delegation to a different holder (above): a token always names, and is bound to, one subject.</li>
+    <li>Delegation of membership to a different holder (above): a token always names, and is bound to, one subject. An application can pass its own rights on (<a href="#application-grants">above</a>).</li>
     <li>Attenuation by path or method: the verifier does not assert <code>resource</code> or <code>operation</code>.</li>
     <li>Audience by class (<code>audience_class</code>): nothing produces the facts it would check, so such a token is refused.</li>
     <li>
@@ -228,6 +242,7 @@ const narrowed = Biscuit.fromBase64(token)
   <ul>
     <li><a href="/examples/access-tokens">Tokens and policy</a>: roles, capabilities, a stolen token, a foreign mesh.</li>
     <li><a href="/examples/delegation">Narrowing a token</a>: attenuation, checked at another peer.</li>
+    <li><a href="/examples/app-grants">Passing a right to another peer</a>: an application grant, narrowed by Alice for Carol.</li>
     <li><a href="/examples/hub-invitation">A hub in a tab, and an invitation</a>: where tokens come from.</li>
   </ul>
   <p>

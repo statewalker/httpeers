@@ -45,6 +45,7 @@ instead of libp2p, so they need no relay and send nothing over the network:
 | `mesh-over-ports` | Two peers serving FetchHandlers to each other; a forged `x-httpeers-peer` overwritten; a 404 from the mount table |
 | `access-tokens` | Biscuit tokens minted by a hub, `withAccess` and a Datalog policy: member, admin, no token, a token in the wrong hands, a foreign mesh's token |
 | `delegation` | Attenuation: Alice appends `check if self_peer(Bob)` and a shorter expiry to her token without the hub; accepted at Bob, refused at Dave; an appended `role("admin")` grants nothing; a tampered token and the same token sent by Carol are refused |
+| `app-grants` | An application's own Biscuit, sent in `Authorization`: Bob's app grants Alice a right, Alice narrows it for Carol, Bob binds it to the proven caller; refused for the removed right, in Alice's hands, tampered, or without membership |
 | `hub-invitation` | `createHub` in the tab, an invitation as a QR code, redeemed once over the hub's `/.well-known/invite`, refused on replay, then the mesh view with the token |
 
 An example throws (`expect` in `src/examples/output.ts`) when what it demonstrates did not happen,
