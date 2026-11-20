@@ -1,5 +1,11 @@
 # @statewalker/httpeers-share
 
+## 0.8.0
+
+### Minor Changes
+
+- 4bb75d6: The Bridge relays to `*.localhost` names (RFC 6761), resolved first and allowed only if every address is loopback. `checkServiceTarget` treats them as local: Bridged, never Direct. `TargetVerdict`'s resolve case now carries `require: "private" | "loopback"`; `isLoopbackAddress` is exported.
+
 ## 0.7.0
 
 ### Minor Changes
