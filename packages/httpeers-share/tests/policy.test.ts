@@ -15,6 +15,7 @@ describe("04 — what can be shared in v1", () => {
     ["bridged", "http://127.0.0.1:8080"],
     ["bridged", "http://192.168.1.20:8000"],
     ["bridged", "http://nas.local:5000"],
+    ["bridged", "http://shop.dev.localhost"],
     ["direct", "https://api.example.com"],
     ["direct", "https://wiki.example.com:8443/base"],
   ] as const)("%s %s: allowed", (kind, target) => {
@@ -27,6 +28,7 @@ describe("04 — what can be shared in v1", () => {
     ["direct", "https://[2001:db8::1]", "needs-domain-name"],
     ["direct", "https://localhost:5173", "local-needs-bridge"],
     ["direct", "https://nas.local", "local-needs-bridge"],
+    ["direct", "http://shop.dev.localhost", "local-needs-bridge"],
     ["bridged", "https://api.example.com", "remote-is-direct"],
     ["bridged", "http://8.8.8.8", "not-local"],
     ["bridged", "ftp://localhost", "not-http"],

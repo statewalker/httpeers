@@ -4,13 +4,19 @@
  *
  * Literal addresses are checked as they are. A DNS name is decided by whoever
  * controls its zone at request time (DNS rebinding), so names are refused,
- * with two exceptions: `localhost`, and mDNS `.local` names, which are
+ * with three exceptions: `localhost`; mDNS `.local` names, which are
  * resolved FIRST and allowed only if every address they resolve to is
- * private. (Some company networks serve `.local` from ordinary DNS, so the
- * name alone proves nothing.)
+ * private (some company networks serve `.local` from ordinary DNS, so the
+ * name alone proves nothing); and `*.localhost` names, which RFC 6761
+ * reserves for loopback, resolved FIRST and allowed only if every address
+ * is loopback (a resolver that forwards them to DNS could answer anything).
  */
 
-export type TargetVerdict = "allowed" | "forbidden" | { resolve: string };
+export type TargetVerdict =
+  | "allowed"
+  | "forbidden"
+  /** Resolve `resolve`, then allow only if every address passes `require`. */
+  | { resolve: string; require: "private" | "loopback" };
 
 export function checkTarget(target: string): TargetVerdict {
   let url: URL;
@@ -24,7 +30,9 @@ export function checkTarget(target: string): TargetVerdict {
   const host = url.hostname.replace(/^\[|\]$/g, "").toLowerCase();
   if (host === "localhost") return "allowed";
   if (isAddress(host)) return isPrivateAddress(host) ? "allowed" : "forbidden";
-  if (/^[a-z0-9-]+(\.[a-z0-9-]+)*\.local$/.test(host)) return { resolve: host };
+  if (/^[a-z0-9-]+(\.[a-z0-9-]+)*\.local$/.test(host)) return { resolve: host, require: "private" };
+  if (/^[a-z0-9-]+(\.[a-z0-9-]+)*\.localhost$/.test(host))
+    return { resolve: host, require: "loopback" };
   return "forbidden";
 }
 
@@ -48,4 +56,9 @@ export function isPrivateAddress(address: string): boolean {
   // Link-local (fe80::/10) and IPv4-mapped addresses are refused.
   const v6 = address.toLowerCase();
   return v6 === "::1" || /^f[cd][0-9a-f]{0,2}:/.test(v6);
+}
+
+/** `127.0.0.0/8` and `::1`: this machine only. */
+export function isLoopbackAddress(address: string): boolean {
+  return /^127\.\d+\.\d+\.\d+$/.test(address) || address.toLowerCase() === "::1";
 }

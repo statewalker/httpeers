@@ -28,7 +28,7 @@ pnpm add @statewalker/httpeers-share
 | Import | Gives | Runs in | Rung |
 |---|---|---|---|
 | `.` | `createUpstream`, `unreachable`, the `BRIDGE_*` header contract | anywhere | 01 |
-| `.` | `checkServiceTarget` (v1 policy), `checkTarget`, `isPrivateAddress` | anywhere | 04, 02 |
+| `.` | `checkServiceTarget` (v1 policy), `checkTarget`, `isPrivateAddress`, `isLoopbackAddress` | anywhere | 04, 02 |
 | `.` | `probe` | anywhere | 04 |
 | `.` | `serviceTable` (catalog at `/s/`, Pause, routing) | anywhere | 07 |
 | `.` | `encodeInvite`, `decodeInvite` | anywhere | 06 |
