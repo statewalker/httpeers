@@ -17,15 +17,15 @@
 # Usage: site/scripts/setup-publish-secrets.sh
 #   HTTPEERS_SSH   default kotelnikov@163.172.46.87
 #   REPO           default statewalker/httpeers
-#   SITE_DOMAIN    default www.httpeers.net      (where the workflow publishes)
-#   SITE_DOMAINS   default www.httpeers.net httpeers.net   (prefixes the user may write)
+#   SITE_DOMAIN    default httpeers.com          (where the workflow publishes)
+#   SITE_DOMAINS   default httpeers.com          (prefixes the user may write)
 #   SITE_USER      default httpeers-site         (the RustFS user's access key)
 set -euo pipefail
 
 HTTPEERS_SSH=${HTTPEERS_SSH:-kotelnikov@163.172.46.87}
 REPO=${REPO:-statewalker/httpeers}
-SITE_DOMAIN=${SITE_DOMAIN:-www.httpeers.net}
-SITE_DOMAINS=${SITE_DOMAINS:-www.httpeers.net httpeers.net}
+SITE_DOMAIN=${SITE_DOMAIN:-httpeers.com}
+SITE_DOMAINS=${SITE_DOMAINS:-httpeers.com}
 SITE_USER=${SITE_USER:-httpeers-site}
 ENDPOINT=https://s3.httpeers.net
 RC_IMAGE=rustfs/rc:v0.1.37  # RustFS's own client; MinIO no longer publishes mc images

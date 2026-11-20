@@ -34,7 +34,7 @@ apps/demos/            the demo sites: hub, app, images, proxy
 deploy/                the production compose stack, the Caddyfile, the ingress image
 deploy/llm-appliance/  hub + LiteLLM + Postgres + Traefik, locally or on the server
 tools/publish/         shell toolkit: publish sites by editing a folder
-site/                  the website (www.httpeers.net), with live examples of the libraries
+site/                  the website (httpeers.com), with live examples of the libraries
 docs/                  the security model
 .github/workflows/     CI, and one image workflow per deployable
 ```

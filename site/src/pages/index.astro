@@ -164,7 +164,7 @@ const useCases = [
       Peers, a hub and their tokens, joined by MessagePorts instead of libp2p: the same code a deployed mesh runs,
       with no relay and nothing leaving your browser. Each page shows the module it runs.
     </p>
-    <div class="mt-8 grid gap-4 md:grid-cols-3">
+    <div class="mt-8 grid gap-4 md:grid-cols-2 lg:grid-cols-4">
       {
         examples.map((e, i) => (
           <a href={`/examples/${e.slug}`} class="group rounded-xl border bg-card p-5 transition-colors hover:border-primary/50">
@@ -227,7 +227,10 @@ const useCases = [
           authority. Mount freely, and run only already-trusted code on the origin that holds the mount; a peer's app
           gets an origin of its own. Read this before building on httpeers.
         </p>
-        <Button href="/docs/security" class="mt-4">Read the security model <Icon name="arrowRight" /></Button>
+        <div class="mt-4 flex flex-wrap gap-3">
+          <Button href="/docs/security">Read the security model <Icon name="arrowRight" /></Button>
+          <Button href="/docs/access" variant="outline">Access control: tokens and policy</Button>
+        </div>
       </div>
     </div>
   </section>

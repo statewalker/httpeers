@@ -91,7 +91,7 @@ pnpm test         # real ports, real libp2p nodes`;
     boundary safely but <em>code</em> does not.
   </p>
 
-  <h2>1. Two peers, no network</h2>
+  <h2 id="two-peers">1. Two peers, no network</h2>
   <p>
     <code>@statewalker/httpeers-bridge</code> carries HTTP over any duplex. Its <code>./ports</code> entry joins
     two peers back to back over <code>MessageChannel</code>, which is enough to write and test mesh logic with
@@ -103,7 +103,7 @@ pnpm test         # real ports, real libp2p nodes`;
     Run it now: the <a href="/examples/mesh-over-ports">two-peers example</a> does exactly this in your tab.
   </p>
 
-  <h2>2. Put a peer on the wire</h2>
+  <h2 id="wire">2. Put a peer on the wire</h2>
   <p>
     <a href={docHref("packages/httpeers-libp2p/README.md")}>httpeers-libp2p</a> is the only package that knows
     libp2p. <code>servePeer</code> puts the same mount table on a libp2p node, and the caller's identity comes from
@@ -111,7 +111,7 @@ pnpm test         # real ports, real libp2p nodes`;
   </p>
   <CodeBlock code={nodePeer} lang="ts" title="node-peer.ts" />
 
-  <h2>3. Join a mesh</h2>
+  <h2 id="join">3. Join a mesh</h2>
   <p>
     A mesh has a <strong>hub</strong> that mints invitations and membership tokens
     (<a href={docHref("packages/httpeers-hub/README.md")}>httpeers-hub</a>), and <strong>members</strong> that
@@ -127,11 +127,13 @@ pnpm test         # real ports, real libp2p nodes`;
   <CodeBlock code={page} lang="ts" title="page.ts" />
   <p>
     Who may call what is decided by each target peer, with Biscuit tokens and a Datalog policy
-    (<a href={docHref("packages/httpeers-access/README.md")}>httpeers-access</a>); see the
-    <a href="/examples/access-tokens">tokens example</a>.
+    (<a href={docHref("packages/httpeers-access/README.md")}>httpeers-access</a>): how they work is in
+    <a href="/docs/access">access control</a>, and the <a href="/examples/access-tokens">tokens example</a> runs them.
+    How an invitation becomes a membership: <a href="/docs/access#membership">invitations and membership</a>, and the
+    <a href="/examples/hub-invitation">hub example</a>.
   </p>
 
-  <h2>4. The services a mesh needs</h2>
+  <h2 id="services">4. The services a mesh needs</h2>
   <p>
     Browser peers cannot accept inbound connections, so they reserve a slot on a circuit relay. httpeers runs one at
     <code>relay.httpeers.net</code>, with a static-site host for <code>*.httpeers.net</code> and the session shell
@@ -140,7 +142,7 @@ pnpm test         # real ports, real libp2p nodes`;
     <a href={docHref("apps/relay/README.md")}>relay's README</a> how to run one on your machine.
   </p>
 
-  <h2>From source</h2>
+  <h2 id="from-source">From source</h2>
   <p>Node 24 and pnpm 10 through corepack:</p>
   <CodeBlock code={fromSource} title="terminal" />
   <p>

@@ -1257,6 +1257,9 @@ importers:
       '@statewalker/httpeers-qr':
         specifier: workspace:^
         version: link:../packages/httpeers-qr
+      '@statewalker/webrun-biscuit':
+        specifier: workspace:^
+        version: link:../packages/webrun-biscuit
       '@tailwindcss/vite':
         specifier: 'catalog:'
         version: 4.3.3(vite@8.3.8(@types/node@26.6.4)(esbuild@0.28.2)(jiti@2.7.0)(terser@5.51.2)(tsx@4.23.15)(yaml@2.9.1))

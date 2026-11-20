@@ -1,7 +1,8 @@
 ---
 import { getEntry, render } from "astro:content";
 import Docs from "@/layouts/Docs.astro";
-import { type RepoPage, repoPages } from "@/lib/docs";
+import { type RepoPage, relatedPages, repoPages } from "@/lib/docs";
+import { repoFile } from "@/lib/site";
 
 export function getStaticPaths() {
   return repoPages.map((page) => ({ params: { slug: page.slug }, props: { page } }));
@@ -30,8 +31,28 @@ const entry = await getEntry("repo", page.file);
 if (!entry) throw new Error(`${page.file} is not in the "repo" collection`);
 const { Content } = await render(entry);
 const description = describe(entry.body ?? "");
+const related = relatedPages[page.file] ?? [];
 ---
 
 <Docs title={page.label} description={description}>
+  {
+    related.length > 0 && (
+      <aside class="not-prose mb-8 rounded-xl border bg-muted/40 p-4 text-sm">
+        <p class="font-medium">On this site</p>
+        <ul class="mt-2 space-y-1">
+          {related.map((r) => (
+            <li>
+              <a href={r.href} class="text-primary underline-offset-4 hover:underline">
+                {r.label}
+              </a>
+            </li>
+          ))}
+        </ul>
+      </aside>
+    )
+  }
   <Content />
+  <p class="mt-10 text-sm text-muted-foreground">
+    This page is <a href={repoFile(page.file)}>{page.file}</a> in the repository, rendered at build time.
+  </p>
 </Docs>

@@ -7,7 +7,11 @@ import { defineConfig } from "astro/config";
 import { rehypeRepoLinks } from "./src/lib/rehype-repo-links.ts";
 
 export default defineConfig({
-  site: "https://www.httpeers.net",
+  site: "https://httpeers.com",
+  // Astro's HTML compression drops the space before an element that starts a new source line
+  // ("read the<a …>architecture</a>"), gluing words to links. scripts/compress.mjs writes .br/.gz
+  // copies of every page anyway, so the minification saved almost nothing.
+  compressHTML: false,
   vite: {
     plugins: [tailwindcss()],
   },

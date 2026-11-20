@@ -1,0 +1,275 @@
+---
+import CodeBlock from "@/components/CodeBlock.astro";
+import Docs from "@/layouts/Docs.astro";
+import { docHref } from "@/lib/docs";
+import { repoFile } from "@/lib/site";
+
+const authority = `mesh("<hub peer id>"); subject("<member>"); bound("<member>");
+role("member"); issued_at(<ms>); expires_at(<ms>);
+audience_unrestricted(true);                 // or: audience("<peer>"); ...
+check if bound($k), connection_peer($k);     // only over a link that proved the member
+check if mesh($m), root_mesh($m);            // only in the mesh the verifier expects
+check if audience_unrestricted(true);        // or: check if audience($k), self_peer($k);
+check if time_ms($t), $t < <expires_at>;     // expiry, against the verifier's clock`;
+
+const verifier = `connection_peer("<the peer the transport proved>");
+self_peer("<this verifier's own peer id>");
+root_mesh("<the mesh this verifier expects>");
+time_ms(<this verifier's clock>);
+allow if true;`;
+
+const mint = `import { generateSigner, mintToken } from "@statewalker/httpeers-access/issuer";
+
+const signer = await generateSigner();      // { mesh, seed }: mesh is the hub's peer id
+const token = await mintToken({
+  signer,
+  sub: memberPeerId,
+  roles: ["member"],
+  ttlMs: 60_000,
+  audience: [bobPeerId],                    // optional: omit for every peer of the mesh
+});`;
+
+const guard = `import { access, ruleSet, withAccess } from "@statewalker/httpeers-access";
+import { ANONYMOUS, lookupPeer } from "@statewalker/httpeers-core";
+
+const rules = ruleSet({
+  version: 1,
+  rules: [
+    'capability("app:read")  <- role("member");',
+    'capability("app:write") <- role("admin");',
+    'role("member")          <- role("admin");',
+  ],
+  policies: [
+    'allow if capability("app:read"), resource("/data")' +
+      ' or capability("app:read"), resource($r), $r.starts_with("/data/");',
+  ],
+});
+
+const guarded = withAccess({
+  issuer: hubPeerId,                        // the mesh, and its verifying key
+  rules,                                    // required: there is no default
+  selfPeer: myPeerId,                       // asserted as self_peer
+  provenPeer: (req) => lookupPeer(req) ?? ANONYMOUS,
+  revocation: revocationCache,              // optional: the hub's change list
+})(handler);`;
+
+const attenuate = `import { Biscuit } from "@statewalker/webrun-biscuit";
+
+// Anyone holding the token can append a block: no key, no call to the hub.
+const narrowed = Biscuit.fromBase64(token)
+  .attenuate("check if self_peer({bob});\\ncheck if time_ms($t), $t < {until};", {
+    params: { bob: bobPeerId, until: Date.now() + 5 * 60_000 },
+  })
+  .toBase64();`;
+
+const delegate = `// Bob's application issues its own token (its own key), sent in Authorization.
+const grant = Biscuit.build(appKey.secretKey,
+  'right("/reports/q3", "GET");\\nright("/reports/q3", "PUT");').toBase64();
+
+// Alice narrows it for Carol and hands it over.
+const forCarol = Biscuit.fromBase64(grant)
+  .attenuate('check if operation("GET");\\ncheck if caller({carol});', { params: { carol } })
+  .toBase64();
+
+// Bob's handler: verify against the app's public key, then state what is true now.
+const verified = await Biscuit.fromBase64(presented).verifyAsync(appKey.publicKey);
+const result = verified.authorize(
+  "caller({caller}); operation({op}); resource({path}); time_ms({now});\\n" +
+    "allow if right({path}, {op});",
+  { params: { caller: String(lookupPeer(req)), op: req.method, path: url.pathname, now: Date.now() } },
+);`;
+---
+
+<Docs
+  title="Access control"
+  description="How a peer decides who may call it: Biscuit membership tokens signed by the hub, verified offline against the hub's peer id, bound to the caller the transport proved, and a Datalog policy each peer holds itself. Attenuation, delegation, expiry and revocation."
+>
+  <h1>Access control</h1>
+  <p>
+    Every request in a mesh is decided by the peer that receives it. Two inputs meet there: a
+    <strong>membership token</strong> the hub signed, which says who the caller is and which roles it holds, and
+    the receiving peer's own <strong>rules</strong>, which say what those roles may do here. The token is a
+    <a href="https://www.biscuitsec.org/">Biscuit</a>: signed blocks of Datalog facts and checks, verified with a
+    public key. Nothing is looked up at a central server, and no secret is shared between peers.
+  </p>
+  <p>
+    The code is <a href={docHref("packages/httpeers-access/README.md")}>httpeers-access</a> (tokens, rules,
+    revocation, the <code>withAccess</code> middleware) on <a href={docHref("packages/webrun-biscuit/README.md")}
+      >webrun-biscuit</a
+    > (Biscuit in pure TypeScript), with the hub in <a href={docHref("packages/httpeers-hub/README.md")}>httpeers-hub</a>.
+    This page describes what they do; the <a href="/docs/security">security model</a> describes what the mesh as a
+    whole protects, and what it does not.
+  </p>
+
+  <h2 id="membership">Invitations and membership</h2>
+  <p>
+    A mesh is named by its hub's peer id. The hub admits peers with <strong>invitations</strong>:
+    <code>hub.invitations.create(roles, ttlMs)</code> returns a 128-bit random id from the platform CSPRNG, valid
+    once and until it expires. Whoever holds the id can become a member, so it is a bearer credential; the demos
+    show it as a QR code (<a href={docHref("packages/httpeers-qr/README.md")}>httpeers-qr</a>).
+  </p>
+  <ol>
+    <li>
+      The new peer posts the id to the hub's <code>POST /.well-known/invite</code>. This route and
+      <code>/.well-known/presence</code> are the bootstrap routes: they need a caller the transport proved, but no
+      token yet.
+    </li>
+    <li>
+      The hub redeems the invitation (a second redemption is refused with 403), records the proven peer as a
+      member with the invitation's roles, and answers with a fresh token.
+    </li>
+    <li>
+      From then on the member posts a heartbeat to <code>/.well-known/presence</code>; each answer carries a newly
+      minted token, so tokens can be short-lived. A member that stops posting leaves the mesh view within one TTL.
+    </li>
+  </ol>
+  <p>
+    A role exists exactly when some rule fires on it, so the hub refuses an invitation or a member record naming an
+    unknown role. <a href="/examples/hub-invitation">Run it: a hub in a tab, and an invitation</a>.
+  </p>
+
+  <h2 id="tokens">What a membership token says</h2>
+  <p>
+    <code>mintToken</code> writes a single <em>authority block</em> and signs it with the hub's Ed25519 key:
+  </p>
+  <CodeBlock code={authority} lang="txt" title="the authority block" />
+  <CodeBlock code={mint} lang="ts" title="hub side" />
+  <p>
+    Values are bound as Datalog parameters, never spliced into the source, so a role named
+    <code>"); role("admin</code> is a role with a strange name and nothing more.
+  </p>
+
+  <h2 id="verification">Verified offline, against the hub's peer id</h2>
+  <p>
+    An Ed25519 peer id inlines its public key, so the mesh id <em>is</em> the root key that verifies the token:
+    a verifier recovers it by parsing, with no directory, no key fetch and no network. A hub can only mint tokens
+    that self-certify as its own mesh. A token signed by another hub fails the signature check, and an RSA peer id
+    (which only hashes its key) yields no key and is denied.
+  </p>
+  <p>
+    <code>verifyToken</code> then runs the token's checks against facts that only the <strong>verifier</strong> states,
+    never anything read from the token:
+  </p>
+  <CodeBlock code={verifier} lang="txt" title="what the verifier asserts" />
+  <p>
+    The token states what it was granted; the node states what is true right now; Datalog decides. A token is read
+    from <code>x-httpeers-token</code> only. <code>Authorization</code> is left to the application.
+  </p>
+
+  <h2 id="policy">The node's policy</h2>
+  <p>
+    The token carries roles; each peer derives capabilities from them with its <strong>own</strong> rule set, built
+    locally and never fetched, so nothing remote can widen a decision. <code>withAccess</code> puts both steps in
+    front of a handler, in the one order that works: verify and bind the token, then evaluate the policy.
+  </p>
+  <CodeBlock code={guard} lang="ts" title="peer side" />
+  <ul>
+    <li>
+      The policy sees node facts (<code>operation</code>, <code>resource</code>, <code>self_peer</code>,
+      <code>connection_peer</code>, <code>time_ms</code>) and the token's authority facts (<code>subject</code>,
+      <code>mesh</code>, <code>role</code>, <code>issued_at</code>, <code>expires_at</code>).
+    </li>
+    <li>
+      <code>ruleSet()</code> refuses a rule set that would deny silently: a predicate nothing supplies, a policy naming
+      a capability no rule derives, a rule deriving a fact the node or the token states.
+    </li>
+    <li>Policies run deny first, so a <code>deny</code> beats any <code>allow</code> that also matches.</li>
+    <li>
+      No usable token is <code>401</code> (a fresh token may help); a token that is valid but not permitted is
+      <code>403</code>.
+    </li>
+    <li>Evaluation is bounded (<code>LIMITS</code>: facts, iterations, time), so a pathological rule set denies instead of hanging.</li>
+  </ul>
+  <p><a href="/examples/access-tokens">Run it: tokens and policy</a>.</p>
+
+  <h2 id="binding">Peer binding</h2>
+  <p>
+    <code>check if bound($k), connection_peer($k)</code> sits in the signed authority block, and
+    <code>connection_peer</code> is what the transport proved: the Noise handshake over libp2p, or the link in the
+    examples. A token presented by anyone but its subject fails that check, so a stolen or forwarded token is
+    useless to the peer holding it. That is why Carol's token in Alice's hands is refused (<code>401</code>), and why an
+    anonymous caller never satisfies a token.
+  </p>
+
+  <h2 id="audience">Audience</h2>
+  <p>
+    <code>mintToken(&#123; audience: [peer, …] &#125;)</code> restricts a token to the peers named. The check joins the
+    token's <code>audience</code> facts with the <code>self_peer</code> fact the <em>receiving</em> peer asserts
+    about itself, so the destination enforces it, whoever routed the request. Without an audience the token says
+    <code>audience_unrestricted(true)</code>, explicitly. A verifier that does not state its own id refuses every
+    audience-scoped token.
+  </p>
+
+  <h2 id="expiry">Expiry</h2>
+  <p>
+    The expiry is inlined in the authority block (<code>check if time_ms($t), $t &lt; &lt;expires_at&gt;</code>) and
+    checked against the verifier's clock in milliseconds. An expired token is <code>401</code>: the heartbeat gives
+    the member a fresh one.
+  </p>
+
+  <h2 id="revocation">Revocation and role changes</h2>
+  <p>
+    A token states its roles until it expires. On the hub, <code>RevocationRegistry.revoke(peer)</code> and
+    <code>changeRoles(peer, roles)</code> record a change; tokens minted before it stop verifying. Members hold
+    the hub's list in a <code>RevocationCache</code> and pass it to <code>withAccess(&#123; revocation &#125;)</code>.
+    Changing a member's roles therefore takes two writes: <code>hub.members.setRoles</code> and
+    <code>hub.revocations.changeRoles</code>; without the second, a demoted admin keeps admin for the life of its
+    token.
+  </p>
+
+  <h2 id="attenuation">Attenuation: narrowing a token</h2>
+  <p>
+    A Biscuit can be <em>attenuated</em> by whoever holds it: they append a block, signed with a key that travels
+    inside the token, with no call to the hub. A block adds checks, and every check of every block must pass, so a
+    block can only narrow. It cannot widen: the authority block's checks never see a later block's facts, so an
+    appended <code>role("admin")</code> or <code>bound("someone-else")</code> changes nothing.
+  </p>
+  <CodeBlock code={attenuate} lang="ts" title="a holder narrows its own token" />
+  <p>
+    <strong>What an appended block can check, on a membership token.</strong> At verification the verifier asserts
+    only <code>connection_peer</code>, <code>self_peer</code>, <code>root_mesh</code> and <code>time_ms</code>, so
+    useful narrowings are "only at these peers" (<code>self_peer</code>) and "only until" (<code>time_ms</code>). A
+    block that checks anything else, such as <code>operation("GET")</code> or a <code>resource</code>, names a fact
+    the verifier never states. It fails closed: the token is refused (<code>unsatisfied-constraint</code>, 403).
+    Narrowing by operation or path is done with the node's policy, or with an application token (below).
+  </p>
+  <p>
+    A holder may also <code>seal()</code> a token so that no further block can be appended. webrun-biscuit also
+    supports third-party blocks, signed by another key without holding the token; httpeers-access does not use them.
+  </p>
+  <p><a href="/examples/attenuation">Run it: attenuation and delegation</a>.</p>
+
+  <h2 id="delegation">Passing a right to another peer</h2>
+  <p>
+    <strong>Membership tokens are not delegated.</strong> A membership token is bound to its subject (above), and
+    no appended block can rebind it, so handing it to another peer gives that peer nothing. Delegation of
+    membership is listed as not implemented in httpeers-access, together with per-device binding and key rotation.
+    Each peer gets its own membership from the hub, through an invitation.
+  </p>
+  <p>
+    <strong>Rights inside an application are.</strong> Because <code>Authorization</code> passes through the mesh
+    untouched, an application can issue its own Biscuits, with its own key and its own vocabulary. The holder
+    attenuates one and hands it to another member. The receiving handler verifies it against the application's
+    public key and asserts the caller the transport proved, so a delegated right can be bound to the peer it was
+    given to:
+  </p>
+  <CodeBlock code={delegate} lang="ts" title="an application token, delegated" />
+  <p>
+    In the <a href="/examples/attenuation">live example</a> Carol may GET the report with Alice's narrowed grant, may
+    not PUT, and Alice cannot use Carol's copy. The membership token still decides whether Carol may reach Bob at
+    all. The application token decides what she may do there.
+  </p>
+
+  <h2 id="further">Further reading</h2>
+  <ul>
+    <li>
+      <a href={docHref("packages/httpeers-access/README.md")}>httpeers-access</a>: the API, and the reasons behind
+      it. The design notes are at the top of <a href={repoFile("packages/httpeers-access/src/tokens.ts")}>tokens.ts</a>
+      and <a href={repoFile("packages/httpeers-access/src/rules.ts")}>rules.ts</a>.
+    </li>
+    <li><a href={docHref("packages/webrun-biscuit/README.md")}>webrun-biscuit</a>: minting, attenuation, sealing, verification, Datalog.</li>
+    <li><a href={docHref("packages/httpeers-hub/README.md")}>httpeers-hub</a>: invitations, the member registry, revocation.</li>
+    <li><a href="/docs/architecture#headers">Architecture: the two headers</a> that carry the proven peer and the token.</li>
+    <li><a href="/docs/security">Security model</a>: data crosses safely, code does not.</li>
+  </ul>
+</Docs>

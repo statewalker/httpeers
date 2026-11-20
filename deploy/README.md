@@ -5,7 +5,8 @@
 The production deployment of the mesh's services on one host: **five containers** — four on a
 single `httpeers_edge` network, fronted by Caddy, plus a STUN server on its own published port. Caddy terminates TLS for `*.httpeers.net` and
 `*.p.httpeers.net`, plus `cellb.dev` and `*.cellb.dev` (a second domain, served by the same
-`sites` app; `www.cellb.dev` redirects to the apex).
+`sites` app; `www.cellb.dev` redirects to the apex), and the project websites `httpeers.com` and
+`vcs.statewalker.com` (see [6. Other domains](#6-other-domains-the-project-websites)).
 
 | Service | Image | What it is |
 |---|---|---|
@@ -213,6 +214,38 @@ the inode; compare `md5sum Caddyfile` with `docker exec httpeers_caddy md5sum
 A reload keeps every connection and certificate; a new site block's certificate is
 obtained in the background (for a DNS-01 wildcard, a little over the 2-minute
 propagation delay).
+
+### 6. Other domains: the project websites
+
+Two websites are served by the same `sites` app under domains of their own. Each is an exact
+name in the Caddyfile, issued over HTTP-01 (no Gandi token), and each is published by its
+repository's `site.yml` to the prefix named after the domain.
+
+| Name | Caddy | DNS (where) | Published by |
+| --- | --- | --- | --- |
+| `httpeers.com` | served | `A @ 163.172.46.87` (Gandi) | `statewalker/httpeers` `site.yml` |
+| `www.httpeers.com` | → `httpeers.com` | `A www 163.172.46.87` (Gandi) | — |
+| `httpeers.org`, `www.httpeers.org` | → `httpeers.com` | `A @` and `A www`, `163.172.46.87` (Gandi) | — |
+| `vcs.statewalker.com` | served | `A vcs 163.172.46.87`, **DNS only** (Cloudflare) | `statewalker/webrun-vcs` `site.yml` |
+| `vcs.statewalker.org` | → `vcs.statewalker.com` | `A vcs 163.172.46.87` (Gandi) | — |
+
+Order matters, because HTTP-01 only succeeds once a name resolves here:
+
+1. **DNS.** At Gandi, for `httpeers.com` and `httpeers.org`: replace the apex record (it points at
+   Gandi's parking page, `217.70.184.38`) and the `www` record (a CNAME to
+   `webredir.vip.gandi.net`) with the A records above, and turn off Gandi's **web forwarding**
+   for the domain if it is on, or it puts the CNAME back. For `statewalker.org` add `A vcs`. At
+   Cloudflare, for `statewalker.com`, add `A vcs` with the proxy **off** (grey cloud): proxied,
+   Cloudflare would terminate TLS itself and Caddy's HTTP-01 challenge never reaches the server.
+   Check each with `dig +short <name>` before going on.
+2. **Caddy.** Deploy the Caddyfile as in step 5. Caddy obtains the six certificates in the
+   background; `docker logs httpeers_caddy 2>&1 | grep -i 'certificate obtained'` shows them.
+3. **Publish.** In each repository run `site/scripts/setup-publish-secrets.sh` once (a RustFS user
+   that can write only its own prefix, plus the repository's secrets and `SITE_DOMAIN`), then the
+   `site` workflow. Until a prefix exists, the name answers 404.
+
+Then `curl -sI https://httpeers.com/ | head -1` gives `200`, and
+`curl -sI https://httpeers.org/` a `301` to `https://httpeers.com/`.
 
 ## Why it is the way it is
 

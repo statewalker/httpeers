@@ -160,6 +160,34 @@ www.cellb.dev {
 	reverse_proxy sites:3000
 }
 
+# httpeers.com: the project website (site/ in this repository, published by
+# .github/workflows/site.yml to the `httpeers.com` prefix). Exact names, so Caddy issues
+# their certificates over HTTP-01 on its own, as for cellb.dev -- NO `import acme`: that
+# snippet's Gandi token is scoped to httpeers.net. HTTP-01 needs the name to resolve to this
+# server FIRST: deploy these blocks only after the A records exist (deploy/README.md,
+# "Other domains"), or every issuance attempt fails and counts against Let's Encrypt's
+# failed-validation limit.
+httpeers.com {
+	reverse_proxy sites:3000
+}
+
+# The other spellings land on the one site, so it has one address and one prefix.
+www.httpeers.com, httpeers.org, www.httpeers.org {
+	redir https://httpeers.com{uri} permanent
+}
+
+# vcs.statewalker.com: the website of statewalker/webrun-vcs, published by that repository's
+# site.yml to the `vcs.statewalker.com` prefix. statewalker.com's DNS is on Cloudflare: its
+# `vcs` record must be DNS only (grey cloud), or Cloudflare terminates TLS in front of Caddy
+# and HTTP-01 never reaches it.
+vcs.statewalker.com {
+	reverse_proxy sites:3000
+}
+
+vcs.statewalker.org {
+	redir https://vcs.statewalker.com{uri} permanent
+}
+
 # The CellB site's former address. An exact name beats the wildcard below, so
 # old links land on cellb.dev rather than on the sites app, which no longer
 # holds a cellb.httpeers.net prefix (it would answer 404).
