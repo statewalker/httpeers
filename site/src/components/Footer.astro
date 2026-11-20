@@ -1,0 +1,39 @@
+---
+import { docHref } from "@/lib/docs";
+import { REPO } from "@/lib/site";
+import Logo from "./Logo.astro";
+---
+
+<footer class="border-t">
+  <div class="mx-auto grid max-w-6xl gap-8 px-4 py-10 sm:px-6 md:grid-cols-[1fr_auto_auto_auto]">
+    <div class="space-y-3">
+      <Logo />
+      <p class="max-w-xs text-sm text-muted-foreground">
+        A peer-to-peer mesh where everything is a <code class="font-mono">fetch()</code>: Node
+        processes and browser pages serve HTTP to each other over libp2p.
+      </p>
+    </div>
+    <div class="space-y-2 text-sm">
+      <p class="font-medium">Learn</p>
+      <ul class="space-y-1.5 text-muted-foreground">
+        <li><a href="/docs" class="hover:text-foreground">Getting started</a></li>
+        <li><a href="/docs/architecture" class="hover:text-foreground">Architecture</a></li>
+        <li><a href="/docs/security" class="hover:text-foreground">Security model</a></li>
+        <li><a href="/examples" class="hover:text-foreground">Examples</a></li>
+        <li><a href="/#use-cases" class="hover:text-foreground">Use cases</a></li>
+      </ul>
+    </div>
+    <div class="space-y-2 text-sm">
+      <p class="font-medium">Project</p>
+      <ul class="space-y-1.5 text-muted-foreground">
+        <li><a href={REPO} class="hover:text-foreground">GitHub</a></li>
+        <li><a href={docHref("deploy/README.md")} class="hover:text-foreground">Deployment</a></li>
+        <li><a href="https://cellb.dev" class="hover:text-foreground">cellb.dev</a></li>
+      </ul>
+    </div>
+    <div class="space-y-2 text-sm">
+      <p class="font-medium">Licence</p>
+      <p class="text-muted-foreground">MIT</p>
+    </div>
+  </div>
+</footer>

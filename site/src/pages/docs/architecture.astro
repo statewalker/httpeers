@@ -1,0 +1,230 @@
+---
+import Docs from "@/layouts/Docs.astro";
+import { docHref } from "@/lib/docs";
+import { npmPackage } from "@/lib/site";
+
+const path = [
+  {
+    where: "Page code",
+    what: 'fetch("/peers/<peerId>/photos")',
+    detail:
+      "An ordinary fetch() on the page's own origin. No SDK, no client object, no credentials in the code.",
+  },
+  {
+    where: "ServiceWorker edge",
+    what: "httpeers-member · mountEdge",
+    detail:
+      "The page's ServiceWorker hands the request to the member. The edge is a local ingress: it strips any x-httpeers-peer the page wrote (a claim, not a fact) and attaches this peer's membership token as x-httpeers-token. Authorization passes through untouched, for the target application.",
+  },
+  {
+    where: "Peer router",
+    what: "httpeers-core · createPeerRouter",
+    detail:
+      "/{peerId}/… names another peer. The router forwards only what originated at this peer's own edge (forwardLocalOnly), so a request from the network cannot make this peer dial a stranger.",
+  },
+  {
+    where: "Transport",
+    what: "httpeers-bridge over httpeers-libp2p",
+    detail:
+      "One duplex per call over libp2p. Browsers cannot accept inbound connections, so they hold a reservation on the circuit relay (relay.httpeers.net) and are reached through it; the link reports itself as direct or relay. The Noise handshake proves who is on the other end.",
+  },
+  {
+    where: "Target's ingress",
+    what: "registerPeer · withAccess",
+    detail:
+      "The target overwrites x-httpeers-peer with the peer the transport proved, verifies the token against the hub's peer id (its public key), checks the token was minted for that same peer, derives capabilities from its roles and evaluates its own Datalog policy for the path.",
+  },
+  {
+    where: "Handler",
+    what: "(Request) => Promise<Response>",
+    detail:
+      "A FetchHandler in the target's mount table answers. The response streams back over the same duplex, as the call resolves on the response head.",
+  },
+];
+
+const layers = [
+  {
+    name: "Contract",
+    packages: ["httpeers-core"],
+    body: "FetchHandler, the mount table, the peer router, the proven-peer and token headers. No dependencies.",
+  },
+  {
+    name: "Identity & access",
+    packages: ["httpeers-person", "webrun-biscuit", "httpeers-access"],
+    body: "Person keys and what they sign; Biscuit tokens in pure TypeScript; who is calling and may they (Datalog policy, revocation, one middleware). No libp2p.",
+  },
+  {
+    name: "Bridge",
+    packages: ["httpeers-bridge"],
+    body: "fetch over any duplex, both directions, the proven caller bound on arrival, outbound calls bounded in number and time. No transport.",
+  },
+  {
+    name: "Transport",
+    packages: ["httpeers-libp2p"],
+    body: "libp2p nodes, identity keys, relay reservations kept alive, servePeer. The only package that knows libp2p.",
+  },
+  {
+    name: "Mesh roles",
+    packages: ["httpeers-hub", "httpeers-member"],
+    body: "The hub: invitations, membership tokens, registries; no transport, so it can run in a tab. The member: one lifecycle for Node and pages, the edge, the gateway.",
+  },
+  {
+    name: "Applications",
+    packages: ["httpeers-ghost", "httpeers-share", "httpeers-join", "httpeers-qr"],
+    body: "A remote peer's app as a page that can reach only that peer; sharing an HTTP service with a mesh; the join widget; invitations as QR codes.",
+  },
+];
+
+const services = [
+  {
+    name: "Circuit relay",
+    host: "relay.httpeers.net",
+    file: "apps/relay/README.md",
+    body: "A stock libp2p Circuit Relay v2 server. Member of no mesh, holds no directory.",
+  },
+  {
+    name: "Static-site host",
+    host: "*.httpeers.net",
+    file: "apps/sites/README.md",
+    body: "One site per storage prefix of an S3 bucket, chosen by the Host header. This site is served by it.",
+  },
+  {
+    name: "Session shell",
+    host: "*.p.httpeers.net",
+    file: "apps/session-shell/README.md",
+    body: "The empty session every random name serves: its own origin, storage and ServiceWorker, for running a peer's app isolated.",
+  },
+  {
+    name: "Hub daemon",
+    host: "Node",
+    file: "apps/hub/README.md",
+    body: "A hub as a Node process: identity, rules, service modules and an admin UI; the LLM appliance builds on it.",
+  },
+];
+---
+
+<Docs
+  title="Architecture"
+  description="How a page's fetch() reaches a handler on another peer: the ServiceWorker edge, the peer router, libp2p and the relay, and the target's own access check."
+>
+  <h1>Architecture</h1>
+  <p>
+    Peers are Node processes and browser pages. Each serves a mount table of HTTP handlers, and each calls the
+    others with <code>fetch()</code>. A <strong>hub</strong> admits members with invitations and mints their
+    tokens; a <strong>circuit relay</strong> makes browsers reachable; nothing else is central. Every decision
+    about who may call what is made by the peer being called.
+  </p>
+
+  <h2>The request path</h2>
+  <ol class="not-prose relative my-6 space-y-3 border-l pl-6">
+    {
+      path.map((step, i) => (
+        <li class="relative">
+          <span class="absolute -left-[2.05rem] top-3 flex size-5 items-center justify-center rounded-full border bg-background font-mono text-[10px] text-primary">
+            {i + 1}
+          </span>
+          <div class="rounded-xl border bg-card p-4">
+            <p class="flex flex-wrap items-baseline gap-x-3 gap-y-1">
+              <span class="font-semibold">{step.where}</span>
+              <code class="font-mono text-xs text-primary">{step.what}</code>
+            </p>
+            <p class="mt-1.5 text-sm leading-6 text-muted-foreground">{step.detail}</p>
+          </div>
+        </li>
+      ))
+    }
+  </ol>
+
+  <h2>Two headers carry the security</h2>
+  <table>
+    <thead>
+      <tr><th>Header</th><th>Carries</th><th>Rule</th></tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td><code>x-httpeers-peer</code></td>
+        <td>the peer the <em>transport</em> proved</td>
+        <td>
+          Every ingress strips it before it writes it (<code>registerPeer</code>, <code>registerAnonymous</code>,
+          <code>stripPeerBinding</code>), so a forged value never survives. A header survives a re-created
+          <code>Request</code>, which is what handlers do.
+        </td>
+      </tr>
+      <tr>
+        <td><code>x-httpeers-token</code></td>
+        <td>the membership token (a Biscuit)</td>
+        <td>
+          Written by the edge, <code>peerRequest</code> and the ghost; read by <code>withAccess</code> and nothing
+          else. <code>Authorization</code> stays the application's. A proxy that re-issues a request outside the mesh
+          strips both headers.
+        </td>
+      </tr>
+    </tbody>
+  </table>
+  <p>
+    The <a href="/examples/mesh-over-ports">two-peers example</a> shows a forged <code>x-httpeers-peer</code>
+    overwritten; the <a href="/examples/access-tokens">tokens example</a> shows a token refused in the wrong hands.
+  </p>
+
+  <h2>The libraries, by layer</h2>
+  <p>
+    Lowest first. Each package's root is isomorphic (Node, workers and pages); platform code sits behind
+    <code>./node</code> or <code>./browser</code>, and a boundary test in each package enforces it.
+  </p>
+  <div class="not-prose my-6 space-y-2">
+    {
+      layers.map((layer) => (
+        <div class="grid gap-2 rounded-xl border bg-card p-4 sm:grid-cols-[10rem_1fr]">
+          <p class="font-mono text-xs uppercase tracking-wider text-primary">{layer.name}</p>
+          <div>
+            <p class="flex flex-wrap gap-1.5">
+              {layer.packages.map((p) => (
+                <a
+                  href={docHref(`packages/${p}/README.md`)}
+                  class="rounded-md border bg-background px-2 py-0.5 font-mono text-xs hover:border-primary/50"
+                >
+                  {p}
+                </a>
+              ))}
+            </p>
+            <p class="mt-2 text-sm leading-6 text-muted-foreground">{layer.body}</p>
+          </div>
+        </div>
+      ))
+    }
+  </div>
+  <p>
+    All are published under <code>@statewalker/*</code>, for example
+    <a href={npmPackage("@statewalker/httpeers-core")}>@statewalker/httpeers-core</a>. Two private suites check
+    them as a dependent sees them: <code>httpeers-conformance</code> (every entry point imported, one real mesh
+    with a live relay, hub and two members) and <code>httpeers-browser-conformance</code> (the ServiceWorker edge,
+    reset and reloads, in a real browser).
+  </p>
+
+  <h2>The services</h2>
+  <div class="not-prose my-6 grid gap-3 sm:grid-cols-2">
+    {
+      services.map((s) => (
+        <a href={docHref(s.file)} class="rounded-xl border bg-card p-4 hover:border-primary/50">
+          <p class="font-semibold">{s.name}</p>
+          <p class="font-mono text-xs text-primary">{s.host}</p>
+          <p class="mt-2 text-sm leading-6 text-muted-foreground">{s.body}</p>
+        </a>
+      ))
+    }
+  </div>
+  <p>
+    The production host runs Caddy, the relay, the sites host and RustFS (the S3 storage behind them) behind a
+    wildcard DNS record and wildcard certificates, so a new subdomain changes nothing there:
+    <a href={docHref("deploy/README.md")}>the deployment runbook</a>.
+  </p>
+
+  <h2>Where code may run</h2>
+  <p>
+    The mount is delivered by a ServiceWorker, and a ServiceWorker controls only same-origin clients. So code
+    isolated on another origin loses the mount, and code on your origin wields your full mesh authority. A
+    peer's app therefore runs in a session origin of its own (<code>&lt;random&gt;.p.httpeers.net</code>) that can
+    reach only that peer, never in yours. The <a href="/docs/security">security model</a> works through the
+    safe shapes and the uses to avoid.
+  </p>
+</Docs>
