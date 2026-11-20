@@ -7,7 +7,7 @@ import { defineConfig } from "astro/config";
 import { rehypeRepoLinks } from "./src/lib/rehype-repo-links.ts";
 
 export default defineConfig({
-  site: "https://www.httpeers.net",
+  site: "https://httpeers.com",
   vite: {
     plugins: [tailwindcss()],
   },
