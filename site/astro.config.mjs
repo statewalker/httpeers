@@ -8,6 +8,11 @@ import { rehypeRepoLinks } from "./src/lib/rehype-repo-links.ts";
 
 export default defineConfig({
   site: "https://httpeers.com",
+  // Astro's HTML compression drops the line break between text and an inline element on the next
+  // line ("describes what\n<a>…" renders "describes what…" with no space), across every hand-written
+  // page. The served files are brotli/gzip copies (scripts/compress.mjs), so the whitespace costs
+  // next to nothing on the wire.
+  compressHTML: false,
   vite: {
     plugins: [tailwindcss()],
   },

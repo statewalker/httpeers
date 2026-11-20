@@ -1,0 +1,103 @@
+---
+import CodeBlock from "@/components/CodeBlock.astro";
+import Docs from "@/layouts/Docs.astro";
+import { docHref } from "@/lib/docs";
+
+const create = `import { createHub, memoryStorage } from "@statewalker/httpeers-hub";
+import { generateSigner, mintToken } from "@statewalker/httpeers-access/issuer";
+import { qrSvg } from "@statewalker/httpeers-qr";
+
+const signer = await generateSigner();     // signer.mesh: the hub's peer id, the mesh's name
+const hub = await createHub({
+  selfPeerId: signer.mesh,
+  policies: rules,                         // a RuleSet: also the registry of valid roles
+  storage: memoryStorage(),                // filesStorage / fileStorage / idbStorage to persist
+  mintToken: async (sub, roles) => mintToken({ signer, sub, roles, ttlMs: 5 * 60_000 }),
+});
+
+const { id } = await hub.invitations.create(["member"], 10 * 60_000);
+const svg = qrSvg(joinLink);               // a link carrying the invitation, as a QR code`;
+
+const redeem = `POST /.well-known/invite   {"id": "<invitation id>"}
+→ 200 {"token": "<Biscuit>", "mesh": "<hub peer id>", "roles": ["member"]}
+→ 403 {"error": "invitation already-redeemed"}   // or: not-found, expired`;
+
+const heartbeat = `POST /.well-known/presence  {"seq": 7, "addrs": [...], "advertisements": [...]}
+→ 200 {"token": "<fresh Biscuit>",
+       "versions": {"mesh": 12, "policy": 3, "rules": 1},
+       "ttl": <presence TTL ms>}`;
+---
+
+<Docs
+  title="Joining a mesh"
+  description="How a peer becomes a member of an httpeers mesh: a single-use invitation, redeemed at the hub over a proven connection, a membership token, and a heartbeat that keeps it fresh."
+>
+  <h1>Joining a mesh</h1>
+  <p>
+    A mesh is named by its hub's peer id, and the hub alone says who belongs to it. A peer joins by redeeming an
+    <strong>invitation</strong>; from then on it holds a <strong>membership token</strong> that every other peer
+    can verify on its own (<a href="/docs/access">access control</a>). The hub is a mount table with no transport of
+    its own, so the same code runs as a Node daemon or in a browser tab:
+    <a href={docHref("packages/httpeers-hub/README.md")}>httpeers-hub</a>.
+  </p>
+
+  <h2 id="invitation">An invitation is a single-use bearer credential</h2>
+  <p>
+    Whoever holds an invitation id can become a member, with the roles the invitation names. So the id is 128 bits
+    from the platform's CSPRNG, it expires, and redeeming it spends it: the second redemption is refused with
+    <code>already-redeemed</code>. The roles are checked against the rule set when the invitation is created, so an
+    unknown role throws instead of minting a member nobody's policy recognises. Unredeemed invitations are part of the
+    hub's persisted snapshot and survive a restart.
+  </p>
+  <CodeBlock code={create} lang="ts" title="a hub and an invitation" />
+  <p>
+    The invitation reaches the new member out of band: a link, a pasted text, or a QR code
+    (<a href={docHref("packages/httpeers-qr/README.md")}>httpeers-qr</a>). When the hub is itself a browser tab, its
+    peer id cannot be known in advance, so the page hands out a <em>join blob</em>: the hub's peer id, the relay
+    addresses and a fresh invitation id, as one base64url string in a <code>?join=</code> link. The
+    <a href={docHref("packages/httpeers-join/README.md")}>join widget</a> takes a link, a blob or a bare id, or scans a
+    QR code.
+  </p>
+
+  <h2 id="redeem">Redeeming needs a proven peer, and no token yet</h2>
+  <p>
+    The new member calls the hub over the mesh. The request carries no token, since there is none yet, so the hub's
+    guard lets exactly two routes through as <em>bootstrap</em> (<code>usesTransportIdentity()</code>): the invitation
+    and the presence write. They still need a peer the transport proved; a bootstrap request with no proven peer is a
+    401. The hub records the proven peer id as a member and mints its first token:
+  </p>
+  <CodeBlock code={redeem} lang="txt" title="the invitation endpoint" />
+  <p>
+    The token's subject is the peer that redeemed the invitation, taken from the connection, never from the request
+    body, so a member cannot redeem an invitation on someone else's behalf.
+  </p>
+
+  <h2 id="heartbeat">Presence is a heartbeat, and each beat renews the token</h2>
+  <p>
+    A member posts its presence to the hub on a timer. Each heartbeat returns a freshly minted token with the
+    member's current roles, and the versions of the mesh view, the revocation list and the rules, so the member
+    fetches each only when it changed. A member that stops beating is swept from the mesh view within one TTL, its
+    advertisements with it.
+  </p>
+  <CodeBlock code={heartbeat} lang="txt" title="the presence endpoint" />
+  <p>
+    With a token, a member reads <code>/.well-known/mesh</code> (who is present, and what they advertise),
+    <code>/.well-known/rules</code> and <code>/.well-known/revocations</code>. The hub enforces them through the same
+    <code>withAccess</code> as any peer.
+  </p>
+
+  <h2 id="leaving">Removing a member takes two writes</h2>
+  <p>
+    <code>hub.members.setRoles</code> changes the record, but the member still holds a token that states its old
+    roles until it expires. <code>hub.revocations.changeRoles</code> makes every token minted before the change stop
+    verifying at every peer that has pulled the list, so the new roles apply from the member's next heartbeat; empty
+    roles remove it. How peers apply the list: <a href="/docs/access#revocation">revocation and expiry</a>.
+  </p>
+
+  <h2 id="examples">See it run</h2>
+  <p>
+    <a href="/examples/hub-invitation">A hub in a tab, and an invitation</a>: a hub mints an invitation shown as a QR
+    code, Alice redeems it and reads the mesh view with her token, and Bob's replay of the same invitation is refused.
+    The <a href="/examples#deployed-demos">deployed demos</a> do the same across devices, over the relay.
+  </p>
+</Docs>

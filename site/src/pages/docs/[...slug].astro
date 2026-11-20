@@ -1,7 +1,8 @@
 ---
 import { getEntry, render } from "astro:content";
 import Docs from "@/layouts/Docs.astro";
-import { type RepoPage, repoPages } from "@/lib/docs";
+import { type RepoPage, relatedPages, repoPages } from "@/lib/docs";
+import { examples } from "@/lib/examples";
 
 export function getStaticPaths() {
   return repoPages.map((page) => ({ params: { slug: page.slug }, props: { page } }));
@@ -30,8 +31,38 @@ const entry = await getEntry("repo", page.file);
 if (!entry) throw new Error(`${page.file} is not in the "repo" collection`);
 const { Content } = await render(entry);
 const description = describe(entry.body ?? "");
+
+// Under a page: the site's explanations of it, and the live examples that import the package.
+const explained = relatedPages[page.slug] ?? [];
+const pkg = page.slug.startsWith("packages/")
+  ? `@statewalker/${page.slug.slice("packages/".length)}`
+  : null;
+const demonstrated =
+  page.slug === "security"
+    ? examples.filter((e) => e.concepts.some((c) => c.href === "/docs/security"))
+    : examples.filter((e) => pkg && e.packages.includes(pkg));
 ---
 
 <Docs title={page.label} description={description}>
   <Content />
+  {(explained.length > 0 || demonstrated.length > 0) && (
+    <aside class="not-prose mt-12 grid gap-6 rounded-xl border bg-card p-5 text-sm sm:grid-cols-2">
+      {explained.length > 0 && (
+        <div>
+          <p class="mb-2 font-medium">Explained on this site</p>
+          <ul class="space-y-1">
+            {explained.map((r) => <li><a class="text-primary hover:underline" href={r.href}>{r.label}</a></li>)}
+          </ul>
+        </div>
+      )}
+      {demonstrated.length > 0 && (
+        <div>
+          <p class="mb-2 font-medium">Live examples</p>
+          <ul class="space-y-1">
+            {demonstrated.map((e) => <li><a class="text-primary hover:underline" href={`/examples/${e.slug}`}>{e.title}</a></li>)}
+          </ul>
+        </div>
+      )}
+    </aside>
+  )}
 </Docs>

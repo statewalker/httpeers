@@ -116,7 +116,8 @@ pnpm test         # real ports, real libp2p nodes`;
     A mesh has a <strong>hub</strong> that mints invitations and membership tokens
     (<a href={docHref("packages/httpeers-hub/README.md")}>httpeers-hub</a>), and <strong>members</strong> that
     redeem an invitation, keep their link to the hub, advertise, discover and call each other
-    (<a href={docHref("packages/httpeers-member/README.md")}>httpeers-member</a>). A Node member:
+    (<a href={docHref("packages/httpeers-member/README.md")}>httpeers-member</a>).
+    <a href="/docs/membership">Joining a mesh</a> explains the invitation and the heartbeat. A Node member:
   </p>
   <CodeBlock code={member} lang="ts" title="member.ts" />
   <p>
@@ -127,8 +128,9 @@ pnpm test         # real ports, real libp2p nodes`;
   <CodeBlock code={page} lang="ts" title="page.ts" />
   <p>
     Who may call what is decided by each target peer, with Biscuit tokens and a Datalog policy
-    (<a href={docHref("packages/httpeers-access/README.md")}>httpeers-access</a>); see the
-    <a href="/examples/access-tokens">tokens example</a>.
+    (<a href={docHref("packages/httpeers-access/README.md")}>httpeers-access</a>), explained in
+    <a href="/docs/access">access control</a>; see the <a href="/examples/access-tokens">tokens example</a> and
+    the <a href="/examples/hub-invitation">invitation example</a>.
   </p>
 
   <h2>4. The services a mesh needs</h2>

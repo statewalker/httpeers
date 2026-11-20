@@ -14,6 +14,7 @@
     "build": "astro build && node scripts/compress.mjs",
     "preview": "astro preview",
     "typecheck": "astro sync && tsc --noEmit",
+    "check:links": "node scripts/check-links.mjs",
     "check:examples": "node scripts/check-examples.mjs"
   },
   "dependencies": {
@@ -25,6 +26,7 @@
     "@statewalker/httpeers-core": "workspace:^",
     "@statewalker/httpeers-hub": "workspace:^",
     "@statewalker/httpeers-qr": "workspace:^",
+    "@statewalker/webrun-biscuit": "workspace:^",
     "@tailwindcss/vite": "catalog:",
     "astro": "catalog:",
     "clsx": "catalog:",

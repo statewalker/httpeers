@@ -1,0 +1,238 @@
+---
+import CodeBlock from "@/components/CodeBlock.astro";
+import Docs from "@/layouts/Docs.astro";
+import { docHref } from "@/lib/docs";
+
+const mint = `import { generateSigner, mintToken } from "@statewalker/httpeers-access/issuer";
+
+const hub = await generateSigner();          // hub.mesh is the hub's peer id: the mesh's name
+const token = await mintToken({
+  signer: hub,
+  sub: alicePeerId,                          // the member the token is for
+  roles: ["member"],
+  ttlMs: 10 * 60_000,
+  // audience: [bobPeerId],                  // optional: the peers it may be presented to
+});`;
+
+const authority = `mesh("<hub peer id>"); subject("<alice>"); bound("<alice>");
+role("member"); issued_at(<ms>); expires_at(<ms>);
+audience_unrestricted(true);                 // or: audience("<peer>"); ...
+check if bound($k), connection_peer($k);     // only over a connection that proved <alice>
+check if mesh($m), root_mesh($m);            // only in the mesh whose key verified it
+check if audience_unrestricted(true);        // or: check if audience($k), self_peer($k);
+check if time_ms($t), $t < <expires ms>;`;
+
+const verifier = `connection_peer("<the peer the transport proved>");
+self_peer("<this peer's own id>");          // when withAccess is given selfPeer
+root_mesh("<the mesh this peer expects>");
+time_ms(<this peer's clock>);
+allow if true;                              // no policy here: the token's checks decide`;
+
+const guard = `import { access, ruleSet, withAccess } from "@statewalker/httpeers-access";
+
+const rules = ruleSet({
+  version: 1,
+  rules: [
+    'capability("app:read")  <- role("member");',
+    'capability("app:write") <- role("admin");',
+    'role("member")          <- role("admin");',
+  ],
+  policies: [
+    'allow if capability("app:read"), resource($r), $r.starts_with("/data");',
+    'allow if capability("app:write"), resource($r), $r.starts_with("/admin");',
+  ],
+});
+
+const guard = withAccess({
+  issuer: hubPeerId,                         // whose tokens are accepted
+  rules,
+  selfPeer: myPeerId,
+  provenPeer: (req) => lookupPeer(req) ?? ANONYMOUS,
+});
+// inside a handler: access(req)?.claims, access(req)?.capabilities()`;
+
+const attenuate = `import { Biscuit } from "@statewalker/webrun-biscuit";
+
+// Alice, holding her token: no hub, no key of the hub's.
+const narrowed = Biscuit.fromBase64(token)
+  .attenuate("check if self_peer({bob}); check if time_ms($t), $t < {until};", {
+    params: { bob: bobPeerId, until: Date.now() + 30_000 },
+  })
+  .toBase64();`;
+---
+
+<Docs
+  title="Access control"
+  description="How a peer decides who may call it: Biscuit membership tokens verified against the hub's peer id, a Datalog policy held by each peer, attenuation, peer binding, revocation and expiry."
+>
+  <h1>Access control</h1>
+  <p>
+    Every peer decides for itself who may call it. A <strong>hub</strong> signs membership tokens; the peer being
+    called verifies the token, binds it to the caller the transport proved, and evaluates its <em>own</em> policy.
+    No server is asked at request time. This page describes what
+    <a href={docHref("packages/httpeers-access/README.md")}>httpeers-access</a> and
+    <a href={docHref("packages/webrun-biscuit/README.md")}>webrun-biscuit</a> implement, and says plainly what
+    they do not.
+  </p>
+
+  <h2 id="tokens">A membership token is a Biscuit, verified with the hub's public key</h2>
+  <p>
+    A token is a <a href="https://www.biscuitsec.org/">Biscuit</a>: a chain of signed blocks whose content is Datalog
+    facts and checks, serialised as URL-safe base64. The first block, the <em>authority</em> block, is signed with
+    the hub's Ed25519 key. Verification needs only the matching public key, so there is no shared secret: a peer
+    that verifies tokens cannot mint them.
+  </p>
+  <p>
+    The public key comes from the mesh's name. A mesh is named by its hub's libp2p peer id, and an Ed25519 peer id
+    contains its public key, so <code>verifyToken</code> recovers the key by parsing the id
+    (<code>selfCertifyingKeys</code>). No key directory, no fetch. An RSA peer id hashes its key; nothing can be
+    recovered from it, and its tokens are refused (<code>issuer-not-ed25519</code>).
+  </p>
+  <CodeBlock code={mint} lang="ts" title="hub side: @statewalker/httpeers-access/issuer" />
+  <p>
+    <code>mintToken</code> writes one authority block. Every value is bound as a Datalog parameter, never spliced
+    into the source, so a role named <code>"); role("admin</code> is just a role with an odd name:
+  </p>
+  <CodeBlock code={authority} lang="txt" title="the authority block mintToken writes" />
+  <p>
+    The verifying side is a separate entry point: a member imports <code>@statewalker/httpeers-access</code> and
+    never pulls minting into its bundle; a hub imports <code>./issuer</code>.
+  </p>
+
+  <h2 id="policy">The token states facts; the called peer states its policy</h2>
+  <p>
+    Two Datalog evaluations decide a request, and they are kept apart on purpose.
+  </p>
+  <ol>
+    <li>
+      <strong>Verification</strong> (<code>verifyToken</code>). The peer checks the signature chain, then asserts only
+      facts it knows itself, never anything read from the token:
+    </li>
+  </ol>
+  <CodeBlock code={verifier} lang="txt" title="what the verifier asserts" />
+  <p>
+    The token's own checks run against those facts. A failed check refuses the token with a stable
+    <code>reason</code>: <code>peer-binding</code>, <code>audience</code>, <code>expired</code>,
+    <code>mesh-mismatch</code>, <code>signature</code>, or <code>unsatisfied-constraint</code> for a check the
+    verifier cannot satisfy (an unknown predicate denies). Evaluation is bounded (<code>LIMITS</code>: 5,000 facts,
+    200 iterations, 1 s), so a pathological token denies rather than stalling the peer.
+  </p>
+  <ol start="2">
+    <li>
+      <strong>Policy</strong> (<code>withPolicy</code>, inside <code>withAccess</code>). From the verified claims the
+      peer takes the <code>role</code> facts, adds its own <code>operation</code>, <code>resource</code>,
+      <code>time_ms</code>, <code>self_peer</code> and <code>connection_peer</code>, derives
+      <code>capability</code> facts with its <code>RuleSet</code>, and runs its policies, <code>deny</code> before
+      <code>allow</code>.
+    </li>
+  </ol>
+  <CodeBlock code={guard} lang="ts" title="a peer's guard" />
+  <p>
+    The rule set is built locally and never fetched, so nothing remote can widen a decision. There is no default
+    one. <code>ruleSet()</code> refuses to build a policy that could never match (a predicate nothing asserts, a
+    capability no rule derives) and lists every problem, because a policy that silently denies everyone looks
+    exactly like one that works. A request with no token, or one the caller can fix by presenting a fresh token
+    over the right connection (<code>expired</code>, <code>malformed-token</code>, <code>peer-binding</code>), is a
+    <code>401</code>; every other refusal, a valid token without the capability included, is a <code>403</code>.
+  </p>
+  <p>
+    The token travels in <code>x-httpeers-token</code>, never in <code>Authorization</code>, which stays the
+    application's (<a href="/docs/architecture#headers">the two headers</a>).
+  </p>
+
+  <h2 id="attenuation">Attenuation: a holder can narrow a token, never widen it</h2>
+  <p>
+    Biscuit lets whoever holds a token append a block, signed with a key that travels inside the token, without
+    the hub. <code>webrun-biscuit</code> implements it (<code>Biscuit.attenuate</code>, and <code>seal()</code> to
+    forbid further blocks). An appended block can add <strong>checks</strong>, and every check of every block must
+    pass. It cannot add <strong>rights</strong>: a check in the authority block, and the claims
+    <code>verifyToken</code> reads back, see only authority and verifier facts, so an appended
+    <code>role("admin")</code> or <code>audience("elsewhere")</code> is invisible to them.
+  </p>
+  <CodeBlock code={attenuate} lang="ts" title="narrowing a token" />
+  <p>
+    What an appended check can usefully constrain is limited by what the verifier asserts:
+    <code>self_peer</code> (which peer accepts it), <code>time_ms</code> (a shorter life) and
+    <code>connection_peer</code>. The policy's <code>resource</code> and <code>operation</code> facts are not
+    asserted during verification, so a block that checks a path (<code>check if resource("/data")</code>) fails
+    everywhere: the token is refused outright, not narrowed to that path. Narrowing a token to a path or a method is
+    <strong>not supported</strong> today.
+  </p>
+
+  <h2 id="passing">Passing a right to another peer, and checking it there</h2>
+  <p>
+    A token is presented with each request, and the receiving peer checks it on arrival. Alice can narrow her token
+    and send it to Bob: Bob verifies the chain against the hub's peer id, asserts his own facts, and accepts the
+    token only if every check, Alice's included, holds for him. The same token sent to Dave fails Alice's
+    <code>self_peer</code> check there. The <a href="/examples/delegation">narrowing example</a> runs exactly that,
+    plus a widening attempt and a tampered token.
+  </p>
+  <p>
+    What is <strong>not supported</strong> is handing a right to a different holder. The authority block binds the
+    token to its subject (next section), and an appended block cannot change the subject, so Alice cannot give Carol
+    a token Carol can use. Delegation to another member is listed under <em>Not implemented</em> in
+    httpeers-access; Carol needs a token of her own from the hub.
+  </p>
+  <p>
+    The hub can also restrict a token to named peers when it mints it (<code>audience</code>). That restriction sits
+    in the signed authority block and is evaluated by the destination against its own <code>self_peer</code>, so a
+    peer that is not in the audience refuses however the request reached it. The hub's invitation and heartbeat
+    endpoints mint unrestricted tokens today.
+  </p>
+
+  <h2 id="binding">A token is bound to its peer: Carol's token in Alice's hands is refused</h2>
+  <p>
+    The authority block says <code>bound("&lt;sub&gt;")</code> and <code>check if bound($k), connection_peer($k)</code>.
+    The verifier asserts <code>connection_peer</code> from what the <em>transport</em> proved about the other end
+    (the Noise handshake in libp2p; the link itself in the in-tab examples), never from a header or the token. So
+    when Alice presents Carol's token, <code>connection_peer</code> is Alice, the check fails, and the request is
+    refused with <code>peer-binding</code> (401). A stolen token is useless to anyone but its subject, and the check
+    lives in the token, so it holds even at a verifier that forgot to compare the two itself. A request with no
+    proven peer asserts no <code>connection_peer</code> at all and fails the same way.
+  </p>
+
+  <h2 id="revocation">Expiry is in the token; revocation is a list each peer pulls</h2>
+  <p>
+    <strong>Expiry.</strong> Every token carries <code>check if time_ms($t), $t &lt; &lt;exp&gt;</code> with the bound
+    inlined, evaluated against the verifying peer's clock. Members do not hold long-lived tokens: each presence
+    heartbeat to the hub (<code>POST /.well-known/presence</code>) returns a freshly minted one.
+  </p>
+  <p>
+    <strong>Revocation.</strong> A token states its roles until it expires, so removing or demoting a member takes a
+    revocation entry: <code>hub.revocations.changeRoles(peerId, roles)</code> (empty roles removes the member). The
+    hub publishes the list at <code>/.well-known/revocations</code>; each member pulls it when the heartbeat reports a
+    new policy version and keeps it in a <code>RevocationCache</code>. A token minted before the change
+    (<code>iat &lt; changedAt</code>, both hub timestamps, so no clock synchronisation is needed) is refused:
+    <em>membership revoked</em>, or <em>roles changed; obtain a fresh token</em>. A demoted member's next heartbeat
+    brings a token with the reduced roles.
+  </p>
+  <p>
+    The cache is never consulted over the network on a request. If it has not been refreshed within its
+    <code>maxStalenessMs</code> (60 s in httpeers-member), the peer refuses every token rather than guess. A stream
+    that is already open is cut by <code>guardStream</code> when its caller is revoked.
+  </p>
+
+  <h2 id="unsupported">What is not implemented</h2>
+  <ul>
+    <li>Delegation to a different holder (above): a token always names, and is bound to, one subject.</li>
+    <li>Attenuation by path or method: the verifier does not assert <code>resource</code> or <code>operation</code>.</li>
+    <li>Audience by class (<code>audience_class</code>): nothing produces the facts it would check, so such a token is refused.</li>
+    <li>
+      Key rotation with an issuer directory and per-device binding. <code>verifyToken</code> already accepts several
+      keys (<code>keys</code>), which is where rotation would plug in.
+    </li>
+    <li>Third-party blocks: <code>webrun-biscuit</code> implements them; httpeers-access does not use them.</li>
+  </ul>
+
+  <h2 id="examples">See it run</h2>
+  <ul>
+    <li><a href="/examples/access-tokens">Tokens and policy</a>: roles, capabilities, a stolen token, a foreign mesh.</li>
+    <li><a href="/examples/delegation">Narrowing a token</a>: attenuation, checked at another peer.</li>
+    <li><a href="/examples/hub-invitation">A hub in a tab, and an invitation</a>: where tokens come from.</li>
+  </ul>
+  <p>
+    Why the token is attached by the ServiceWorker edge, and what code may wield it, is the
+    <a href="/docs/security">security model</a>. How a member gets its first token:
+    <a href="/docs/membership">joining a mesh</a>.
+  </p>
+</Docs>

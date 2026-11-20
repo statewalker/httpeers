@@ -10,6 +10,7 @@ host by `.github/workflows/site.yml`. Private: never published to npm.
 pnpm install                                              # at the repository root
 pnpm --filter "@statewalker/httpeers-site..." run build   # the libraries, then the site, into site/dist/
 pnpm --filter @statewalker/httpeers-site dev              # http://localhost:4321 (libraries built first)
+pnpm --filter @statewalker/httpeers-site check:links      # every internal href, src and #anchor of dist/ resolves
 pnpm --filter @statewalker/httpeers-site check:examples   # runs every live example of dist/ in Chromium
 ```
 
@@ -23,11 +24,12 @@ The examples import the libraries as an application does, from their `dist/` (th
 | `src/styles/global.css` | All design tokens (shadcn/ui variable contract), light + dark; teal (hue ≈ 195) with a blue secondary |
 | `src/components/` | Header, Footer, Logo, ThemeToggle, Icon, CodeBlock (Shiki + copy), MeshDiagram, ExampleRunner; `ui/` holds Button and Badge |
 | `src/layouts/` | `Base` (theme bootstrap, header/footer) and `Docs` (sidebar) |
-| `src/pages/` | Home, `/docs` (getting started), `/docs/architecture`, `/docs/[...slug]` (the repository's Markdown), `/examples` and `/examples/<slug>` |
+| `src/pages/` | Home, `/docs` (getting started), `/docs/architecture`, `/docs/access`, `/docs/membership`, `/docs/[...slug]` (the repository's Markdown), `/examples` and `/examples/<slug>` |
 | `src/examples/<slug>.ts` | The live examples: each exports `run(out)`, which the page runs in the tab and the browser check runs in Chromium |
-| `src/lib/examples.ts` | The list of live examples: title, summary, packages, what to look for |
-| `src/lib/docs.ts` | Which repository Markdown files become which `/docs/…` pages; the sidebar and `docHref` read it |
+| `src/lib/examples.ts` | The list of live examples: title, summary, packages, what to look for, and the explanation sections it demonstrates (`concepts`, shown as "Concepts: read more") |
+| `src/lib/docs.ts` | Which repository Markdown files become which `/docs/…` pages; the sidebar and `docHref` read it. `relatedPages` lists the site's explanations shown under a rendered page, next to the live examples that import its package |
 | `scripts/compress.mjs` | After `astro build`: `dist/.site/config.json` (the host's options) and `.br`/`.gz` copies of text files |
+| `scripts/check-links.mjs` | Reads every page of `dist/`; fails on an internal `href` or `src` that names no built file (`/a` and `/a/` both mean `a/index.html`) or a `#fragment` with no matching `id` on its page. External URLs are not fetched |
 | `scripts/check-examples.mjs` | Serves `dist/`, opens every example page in Chromium, presses Run, fails on a failed run or a page error |
 | `scripts/setup-publish-secrets.sh` | Creates the publishing credentials and sets them on the repository (Publishing, below) |
 
@@ -42,11 +44,13 @@ instead of libp2p, so they need no relay and send nothing over the network:
 | --- | --- |
 | `mesh-over-ports` | Two peers serving FetchHandlers to each other; a forged `x-httpeers-peer` overwritten; a 404 from the mount table |
 | `access-tokens` | Biscuit tokens minted by a hub, `withAccess` and a Datalog policy: member, admin, no token, a token in the wrong hands, a foreign mesh's token |
+| `delegation` | Attenuation: Alice appends `check if self_peer(Bob)` and a shorter expiry to her token without the hub; accepted at Bob, refused at Dave; an appended `role("admin")` grants nothing; a tampered token and the same token sent by Carol are refused |
 | `hub-invitation` | `createHub` in the tab, an invitation as a QR code, redeemed once over the hub's `/.well-known/invite`, refused on replay, then the mesh view with the token |
 
 An example throws (`expect` in `src/examples/output.ts`) when what it demonstrates did not happen,
 which is what makes `check:examples` a test. To add one, write `src/examples/<slug>.ts` and add it
-to `src/lib/examples.ts`.
+to `src/lib/examples.ts`, with its `concepts` pointing at the sections that explain it (anchors are
+checked by `check:links`).
 
 The deployed demos (hub, images, app and proxy on `*.httpeers.net`, `apps/demos`) form a real
 mesh over the relay; `/examples` links to them and says how to try them.
@@ -58,6 +62,8 @@ mesh over the relay; `/examples` links to them and says how to try them.
 | Home | the root README (what it is, the libraries, why it is the way it is), `docs/security-model.md` §7 and §9 |
 | `/docs` (getting started) | the packages' READMEs: `httpeers-bridge`, `httpeers-libp2p`, `httpeers-member` |
 | `/docs/architecture` | `httpeers-core`, `httpeers-member` and `httpeers-access` READMEs, `docs/security-model.md` §1 and §4, `apps/*/README.md` |
+| `/docs/access` | `httpeers-access` (`tokens.ts`, `rules.ts`, `revocation.ts`, `binding.ts`) and `webrun-biscuit` sources and READMEs; what is not implemented is listed there |
+| `/docs/membership` | `httpeers-hub` (`endpoints.ts`, `hub-state.ts`) and its README, `httpeers-member`'s join blob, `httpeers-join` |
 | `/docs/security`, `/docs/deploy`, `/docs/publish` | `docs/security-model.md`, `deploy/README.md`, `tools/publish/README.md`, rendered at build time |
 | `/docs/packages/<name>`, `/docs/apps/<name>` | each package's and app's own README, rendered at build time |
 

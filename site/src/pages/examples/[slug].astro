@@ -34,6 +34,10 @@ const next = examples[index + 1];
   <ul>
     {example.shows.map((line) => <li>{line}</li>)}
   </ul>
+  <h2 id="read-more">Concepts: read more</h2>
+  <ul>
+    {example.concepts.map((c) => <li><a href={c.href}>{c.label}</a></li>)}
+  </ul>
   <h2>The code</h2>
   <p>
     This is the whole module the button runs (<a href={repoFile(`site/src/examples/${example.slug}.ts`)}>on GitHub</a>).
