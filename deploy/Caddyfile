@@ -160,34 +160,6 @@ www.cellb.dev {
 	reverse_proxy sites:3000
 }
 
-# httpeers.com: the project website (site/ in this repository, published by
-# .github/workflows/site.yml to the `httpeers.com` prefix). Exact names, so Caddy issues
-# their certificates over HTTP-01 on its own, as for cellb.dev -- NO `import acme`: that
-# snippet's Gandi token is scoped to httpeers.net. HTTP-01 needs the name to resolve to this
-# server FIRST: deploy these blocks only after the A records exist (deploy/README.md,
-# "Other domains"), or every issuance attempt fails and counts against Let's Encrypt's
-# failed-validation limit.
-httpeers.com {
-	reverse_proxy sites:3000
-}
-
-# The other spellings land on the one site, so it has one address and one prefix.
-www.httpeers.com, httpeers.org, www.httpeers.org {
-	redir https://httpeers.com{uri} permanent
-}
-
-# vcs.statewalker.com: the website of statewalker/webrun-vcs, published by that repository's
-# site.yml to the `vcs.statewalker.com` prefix. statewalker.com's DNS is on Cloudflare: its
-# `vcs` record must be DNS only (grey cloud), or Cloudflare terminates TLS in front of Caddy
-# and HTTP-01 never reaches it.
-vcs.statewalker.com {
-	reverse_proxy sites:3000
-}
-
-vcs.statewalker.org {
-	redir https://vcs.statewalker.com{uri} permanent
-}
-
 # The CellB site's former address. An exact name beats the wildcard below, so
 # old links land on cellb.dev rather than on the sites app, which no longer
 # holds a cellb.httpeers.net prefix (it would answer 404).
@@ -195,6 +167,35 @@ cellb.httpeers.net {
 	import acme
 
 	redir https://cellb.dev{uri} permanent
+}
+
+# The project websites on domains of their own, served by the same sites app
+# from the prefix named after the Host (httpeers.com/, vcs.statewalker.com/).
+# Exact names, so Caddy issues each certificate over HTTP-01 by itself -- NO
+# `import acme`: its Gandi token is scoped to httpeers.net and the API answers
+# 403 for these zones. A name must resolve to this server BEFORE its block is
+# deployed: until then HTTP-01 cannot reach Caddy, it logs `challenge failed`
+# and browsers get a TLS error for that name.
+#
+# httpeers.com: the httpeers site (statewalker/httpeers site/). The .org and
+# the www names redirect to it.
+httpeers.com {
+	reverse_proxy sites:3000
+}
+
+www.httpeers.com, httpeers.org, www.httpeers.org {
+	redir https://httpeers.com{uri} permanent
+}
+
+# vcs.statewalker.com: the webrun-vcs site (statewalker/webrun-vcs site/). Its
+# DNS is at Cloudflare and must be DNS-only (grey cloud): proxied, the name
+# would resolve to Cloudflare and the HTTP-01 challenge would not reach Caddy.
+vcs.statewalker.com {
+	reverse_proxy sites:3000
+}
+
+vcs.statewalker.org {
+	redir https://vcs.statewalker.com{uri} permanent
 }
 
 *.httpeers.net {

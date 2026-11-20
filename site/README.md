@@ -95,34 +95,45 @@ RustFS's own (`tools/publish/README.md`) and can rewrite or delete every site in
 RustFS user whose policy allows `s3:PutObject`, `s3:GetObject`, `s3:DeleteObject` and
 `s3:ListBucket` on `sites/httpeers.com/*` only is what this workflow needs.
 
+`site/scripts/setup-publish-secrets.sh` does all of it: it reads the root pair over ssh
+(`HTTPEERS_SSH` to change the host), creates or re-keys that user (`httpeers-site`) with RustFS's
+own client (`rc admin`, in a `rustfs/rc` container), checks the new pair can write and delete
+under `sites/<domain>/.site/`, and sets the two secrets and `SITE_DOMAIN` with `gh`. Running it
+again rotates the key.
+
 Without the secrets the workflow builds and checks the site and notes that it did not publish.
 Run it by hand with "Run workflow" (`workflow_dispatch`).
 
-### Going live at httpeers.com, once
+### Why httpeers.com needs its own DNS records and Caddy block
 
-1. **DNS at Gandi.** `httpeers.com` and `httpeers.org` point at Gandi's parking page today (apex
-   `217.70.184.38`, `www` a CNAME to `webredir.vip.gandi.net`). In each domain's **DNS records**,
-   set `A @ 163.172.46.87` and `A www 163.172.46.87` (delete the `www` CNAME), and turn off
-   **web forwarding** if it is on. `dig +short httpeers.com www.httpeers.org` should print the
-   server's address.
-2. **Caddy.** Deploy `deploy/Caddyfile` as `deploy/README.md` says ("5. After any change to the
-   Caddyfile"). Its `httpeers.com` block serves the site; the `www.httpeers.com, httpeers.org,
-   www.httpeers.org` block redirects. Certificates come over HTTP-01, so this step must follow the
-   DNS change.
-3. **Secrets.** Run `site/scripts/setup-publish-secrets.sh` (needs ssh to the server, docker and
-   `gh` with admin rights here). It reads RustFS's root pair over ssh (`HTTPEERS_SSH` to change
-   the host), creates or re-keys the RustFS user `httpeers-site` limited to `sites/httpeers.com/*`
-   with RustFS's own client (`rc admin`, in a `rustfs/rc` container), checks the new pair can
-   write and delete under `sites/httpeers.com/.site/`, and sets the two secrets and `SITE_DOMAIN`
-   with `gh`. Running it again rotates the key.
-4. **Publish.** `gh workflow run site.yml -R statewalker/httpeers --ref main`, or push to `main`.
-5. **Check.** `curl -sI https://httpeers.com/` answers `200`; `curl -sI https://httpeers.org/`
-   answers `301` with `location: https://httpeers.com/`.
+The site lives at **httpeers.com**. httpeers.org, www.httpeers.com and www.httpeers.org redirect to
+it with a 301. None of these names is covered by the `*.httpeers.net` wildcard record or
+certificate, so each one needs two things:
 
-Until step 2, the workflow can publish to a `*.httpeers.net` name for a preview, with no DNS or
-Caddy change: run the script with `SITE_DOMAIN=httpeers-site.httpeers.net
-SITE_DOMAINS="httpeers.com httpeers-site.httpeers.net"`. (`www.httpeers.net` will not do: it is a
-CNAME to Gandi's web redirector, which wins over the zone's wildcard record.)
+| Name | DNS (Gandi LiveDNS) | `deploy/Caddyfile` |
+| --- | --- | --- |
+| `httpeers.com` | `@ A 163.172.46.87` | `reverse_proxy sites:3000`: the sites host serves the `httpeers.com` prefix |
+| `www.httpeers.com`, `httpeers.org`, `www.httpeers.org` | `@` / `www` `A 163.172.46.87` | `redir https://httpeers.com{uri} permanent` |
+
+These are exact names, so Caddy gets their certificates over HTTP-01 on port 80, as it does for
+`cellb.dev`. They take no `import acme`: that snippet's Gandi token is scoped to httpeers.net, and
+the API answers 403 for any other zone.
+
+A name that does not resolve to the server cannot get a certificate. Deploy a Caddyfile block only
+after the name's record points at the server. Before that, Caddy logs `challenge failed` for the
+name, and the browser shows a TLS error instead of the site.
+
+To go live, in order:
+
+1. In each zone's DNS records at Gandi, set `@` and `www` to `A 163.172.46.87`. Gandi's default
+   zone has `www CNAME webredir.vip.gandi.net.`: that explicit record wins over everything else,
+   and it sends visitors to Gandi's own forwarding service. Check with
+   `dig +short httpeers.com www.httpeers.org`.
+2. Deploy `deploy/Caddyfile` as `deploy/README.md` says ("After any change to the Caddyfile").
+3. Run `site/scripts/setup-publish-secrets.sh` (the defaults are `httpeers.com`), then run the
+   workflow ("Run workflow").
+4. Check the result: `curl -sI https://httpeers.com/` answers `200`, and
+   `curl -sI https://httpeers.org/x` answers `301` with `location: https://httpeers.com/x`.
 
 ## Style
 

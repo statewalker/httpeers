@@ -4,9 +4,9 @@ name: site
 # Chromium, and published from main to the httpeers static-site host, as statewalker/cellb.dev
 # publishes cellb.dev. A site there is a first-level prefix of the `sites` bucket named after its
 # domain (https://s3.httpeers.net, S3 on RustFS); the host (apps/sites) serves `<domain>/…` for
-# `Host: <domain>`. The site's domain is httpeers.com (httpeers.org and the www names redirect to
-# it): an exact name in deploy/Caddyfile with its own DNS records (deploy/README.md, "6. Other
-# domains"). See site/README.md, Publishing.
+# `Host: <domain>`. httpeers.com reaches that host through its own DNS records and an exact-name
+# block in deploy/Caddyfile (httpeers.org and the www names redirect to it). See site/README.md,
+# Publishing.
 #
 # Settings (repository → Settings → Secrets and variables → Actions):
 #   secret   HTTPEERS_S3_ACCESS_KEY_ID, HTTPEERS_S3_SECRET_ACCESS_KEY   credentials that can write
