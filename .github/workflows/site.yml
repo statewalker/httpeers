@@ -75,6 +75,9 @@ jobs:
       # built first; `...` builds the site's workspace dependencies in dependency order.
       - name: Build
         run: pnpm --filter "@statewalker/httpeers-site..." run build
+      # Every internal href and src of the built pages names a file, and every #anchor an id.
+      - name: Internal links
+        run: pnpm --filter @statewalker/httpeers-site check:links
       # Every live example page, run in Chromium as a visitor runs it (a few seconds).
       - run: bash ${{ github.workspace }}/.github/scripts/install-chromium.sh pnpm --filter @statewalker/httpeers-site exec playwright
       - name: Live examples

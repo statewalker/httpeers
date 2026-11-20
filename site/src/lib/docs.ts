@@ -52,3 +52,34 @@ const hrefByFile = new Map(repoPages.map((page) => [page.file, pageHref(page)]))
 
 /** The site page of a repository file if the site renders it, else the file on GitHub. */
 export const docHref = (file: string) => hrefByFile.get(file) ?? repoFile(file);
+
+/** Site pages that explain what a rendered repository page covers, shown under it. */
+export const relatedPages: Record<string, { href: string; label: string }[]> = {
+  security: [
+    { href: "/docs/access", label: "Access control: tokens, policy, attenuation, revocation" },
+    { href: "/docs/membership", label: "Joining a mesh: invitations and membership" },
+    { href: "/docs/architecture#request-path", label: "Architecture: the request path" },
+  ],
+  "packages/httpeers-core": [
+    { href: "/docs/architecture#request-path", label: "Architecture: the request path" },
+    { href: "/docs/architecture#headers", label: "Architecture: two headers carry the security" },
+  ],
+  "packages/httpeers-bridge": [
+    { href: "/docs/architecture#request-path", label: "Architecture: the request path" },
+  ],
+  "packages/httpeers-access": [
+    { href: "/docs/access", label: "Access control, explained" },
+    { href: "/docs/access#unsupported", label: "Access control: what is not implemented" },
+  ],
+  "packages/webrun-biscuit": [
+    { href: "/docs/access#tokens", label: "Access control: how httpeers uses Biscuit" },
+    { href: "/docs/access#attenuation", label: "Access control: attenuation" },
+  ],
+  "packages/httpeers-hub": [{ href: "/docs/membership", label: "Joining a mesh, explained" }],
+  "packages/httpeers-qr": [
+    { href: "/docs/membership#invitation", label: "Joining a mesh: invitations" },
+  ],
+  "packages/httpeers-join": [
+    { href: "/docs/membership#invitation", label: "Joining a mesh: invitations" },
+  ],
+};

@@ -115,7 +115,7 @@ const services = [
     about who may call what is made by the peer being called.
   </p>
 
-  <h2>The request path</h2>
+  <h2 id="request-path">The request path</h2>
   <ol class="not-prose relative my-6 space-y-3 border-l pl-6">
     {
       path.map((step, i) => (
@@ -135,7 +135,7 @@ const services = [
     }
   </ol>
 
-  <h2>Two headers carry the security</h2>
+  <h2 id="headers">Two headers carry the security</h2>
   <table>
     <thead>
       <tr><th>Header</th><th>Carries</th><th>Rule</th></tr>
@@ -163,7 +163,8 @@ const services = [
   </table>
   <p>
     The <a href="/examples/mesh-over-ports">two-peers example</a> shows a forged <code>x-httpeers-peer</code>
-    overwritten; the <a href="/examples/access-tokens">tokens example</a> shows a token refused in the wrong hands.
+    overwritten; the <a href="/examples/access-tokens">tokens example</a> shows a token refused in the wrong hands. How the
+    token itself is checked: <a href="/docs/access">access control</a>.
   </p>
 
   <h2>The libraries, by layer</h2>

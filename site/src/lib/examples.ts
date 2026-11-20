@@ -7,6 +7,8 @@ export interface Example {
   packages: string[];
   /** What to look for in the transcript. */
   shows: string[];
+  /** The explanation sections this example demonstrates. */
+  concepts: { href: string; label: string }[];
 }
 
 export const examples: Example[] = [
@@ -20,6 +22,12 @@ export const examples: Example[] = [
       "Requests and responses in both directions, bodies included.",
       "The caller's identity is what the link proved: a forged x-httpeers-peer header is overwritten on arrival.",
       "An unknown path is a 404 from the mount table, not a hang.",
+    ],
+    concepts: [
+      { href: "/docs/architecture#request-path", label: "Architecture: the request path" },
+      { href: "/docs/architecture#headers", label: "Architecture: two headers carry the security" },
+      { href: "/docs/packages/httpeers-bridge", label: "httpeers-bridge: fetch over any duplex" },
+      { href: "/docs/packages/httpeers-core", label: "httpeers-core: mounts, router, headers" },
     ],
   },
   {
@@ -37,6 +45,35 @@ export const examples: Example[] = [
       "A token is bound to the peer it was minted for: Carol's token in Alice's hands is refused.",
       "A token signed by another mesh's hub is refused.",
     ],
+    concepts: [
+      { href: "/docs/access#tokens", label: "Access control: Biscuit tokens" },
+      { href: "/docs/access#policy", label: "Access control: the Datalog policy" },
+      { href: "/docs/access#binding", label: "Access control: a token is bound to its peer" },
+      { href: "/docs/security", label: "The security model" },
+    ],
+  },
+  {
+    slug: "delegation",
+    title: "Narrowing a token",
+    summary:
+      "Alice appends a block of checks to her member token (no hub involved), so it works only at Bob and only for 30 seconds. Bob accepts it; Dave refuses it; widening and tampering fail.",
+    packages: [
+      "@statewalker/webrun-biscuit",
+      "@statewalker/httpeers-access",
+      "@statewalker/httpeers-core",
+      "@statewalker/httpeers-bridge",
+    ],
+    shows: [
+      "The narrowed token is accepted where its checks hold (Bob) and refused where they do not (Dave).",
+      'An appended role("admin") grants nothing: a block can only add checks.',
+      "A token with one altered character fails its signature; the same token sent by Carol fails the peer binding.",
+    ],
+    concepts: [
+      { href: "/docs/access#attenuation", label: "Access control: attenuation" },
+      { href: "/docs/access#passing", label: "Access control: passing a right to another peer" },
+      { href: "/docs/access#binding", label: "Access control: a token is bound to its peer" },
+      { href: "/docs/security", label: "The security model" },
+    ],
   },
   {
     slug: "hub-invitation",
@@ -53,6 +90,12 @@ export const examples: Example[] = [
       "A stranger cannot read the mesh view.",
       "Redeeming the invitation makes Alice a member and gives her a token; replaying it is refused.",
       "With her token, Alice reads /.well-known/mesh and sees herself in it.",
+    ],
+    concepts: [
+      { href: "/docs/membership", label: "Joining a mesh: invitations and membership" },
+      { href: "/docs/access#revocation", label: "Access control: revocation and expiry" },
+      { href: "/docs/packages/httpeers-hub", label: "httpeers-hub" },
+      { href: "/docs/packages/httpeers-qr", label: "httpeers-qr" },
     ],
   },
 ];
