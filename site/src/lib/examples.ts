@@ -76,6 +76,32 @@ export const examples: Example[] = [
     ],
   },
   {
+    slug: "app-grants",
+    title: "Passing a right to another peer",
+    summary:
+      'Bob\'s application grants Alice a right in its own Biscuit, sent in Authorization. Alice narrows it to "Carol may read" and hands it to Carol; Bob verifies it and binds it to the proven caller.',
+    packages: [
+      "@statewalker/webrun-biscuit",
+      "@statewalker/httpeers-access",
+      "@statewalker/httpeers-core",
+      "@statewalker/httpeers-bridge",
+    ],
+    shows: [
+      "Carol reads the report with the grant Alice narrowed for her; the PUT that Alice removed is refused.",
+      "The copy Alice narrowed names its holder: presented by Alice instead of Carol, it is refused. Alice's own grant names none, so it works in anyone's hands: a bearer token, kept to one hour.",
+      "A changed byte breaks the signature chain; without a membership token the mesh refuses before the application looks.",
+    ],
+    concepts: [
+      {
+        href: "/docs/access#application-grants",
+        label: "Access control: rights an application passes on",
+      },
+      { href: "/docs/access#attenuation", label: "Access control: attenuation" },
+      { href: "/docs/architecture#headers", label: "Architecture: the two headers" },
+      { href: "/docs/security", label: "The security model" },
+    ],
+  },
+  {
     slug: "hub-invitation",
     title: "A hub in a tab, and an invitation",
     summary:
