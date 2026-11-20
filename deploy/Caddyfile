@@ -169,6 +169,35 @@ cellb.httpeers.net {
 	redir https://cellb.dev{uri} permanent
 }
 
+# The project websites on domains of their own, served by the same sites app
+# from the prefix named after the Host (httpeers.com/, vcs.statewalker.com/).
+# Exact names, so Caddy issues each certificate over HTTP-01 by itself -- NO
+# `import acme`: its Gandi token is scoped to httpeers.net and the API answers
+# 403 for these zones. A name must resolve to this server BEFORE its block is
+# deployed: until then HTTP-01 cannot reach Caddy, it logs `challenge failed`
+# and browsers get a TLS error for that name.
+#
+# httpeers.com: the httpeers site (statewalker/httpeers site/). The .org and
+# the www names redirect to it.
+httpeers.com {
+	reverse_proxy sites:3000
+}
+
+www.httpeers.com, httpeers.org, www.httpeers.org {
+	redir https://httpeers.com{uri} permanent
+}
+
+# vcs.statewalker.com: the webrun-vcs site (statewalker/webrun-vcs site/). Its
+# DNS is at Cloudflare and must be DNS-only (grey cloud): proxied, the name
+# would resolve to Cloudflare and the HTTP-01 challenge would not reach Caddy.
+vcs.statewalker.com {
+	reverse_proxy sites:3000
+}
+
+vcs.statewalker.org {
+	redir https://vcs.statewalker.com{uri} permanent
+}
+
 *.httpeers.net {
 	import acme
 

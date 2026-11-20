@@ -81,13 +81,12 @@ Setup, once (repository → Settings → Secrets and variables → Actions):
 | Kind | Name | Value |
 | --- | --- | --- |
 | secret | `HTTPEERS_S3_ACCESS_KEY_ID`, `HTTPEERS_S3_SECRET_ACCESS_KEY` | credentials that can write the site's prefix in the `sites` bucket |
-| variable | `SITE_DOMAIN` | optional; `www.httpeers.net` when unset |
+| variable | `SITE_DOMAIN` | optional; `httpeers.com` when unset |
 
 Use credentials of their own, not the pair in `/opt/httpeers/.env` on the server: that pair is
 RustFS's own (`tools/publish/README.md`) and can rewrite or delete every site in the bucket. A
 RustFS user whose policy allows `s3:PutObject`, `s3:GetObject`, `s3:DeleteObject` and
-`s3:ListBucket` on `sites/www.httpeers.net/*` and `sites/httpeers.net/*` only is what this
-workflow needs.
+`s3:ListBucket` on `sites/httpeers.com/*` only is what this workflow needs.
 
 `site/scripts/setup-publish-secrets.sh` does all of it: it reads the root pair over ssh
 (`HTTPEERS_SSH` to change the host), creates or re-keys that user (`httpeers-site`) with RustFS's
@@ -98,24 +97,36 @@ again rotates the key.
 Without the secrets the workflow builds and checks the site and notes that it did not publish.
 Run it by hand with "Run workflow" (`workflow_dispatch`).
 
-`www.httpeers.net` needs nothing else: `*.httpeers.net` in `deploy/Caddyfile` already sends every
-subdomain to the sites host, under the wildcard certificate and DNS record. To serve the site at
-the apex, `httpeers.net`, instead:
+### Why httpeers.com needs its own DNS records and Caddy block
 
-1. Add a site block to `deploy/Caddyfile` that sends the name to the sites host, and deploy it
-   (the wildcard certificate does not cover the apex; the `acme` snippet issues one for it).
-   Optionally redirect `www.httpeers.net` there with an exact-name block, as `www.cellb.dev` is:
+The site lives at **httpeers.com**. httpeers.org, www.httpeers.com and www.httpeers.org redirect to
+it with a 301. None of these names is covered by the `*.httpeers.net` wildcard record or
+certificate, so each one needs two things:
 
-   ```caddyfile
-   httpeers.net {
-   	import acme
-   	reverse_proxy sites:3000
-   }
-   ```
+| Name | DNS (Gandi LiveDNS) | `deploy/Caddyfile` |
+| --- | --- | --- |
+| `httpeers.com` | `@ A 163.172.46.87` | `reverse_proxy sites:3000`: the sites host serves the `httpeers.com` prefix |
+| `www.httpeers.com`, `httpeers.org`, `www.httpeers.org` | `@` / `www` `A 163.172.46.87` | `redir https://httpeers.com{uri} permanent` |
 
-2. Check the apex resolves to the server: the `@` record of `deploy/README.md`'s DNS step.
-3. Set the variable `SITE_DOMAIN` to `httpeers.net` and run the workflow. The old prefix stays
-   served until it is removed (`httpeers-publish --delete-site`).
+These are exact names, so Caddy gets their certificates over HTTP-01 on port 80, as it does for
+`cellb.dev`. They take no `import acme`: that snippet's Gandi token is scoped to httpeers.net, and
+the API answers 403 for any other zone.
+
+A name that does not resolve to the server cannot get a certificate. Deploy a Caddyfile block only
+after the name's record points at the server. Before that, Caddy logs `challenge failed` for the
+name, and the browser shows a TLS error instead of the site.
+
+To go live, in order:
+
+1. In each zone's DNS records at Gandi, set `@` and `www` to `A 163.172.46.87`. Gandi's default
+   zone has `www CNAME webredir.vip.gandi.net.`: that explicit record wins over everything else,
+   and it sends visitors to Gandi's own forwarding service. Check with
+   `dig +short httpeers.com www.httpeers.org`.
+2. Deploy `deploy/Caddyfile` as `deploy/README.md` says ("After any change to the Caddyfile").
+3. Run `site/scripts/setup-publish-secrets.sh` (the defaults are `httpeers.com`), then run the
+   workflow ("Run workflow").
+4. Check the result: `curl -sI https://httpeers.com/` answers `200`, and
+   `curl -sI https://httpeers.org/x` answers `301` with `location: https://httpeers.com/x`.
 
 ## Style
 

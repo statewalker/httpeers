@@ -5,7 +5,9 @@
 The production deployment of the mesh's services on one host: **five containers** — four on a
 single `httpeers_edge` network, fronted by Caddy, plus a STUN server on its own published port. Caddy terminates TLS for `*.httpeers.net` and
 `*.p.httpeers.net`, plus `cellb.dev` and `*.cellb.dev` (a second domain, served by the same
-`sites` app; `www.cellb.dev` redirects to the apex).
+`sites` app; `www.cellb.dev` redirects to the apex), and the project websites `httpeers.com` and
+`vcs.statewalker.com` (also `sites`; `www.httpeers.com`, `httpeers.org`, `www.httpeers.org` and
+`vcs.statewalker.org` redirect to them).
 
 | Service | Image | What it is |
 |---|---|---|
@@ -87,6 +89,20 @@ Gandi accepts a wildcard record without validating it, so a typo here fails sile
 resolution time rather than at entry. `*.p` is a valid name, and the Personal Access Token below
 can create it through the LiveDNS API: its "technical configuration" permission covers A records
 as well as TXT.
+
+**The project websites' names are not in this zone** and the wildcard does not cover them. Each
+needs an `A` record to `<server ip>` in its own zone, *before* its block in the Caddyfile is
+deployed (they use HTTP-01, which cannot succeed until the name reaches this server):
+
+| Name | Zone, where |
+| --- | --- |
+| `httpeers.com`, `www.httpeers.com` | `httpeers.com`, Gandi LiveDNS (`@` and `www`) |
+| `httpeers.org`, `www.httpeers.org` | `httpeers.org`, Gandi LiveDNS (`@` and `www`) |
+| `vcs.statewalker.org` | `statewalker.org`, Gandi LiveDNS (`vcs`) |
+| `vcs.statewalker.com` | `statewalker.com`, Cloudflare (`vcs`, **DNS only**: proxied, HTTP-01 would not reach Caddy) |
+
+Gandi's default zone carries `www CNAME webredir.vip.gandi.net.` (Gandi's own forwarding): replace
+it, or `www` keeps landing on Gandi.
 
 ### 2. A Gandi Personal Access Token, once
 
