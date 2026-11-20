@@ -33,7 +33,8 @@ export function checkServiceTarget(kind: ServiceKind, target: string): TargetChe
   if (url.protocol !== "http:" && url.protocol !== "https:") return refused("not-http");
   const host = url.hostname.replace(/^\[|\]$/g, "").toLowerCase();
   const isAddress = /^\d+\.\d+\.\d+\.\d+$/.test(host) || host.includes(":");
-  const isLocalName = host === "localhost" || host.endsWith(".local");
+  const isLocalName =
+    host === "localhost" || host.endsWith(".localhost") || host.endsWith(".local");
 
   if (kind === "bridged") {
     if (checkTarget(target) !== "forbidden") return { ok: true };

@@ -9,7 +9,7 @@
 
 import { timingSafeEqual } from "node:crypto";
 import { type FetchHandler, MARKER, urlUpstream } from "@statewalker/webrun-http-proxy";
-import { checkTarget, isPrivateAddress } from "../targets.js";
+import { checkTarget, isLoopbackAddress, isPrivateAddress } from "../targets.js";
 import {
   BRIDGE_COOKIES_KEPT_HEADER,
   BRIDGE_GUEST_HEADER,
@@ -33,7 +33,7 @@ export interface BridgeInit {
   allowedOrigins: string[];
   /** Injected by tests; defaults to the platform's. */
   fetchImpl?: typeof fetch;
-  /** Every address a `.local` name resolves to. Injected by tests; defaults to the OS resolver. */
+  /** Every address a `.local` or `*.localhost` name resolves to. Injected by tests; defaults to the OS resolver. */
   resolveHost?: (name: string) => Promise<string[]>;
   /**
    * Keep one cookie jar per Guest (rung 16, spike): a Service's `Set-Cookie`
@@ -91,7 +91,8 @@ export async function reachable(
   if (verdict === "allowed") return "ok";
   const addresses = await resolveHost(verdict.resolve).catch(() => []);
   if (addresses.length === 0) return "unreachable";
-  return addresses.every(isPrivateAddress) ? "ok" : "forbidden";
+  const passes = verdict.require === "loopback" ? isLoopbackAddress : isPrivateAddress;
+  return addresses.every(passes) ? "ok" : "forbidden";
 }
 
 export async function systemResolve(name: string): Promise<string[]> {

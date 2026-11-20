@@ -33,7 +33,12 @@ export {
 export { decodeFrames, encodeFrame, SOCKET_HEADER, type SocketFrame } from "./socket-frames.js";
 export { openTunnel, sharerSocket, TunnelSocket } from "./socket-tunnel.js";
 export { stampGuest } from "./stamp-guest.js";
-export { checkTarget, isPrivateAddress, type TargetVerdict } from "./targets.js";
+export {
+  checkTarget,
+  isLoopbackAddress,
+  isPrivateAddress,
+  type TargetVerdict,
+} from "./targets.js";
 export {
   BRIDGE_COOKIES_KEPT_HEADER,
   BRIDGE_GUEST_HEADER,

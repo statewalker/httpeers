@@ -185,8 +185,8 @@ describe("02 — where the Bridge relays", () => {
       reached.push(new URL(req.url).origin);
       return new Response("ok");
     }) as typeof fetch;
-    // The resolver is the other network boundary: `.local` names resolve
-    // to whatever this table says, as mDNS on the Sharer's LAN would.
+    // The resolver is the other network boundary: `.local` and `*.localhost`
+    // names resolve to whatever this table says, as the Sharer's resolver would.
     const resolveHost = async (name: string) => MDNS[name] ?? [];
     const b = await listenLoopback(
       createBridge({ token: TOKEN, allowedOrigins: [PEERSHARE], fetchImpl, resolveHost }),
@@ -198,7 +198,32 @@ describe("02 — where the Bridge relays", () => {
     "nas.local": ["192.168.1.30"],
     "rebound.local": ["192.168.1.31", "8.8.8.8"], // one public answer is enough to refuse
     "public.local": ["93.184.216.34"],
+    "shop.dev.localhost": ["::1", "127.0.0.1"], // what macOS answers, without asking DNS
+    // A resolver that forwards `*.localhost` to DNS: the answer is someone else's.
+    "lan.localhost": ["192.168.1.1"],
+    "rebound.localhost": ["127.0.0.1", "93.184.216.34"],
   };
+
+  it.each(["http://lan.localhost", "http://rebound.localhost"])(
+    "refuses %s: a *.localhost name that resolves beyond loopback, even to the LAN",
+    async (target) => {
+      const { b, reached } = await recordingBridge();
+      try {
+        const res = await fetch(`${b.origin}/`, {
+          headers: {
+            origin: PEERSHARE,
+            [BRIDGE_TARGET_HEADER]: target,
+            [BRIDGE_TOKEN_HEADER]: TOKEN,
+          },
+        });
+        expect(res.status).toBe(403);
+        expect(res.headers.get(BRIDGE_MARKER)).toBe("target-forbidden");
+        expect(reached).toEqual([]);
+      } finally {
+        await b.close();
+      }
+    },
+  );
 
   it.each(["http://rebound.local", "http://public.local"])(
     "refuses %s: a .local name that resolves to a public address",
@@ -242,7 +267,7 @@ describe("02 — where the Bridge relays", () => {
   const FORBIDDEN = [
     "http://8.8.8.8", // a public address
     "https://example.com", // any DNS name but localhost: rebinding turns names into anything
-    "http://dev.localhost:3000", // *.localhost is loopback by convention only; a resolver may forward it
+    "http://dev.localhost.example.com", // a name that only contains "localhost"
     "http://169.254.169.254", // link-local: cloud metadata
     "http://[fe80::1]", // IPv6 link-local
     "http://0.0.0.0:8080", // "any interface", reaches loopback by accident on some systems
@@ -280,6 +305,7 @@ describe("02 — where the Bridge relays", () => {
     "http://100.64.0.1:8080", // Tailscale / carrier-grade NAT (100.64/10)
     "http://100.101.102.103",
     "http://nas.local:8000", // mDNS: resolved first, see `resolveHost` below
+    "http://shop.dev.localhost:3000", // RFC 6761: resolved first, every address loopback
   ];
 
   it.each(ALLOWED)("relays to %s", async (target) => {
