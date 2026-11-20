@@ -88,7 +88,7 @@ export const examples: Example[] = [
     ],
     shows: [
       "Carol reads the report with the grant Alice narrowed for her; the PUT that Alice removed is refused.",
-      "The grant names its holder: presented by Alice instead of Carol, it is refused.",
+      "The copy Alice narrowed names its holder: presented by Alice instead of Carol, it is refused. Alice's own grant names none, so it works in anyone's hands: a bearer token, kept to one hour.",
       "A changed byte breaks the signature chain; without a membership token the mesh refuses before the application looks.",
     ],
     concepts: [

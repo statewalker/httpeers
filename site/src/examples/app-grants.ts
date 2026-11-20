@@ -54,12 +54,13 @@ export async function run(out: Output) {
     // caller is the peer the transport proved, never a header.
     const caller = lookupPeer(req);
     const result = verified.authorize(
-      "caller({caller}); operation({op}); resource({path});\nallow if right({path}, {op});",
+      "caller({caller}); operation({op}); resource({path}); time_ms({now});\nallow if right({path}, {op});",
       {
         params: {
           caller: typeof caller === "string" ? caller : "anonymous",
           op: req.method,
           path: new URL(req.url).pathname,
+          now: Date.now(),
         },
       },
     );
@@ -102,12 +103,15 @@ export async function run(out: Output) {
     );
     out.log("the hub mints Alice and Carol a member token each");
 
-    // Bob's application grants Alice read and write on one report.
+    // Bob's application grants Alice read and write on one report, for one hour. The grant names
+    // no holder: it must stay open for Alice to pass it on, so it is a bearer token until a block
+    // binds it. That is why it gets a short life.
     const grant = Biscuit.build(
       app.secretKey,
-      'right("/reports/q3", "GET");\nright("/reports/q3", "PUT");',
+      'right("/reports/q3", "GET");\nright("/reports/q3", "PUT");\ncheck if time_ms($t), $t < {until};',
+      { params: { until: Date.now() + HOUR } },
     ).toBase64();
-    out.log("Bob's application grants Alice GET and PUT on /reports/q3");
+    out.log("Bob's application grants Alice GET and PUT on /reports/q3, for one hour");
 
     let res = await aliceToBob("PUT", "/reports/q3", { token: aliceMember, app: grant });
     expect(res.status === 200, "Alice's grant allows PUT");
@@ -136,6 +140,15 @@ export async function run(out: Output) {
     out.log(
       `Alice, Carol's grant   → Bob GET /reports/q3 → ${res.status} (the caller is not Carol)`,
       "refused",
+    );
+
+    // The limit of this design: Alice's own grant carries no caller check, so whoever holds it may
+    // use it. Bind every copy you hand on with a caller check, and keep the root grant short-lived.
+    res = await carolToBob("PUT", "/reports/q3", { token: carolMember, app: grant });
+    expect(res.status === 200, "the un-narrowed grant is a bearer token");
+    out.log(
+      `Carol, Alice's own grant → Bob PUT /reports/q3 → ${res.status} (no caller check: a bearer token)`,
+      "ok",
     );
 
     // Removing the appended block is not possible: the chain is signed block by block, so a

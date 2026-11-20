@@ -181,9 +181,15 @@ const narrowed = Biscuit.fromBase64(token)
     its own key and its own vocabulary. Alice attenuates the grant Bob's application gave her, for example to
     <code>check if operation("GET"); check if caller("&lt;carol&gt;");</code>, and hands it to Carol by any
     channel. Bob's handler verifies it against the application's public key and asserts the caller the transport
-    proved (<code>lookupPeer</code>), so the right is bound to the peer it was given to: Carol may read, may not
-    write, and Alice cannot use Carol's copy. The membership token still decides whether Carol may reach Bob at
-    all; the application token decides what she may do there. The
+    proved (<code>lookupPeer</code>), which lets a block bind the right to a peer: because of Alice's
+    <code>check if caller(…)</code>, Carol may read, may not write, and Alice cannot use Carol's copy. The membership
+    token still decides whether Carol may reach Bob at all; the application token decides what she may do there.
+  </p>
+  <p>
+    <strong>The grant Alice received is a bearer token.</strong> It names no holder, because a holder check in it
+    would also bind every copy Alice hands on (each block's checks must all hold). Whoever obtains it may use it,
+    so give it a short life (<code>check if time_ms($t), $t &lt; …</code>, with the handler asserting
+    <code>time_ms</code>) and add a caller check in every block that passes it on. The
     <a href="/examples/app-grants">application grant example</a> runs exactly that. Verifying the grant is the
     handler's code, not httpeers-access's: the library checks membership only.
   </p>
