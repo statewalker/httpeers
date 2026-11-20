@@ -34,6 +34,7 @@ apps/demos/            the demo sites: hub, app, images, proxy
 deploy/                the production compose stack, the Caddyfile, the ingress image
 deploy/llm-appliance/  hub + LiteLLM + Postgres + Traefik, locally or on the server
 tools/publish/         shell toolkit: publish sites by editing a folder
+site/                  the website (www.httpeers.net), with live examples of the libraries
 docs/                  the security model
 .github/workflows/     CI, and one image workflow per deployable
 ```
@@ -113,6 +114,10 @@ The relay and sites workflows then deploy over SSH when the repository variable
 appliance workflow watches all of `packages/**`, so any change there — a README
 included — rebuilds and redeploys the hub. On a pull request, CI runs and the
 LLM appliance image is built without being pushed.
+
+The website (`site/`) is published the same way: `.github/workflows/site.yml`
+builds it, runs its live examples in Chromium and syncs it to the sites host
+([`site/README.md`](site/README.md)).
 
 ## Why it is the way it is
 

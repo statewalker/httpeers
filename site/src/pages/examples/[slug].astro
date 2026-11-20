@@ -1,0 +1,63 @@
+---
+import CodeBlock from "@/components/CodeBlock.astro";
+import ExampleRunner from "@/components/ExampleRunner.astro";
+import Docs from "@/layouts/Docs.astro";
+import { docHref } from "@/lib/docs";
+import { type Example, examples } from "@/lib/examples";
+import { repoFile } from "@/lib/site";
+
+// The source the page shows is the module the Run button loads: one file, so they cannot differ.
+const sources = import.meta.glob<string>("../../examples/*.ts", {
+  query: "?raw",
+  import: "default",
+  eager: true,
+});
+
+export function getStaticPaths() {
+  return examples.map((example) => ({ params: { slug: example.slug }, props: { example } }));
+}
+
+const { example } = Astro.props as { example: Example };
+const source = sources[`../../examples/${example.slug}.ts`];
+if (!source) throw new Error(`site/src/examples/${example.slug}.ts is missing`);
+const index = examples.indexOf(example);
+const next = examples[index + 1];
+---
+
+<Docs title={example.title} description={example.summary}>
+  <p class="font-mono text-xs uppercase tracking-wider text-primary">Live example {index + 1} of {examples.length}</p>
+  <h1>{example.title}</h1>
+  <p>{example.summary}</p>
+  <h2>Run it</h2>
+  <ExampleRunner slug={example.slug} />
+  <h2>What to look for</h2>
+  <ul>
+    {example.shows.map((line) => <li>{line}</li>)}
+  </ul>
+  <h2>The code</h2>
+  <p>
+    This is the whole module the button runs (<a href={repoFile(`site/src/examples/${example.slug}.ts`)}>on GitHub</a>).
+    It imports the packages from npm as any application would:
+  </p>
+  <ul>
+    {
+      example.packages.map((name) => (
+        <li>
+          <a href={docHref(`packages/${name.replace("@statewalker/", "")}/README.md`)}><code>{name}</code></a>
+        </li>
+      ))
+    }
+  </ul>
+  <CodeBlock code={source.trim()} lang="ts" title={`${example.slug}.ts`} />
+  <p>
+    In a deployed mesh the only line that changes is where the link comes from:{" "}
+    <code>servePeer</code> from <a href={docHref("packages/httpeers-libp2p/README.md")}>httpeers-libp2p</a> serves the same
+    router over libp2p, with the caller proven by the Noise handshake instead of asserted by{" "}
+    <code>pairedLinks</code>.
+  </p>
+  {next && (
+    <p>
+      Next: <a href={`/examples/${next.slug}`}>{next.title}</a>.
+    </p>
+  )}
+</Docs>

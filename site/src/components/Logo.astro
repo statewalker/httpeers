@@ -1,0 +1,21 @@
+---
+interface Props {
+  class?: string;
+}
+const { class: className } = Astro.props;
+---
+
+<a href="/" class:list={["inline-flex items-center gap-2 font-semibold tracking-tight", className]}>
+  <svg viewBox="0 0 24 24" class="size-6" aria-hidden="true">
+    <rect width="24" height="24" rx="6" class="fill-primary" />
+    <g class="stroke-primary-foreground" stroke-width="1.6" fill="none" stroke-linecap="round">
+      <path d="M7 7 17 7 M7 7 12 17 M17 7 12 17" opacity=".55" />
+    </g>
+    <g class="fill-primary-foreground">
+      <circle cx="7" cy="7" r="2.4" />
+      <circle cx="17" cy="7" r="2.4" />
+      <circle cx="12" cy="17" r="2.4" />
+    </g>
+  </svg>
+  <span>http<span class="text-primary">eers</span></span>
+</a>

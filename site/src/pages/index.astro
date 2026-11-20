@@ -1,0 +1,249 @@
+---
+import CodeBlock from "@/components/CodeBlock.astro";
+import Icon from "@/components/Icon.astro";
+import MeshDiagram from "@/components/MeshDiagram.astro";
+import Badge from "@/components/ui/Badge.astro";
+import Button from "@/components/ui/Button.astro";
+import Base from "@/layouts/Base.astro";
+import { docHref } from "@/lib/docs";
+import { examples } from "@/lib/examples";
+import { DEPLOYED_DEMOS, REPO } from "@/lib/site";
+
+const serve = `// A provider: what this peer serves to the mesh.
+const mounts = createMounts();
+mounts.provide("/photos", async (req) => {
+  const caller = lookupPeer(req); // proven by the transport
+  return Response.json(await listPhotos(caller));
+});`;
+
+const call = `// A consumer page: any member, by peer id.
+const res = await fetch(\`/peers/\${peerId}/photos\`);
+const photos = await res.json();`;
+
+const pillars = [
+  {
+    icon: "network",
+    title: "Everything is a fetch()",
+    body: "One contract, (Request) => Promise<Response>, from the mount table to the wire. A page calls another peer with its own fetch() through a ServiceWorker edge: no SDK, no client object, no credential plumbing.",
+  },
+  {
+    icon: "globe",
+    title: "Browsers are peers",
+    body: "A tab or a phone serves HTTP handlers to the mesh as a Node process does. Browsers reach each other over libp2p, through a circuit relay where they cannot accept connections.",
+  },
+  {
+    icon: "shield",
+    title: "Identity is proven, policy is local",
+    body: "Every ingress rewrites who is calling from what the transport proved. Each target peer verifies the caller's Biscuit token and decides with its own Datalog policy.",
+  },
+  {
+    icon: "layers",
+    title: "Small, layered libraries",
+    body: "Only one package knows libp2p. The hub has no transport, so it runs in a tab. Each package's root is isomorphic: Node, workers and pages.",
+  },
+] as const;
+
+const useCases = [
+  {
+    title: "Your own app, calling the mesh",
+    body: "A first-party page calls other members' APIs with fetch(). Data crosses; the target's policy is the boundary.",
+  },
+  {
+    title: "Serving your resources",
+    body: "A tab, a phone or a process serves a gallery, a search index or a local model. You choose what to advertise; your policy gates callers.",
+  },
+  {
+    title: "Sharing a local HTTP service",
+    body: "httpeers-share puts a service running on your machine in front of invited guests, with probes, an invite link and WebSockets over the mesh.",
+  },
+  {
+    title: "A peer's app, isolated",
+    body: "Open another peer's app in a session origin of its own (<name>.p.httpeers.net): its own storage and worker, reaching only that peer at its root.",
+  },
+  {
+    title: "Local models for a household or a team",
+    body: "The hub daemon's LLM appliance serves an OpenAI-compatible API to members; the chat page reaches it over the mesh.",
+  },
+  {
+    title: "Tests without a network",
+    body: "The bridge runs the same mesh logic over MessagePorts, so peers, hubs and policies are tested in one process with no relay.",
+  },
+];
+---
+
+<Base>
+  <section class="relative overflow-hidden border-b">
+    <div class="bg-grid absolute inset-0 [mask-image:radial-gradient(ellipse_at_top,black,transparent_70%)]"></div>
+    <div class="relative mx-auto grid max-w-6xl items-center gap-10 px-4 py-16 sm:px-6 md:py-24 lg:grid-cols-[1.05fr_1fr]">
+      <div>
+        <Badge variant="brand" class="font-mono">peer-to-peer · HTTP · libp2p</Badge>
+        <h1 class="mt-5 text-4xl font-semibold tracking-tight sm:text-5xl">
+          A mesh where everything is a <span class="text-brand-gradient font-mono">fetch()</span>
+        </h1>
+        <p class="mt-5 max-w-xl text-lg leading-8 text-muted-foreground">
+          Node processes and browser pages serve HTTP handlers to each other over libp2p. A page calls another peer
+          with its own <code class="font-mono text-foreground">fetch()</code>, through a ServiceWorker edge, and each
+          peer decides who may call it.
+        </p>
+        <div class="mt-8 flex flex-wrap gap-3">
+          <Button href="/examples" size="lg">Run it in your browser <Icon name="arrowRight" /></Button>
+          <Button href="/docs" variant="outline" size="lg">Get started</Button>
+          <Button href={REPO} variant="ghost" size="lg"><Icon name="github" /> GitHub</Button>
+        </div>
+      </div>
+      <div class="rounded-2xl border bg-card/70 p-4 shadow-sm backdrop-blur">
+        <MeshDiagram />
+      </div>
+    </div>
+  </section>
+
+  <section class="mx-auto max-w-6xl px-4 py-16 sm:px-6">
+    <p class="font-mono text-xs uppercase tracking-wider text-primary">The idea</p>
+    <h2 class="mt-2 text-3xl font-semibold tracking-tight">Serve a handler, call it by peer id</h2>
+    <p class="mt-3 max-w-2xl text-muted-foreground">
+      The mesh mounts every member's HTTP surface into each peer's own URL namespace. A remote resource is addressed,
+      and called with your identity, exactly like a local one.
+    </p>
+    <div class="mt-8 grid gap-4 lg:grid-cols-2">
+      <CodeBlock code={serve} lang="ts" title="provider.ts — a phone, a tab, a process" />
+      <CodeBlock code={call} lang="ts" title="consumer.ts — any other member" />
+    </div>
+    <div class="mt-10 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+      {
+        pillars.map((p) => (
+          <div class="rounded-xl border bg-card p-5">
+            <span class="inline-flex size-9 items-center justify-center rounded-lg bg-primary/10 text-primary">
+              <Icon name={p.icon} />
+            </span>
+            <p class="mt-4 font-semibold">{p.title}</p>
+            <p class="mt-2 text-sm leading-6 text-muted-foreground">{p.body}</p>
+          </div>
+        ))
+      }
+    </div>
+  </section>
+
+  <section class="border-y bg-muted/40">
+    <div class="mx-auto grid max-w-6xl gap-10 px-4 py-16 sm:px-6 lg:grid-cols-[1fr_1.1fr]">
+      <div>
+        <p class="font-mono text-xs uppercase tracking-wider text-primary">Architecture</p>
+        <h2 class="mt-2 text-3xl font-semibold tracking-tight">From a page's fetch() to a peer's handler</h2>
+        <p class="mt-3 text-muted-foreground">
+          Six steps, and only one of them knows libp2p. The hub admits members and mints their tokens; the relay
+          makes browsers reachable; everything else happens between the two peers.
+        </p>
+        <Button href="/docs/architecture" variant="outline" class="mt-6">The architecture <Icon name="arrowRight" /></Button>
+      </div>
+      <ol class="space-y-2 text-sm">
+        {
+          [
+            ["Page code", "fetch(`/peers/${peerId}/photos`) on its own origin"],
+            ["ServiceWorker edge", "strips any claimed identity, attaches the membership token"],
+            ["Peer router", "forwards only what originated here"],
+            ["libp2p", "one duplex per call, through the relay when needed; Noise proves the caller"],
+            ["Target's ingress", "rewrites the caller from the transport, verifies the token, runs its policy"],
+            ["Handler", "(Request) => Promise<Response>, streamed back"],
+          ].map(([title, body], i) => (
+            <li class="flex gap-3 rounded-lg border bg-card p-3">
+              <span class="font-mono text-xs text-primary">{i + 1}</span>
+              <span>
+                <span class="font-medium">{title}</span>
+                <span class="text-muted-foreground"> — {body}</span>
+              </span>
+            </li>
+          ))
+        }
+      </ol>
+    </div>
+  </section>
+
+  <section id="live" class="mx-auto max-w-6xl px-4 py-16 sm:px-6">
+    <p class="font-mono text-xs uppercase tracking-wider text-primary">Live examples</p>
+    <h2 class="mt-2 text-3xl font-semibold tracking-tight">Run the libraries in this tab</h2>
+    <p class="mt-3 max-w-2xl text-muted-foreground">
+      Peers, a hub and their tokens, joined by MessagePorts instead of libp2p: the same code a deployed mesh runs,
+      with no relay and nothing leaving your browser. Each page shows the module it runs.
+    </p>
+    <div class="mt-8 grid gap-4 md:grid-cols-3">
+      {
+        examples.map((e, i) => (
+          <a href={`/examples/${e.slug}`} class="group rounded-xl border bg-card p-5 transition-colors hover:border-primary/50">
+            <p class="font-mono text-xs text-primary">0{i + 1}</p>
+            <p class="mt-2 font-semibold">{e.title}</p>
+            <p class="mt-2 text-sm leading-6 text-muted-foreground">{e.summary}</p>
+            <p class="mt-3 inline-flex items-center gap-1 text-sm text-primary">
+              Run <Icon name="play" class="size-3.5" />
+            </p>
+          </a>
+        ))
+      }
+    </div>
+    <div class="mt-10 rounded-xl border p-6">
+      <p class="font-semibold">A real mesh, on four origins</p>
+      <p class="mt-1 text-sm text-muted-foreground">
+        The deployed demos form one mesh over <code class="font-mono">relay.httpeers.net</code>. Open the hub, then join
+        from another device by scanning its invitation.
+      </p>
+      <div class="mt-4 flex flex-wrap gap-2">
+        {
+          DEPLOYED_DEMOS.map((d) => (
+            <Button href={d.href} variant="outline" size="sm">
+              {d.href.replace("https://", "").replace(/\/$/, "")} <Icon name="externalLink" />
+            </Button>
+          ))
+        }
+        <Button href="/examples#deployed-demos" variant="link" size="sm">How to try them</Button>
+      </div>
+    </div>
+  </section>
+
+  <section id="use-cases" class="border-t bg-muted/40">
+    <div class="mx-auto max-w-6xl px-4 py-16 sm:px-6">
+      <p class="font-mono text-xs uppercase tracking-wider text-primary">Use cases</p>
+      <h2 class="mt-2 text-3xl font-semibold tracking-tight">What it is for</h2>
+      <div class="mt-8 grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+        {
+          useCases.map((u) => (
+            <div class="rounded-xl border bg-card p-5">
+              <p class="font-semibold">{u.title}</p>
+              <p class="mt-2 text-sm leading-6 text-muted-foreground">{u.body}</p>
+            </div>
+          ))
+        }
+      </div>
+    </div>
+  </section>
+
+  <section class="mx-auto max-w-6xl px-4 py-16 sm:px-6">
+    <div class="grid gap-8 rounded-2xl border bg-card p-8 lg:grid-cols-[auto_1fr] lg:items-center">
+      <span class="inline-flex size-12 items-center justify-center rounded-xl bg-primary/10 text-primary">
+        <Icon name="shield" class="size-6" />
+      </span>
+      <div>
+        <p class="font-mono text-xs uppercase tracking-wider text-primary">Security model</p>
+        <p class="mt-2 text-xl font-semibold tracking-tight">Data crosses the mesh safely; code does not.</p>
+        <p class="mt-2 text-muted-foreground">
+          The edge calls the mesh with your identity automatically, so any code on your origin inherits that
+          authority. Mount freely, and run only already-trusted code on the origin that holds the mount; a peer's app
+          gets an origin of its own. Read this before building on httpeers.
+        </p>
+        <Button href="/docs/security" class="mt-4">Read the security model <Icon name="arrowRight" /></Button>
+      </div>
+    </div>
+  </section>
+
+  <section class="border-t">
+    <div class="mx-auto flex max-w-6xl flex-col items-start gap-4 px-4 py-14 sm:px-6 md:flex-row md:items-center md:justify-between">
+      <div>
+        <p class="text-2xl font-semibold tracking-tight">Start with two peers in one process</p>
+        <p class="mt-1 text-muted-foreground">
+          <code class="font-mono">pnpm add @statewalker/httpeers-core @statewalker/httpeers-bridge</code>
+        </p>
+      </div>
+      <div class="flex gap-3">
+        <Button href="/docs">Getting started</Button>
+        <Button href={docHref("packages/httpeers-core/README.md")} variant="outline">Package reference</Button>
+      </div>
+    </div>
+  </section>
+</Base>

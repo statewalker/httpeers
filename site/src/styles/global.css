@@ -1,0 +1,190 @@
+@import "tailwindcss";
+@import "@fontsource-variable/inter";
+@import "@fontsource-variable/jetbrains-mono";
+
+@custom-variant dark (&:where(.dark, .dark *));
+
+/*
+ * httpeers design tokens (shadcn/ui variable contract), the structure of cellb.dev's site so the
+ * two can share components; only the values below differ. httpeers' hue is teal (≈ 195°) with a
+ * blue secondary. To re-skin, change the hue in --primary / --accent-2 and the tints around them.
+ */
+:root {
+  --radius: 0.625rem;
+
+  --background: oklch(0.99 0.004 195);
+  --foreground: oklch(0.18 0.03 195);
+  --card: oklch(1 0 0);
+  --card-foreground: var(--foreground);
+  --popover: oklch(1 0 0);
+  --popover-foreground: var(--foreground);
+  --primary: oklch(0.55 0.12 195);
+  --primary-foreground: oklch(0.99 0.01 195);
+  --secondary: oklch(0.955 0.015 195);
+  --secondary-foreground: oklch(0.25 0.05 195);
+  --muted: oklch(0.96 0.01 195);
+  --muted-foreground: oklch(0.5 0.03 195);
+  --accent: oklch(0.95 0.03 195);
+  --accent-foreground: oklch(0.3 0.12 195);
+  --accent-2: oklch(0.6 0.2 255);
+  --destructive: oklch(0.58 0.22 27);
+  --border: oklch(0.91 0.015 195);
+  --input: oklch(0.91 0.015 195);
+  --ring: oklch(0.6 0.12 195);
+
+  --code: oklch(0.17 0.03 195);
+  --code-foreground: oklch(0.93 0.01 195);
+  --grid-line: oklch(0.55 0.12 195 / 0.08);
+}
+
+.dark {
+  --background: oklch(0.15 0.025 195);
+  --foreground: oklch(0.96 0.01 195);
+  --card: oklch(0.19 0.03 195);
+  --card-foreground: var(--foreground);
+  --popover: oklch(0.19 0.03 195);
+  --popover-foreground: var(--foreground);
+  --primary: oklch(0.78 0.12 195);
+  --primary-foreground: oklch(0.16 0.04 195);
+  --secondary: oklch(0.24 0.035 195);
+  --secondary-foreground: oklch(0.95 0.01 195);
+  --muted: oklch(0.23 0.03 195);
+  --muted-foreground: oklch(0.72 0.03 195);
+  --accent: oklch(0.27 0.06 195);
+  --accent-foreground: oklch(0.9 0.06 195);
+  --accent-2: oklch(0.72 0.15 255);
+  --destructive: oklch(0.65 0.2 25);
+  --border: oklch(1 0 0 / 0.1);
+  --input: oklch(1 0 0 / 0.14);
+  --ring: oklch(0.78 0.12 195);
+
+  --code: oklch(0.12 0.025 195);
+  --code-foreground: oklch(0.93 0.01 195);
+  --grid-line: oklch(0.78 0.12 195 / 0.07);
+}
+
+@theme inline {
+  --font-sans: "Inter Variable", ui-sans-serif, system-ui, sans-serif;
+  --font-mono: "JetBrains Mono Variable", ui-monospace, SFMono-Regular, monospace;
+
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-accent-2: var(--accent-2);
+  --color-destructive: var(--destructive);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+  --color-code: var(--code);
+  --color-code-foreground: var(--code-foreground);
+
+  --radius-sm: calc(var(--radius) - 4px);
+  --radius-md: calc(var(--radius) - 2px);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) + 4px);
+}
+
+@layer base {
+  * {
+    @apply border-border outline-ring/50;
+  }
+  html {
+    @apply scroll-smooth;
+  }
+  body {
+    @apply bg-background text-foreground font-sans antialiased;
+  }
+  ::selection {
+    background: color-mix(in oklch, var(--primary) 30%, transparent);
+  }
+}
+
+@utility bg-grid {
+  background-image:
+    linear-gradient(to right, var(--grid-line) 1px, transparent 1px),
+    linear-gradient(to bottom, var(--grid-line) 1px, transparent 1px);
+  background-size: 32px 32px;
+}
+
+@utility text-brand-gradient {
+  background-image: linear-gradient(100deg, var(--primary), var(--accent-2));
+  background-clip: text;
+  color: transparent;
+}
+
+/* Long-form docs content */
+@layer components {
+  .prose-doc {
+    @apply text-[15px] leading-7 text-foreground/90;
+  }
+  .prose-doc h1:not(.not-prose *) {
+    @apply text-3xl font-semibold tracking-tight text-foreground mb-4;
+  }
+  .prose-doc h2:not(.not-prose *) {
+    @apply text-xl font-semibold tracking-tight text-foreground mt-10 mb-3 pb-2 border-b;
+  }
+  .prose-doc h3:not(.not-prose *) {
+    @apply text-base font-semibold text-foreground mt-8 mb-2;
+  }
+  .prose-doc p:not(.not-prose *) {
+    @apply my-4;
+  }
+  .prose-doc a:not(.not-prose *) {
+    @apply text-primary underline underline-offset-4 decoration-primary/40 hover:decoration-primary;
+  }
+  .prose-doc ul:not(.not-prose *) {
+    @apply my-4 list-disc pl-6 space-y-1;
+  }
+  .prose-doc h4:not(.not-prose *) {
+    @apply text-sm font-semibold text-foreground mt-6 mb-2;
+  }
+  .prose-doc ol:not(.not-prose *) {
+    @apply my-4 list-decimal pl-6 space-y-1;
+  }
+  .prose-doc blockquote:not(.not-prose *) {
+    @apply my-4 border-l-2 pl-4 text-muted-foreground;
+  }
+  .prose-doc pre:not(.not-prose *) {
+    @apply my-6 overflow-x-auto rounded-xl border px-4 py-4 font-mono text-[13px] leading-6;
+  }
+  /* A CodeBlock is the frame already: its own <pre> gets no second border, margin or radius. */
+  .prose-doc .code-window {
+    @apply my-6;
+  }
+  .prose-doc .code-window pre {
+    @apply m-0 rounded-none border-0;
+  }
+  .prose-doc :not(pre) > code:not(.not-prose *) {
+    @apply font-mono text-[0.85em] rounded-md bg-muted px-1.5 py-0.5 text-foreground;
+    /* A long call or path breaks where it must instead of widening the page; break-word (not
+       anywhere) leaves a table's columns their natural width. */
+    overflow-wrap: break-word;
+  }
+  .prose-doc table:not(.not-prose *) {
+    @apply w-full text-sm my-6;
+  }
+  /* On a phone, a wide table scrolls inside its own box, not the whole page. (Only there: as a
+     block, a table no longer stretches its rows to the full width.) */
+  @media (max-width: 767px) {
+    .prose-doc table:not(.not-prose *) {
+      @apply block max-w-full overflow-x-auto;
+    }
+  }
+  .prose-doc th:not(.not-prose *) {
+    @apply text-left font-medium text-muted-foreground border-b py-2 pr-4;
+  }
+  .prose-doc td:not(.not-prose *) {
+    @apply border-b py-2 pr-4 align-top;
+  }
+}

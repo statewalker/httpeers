@@ -1,0 +1,67 @@
+---
+// The shape of a mesh: peers (tabs and Node processes) calling each other, a hub that admits
+// them, a relay that makes browsers reachable. Colours come from the theme tokens.
+---
+
+<figure class="not-prose">
+  <svg viewBox="0 0 560 330" class="h-auto w-full" role="img" aria-labelledby="mesh-title mesh-desc">
+    <title id="mesh-title">An httpeers mesh</title>
+    <desc id="mesh-desc">
+      Two browser tabs and a Node process call each other with fetch over libp2p. A hub admits members and
+      mints their tokens; a circuit relay makes the browser tabs reachable.
+    </desc>
+    <defs>
+      <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+        <path d="M0 0 10 5 0 10z" class="fill-primary" />
+      </marker>
+    </defs>
+    <g class="stroke-border" stroke-width="1.5" fill="none" stroke-dasharray="4 4">
+      <path d="M140 92 280 250" />
+      <path d="M420 92 280 250" />
+      <path d="M140 92 280 40" />
+      <path d="M420 92 280 40" />
+    </g>
+    <g class="stroke-primary" stroke-width="2" fill="none">
+      <path d="M190 78 Q280 120 370 78" marker-end="url(#arrow)" marker-start="url(#arrow)" />
+      <path d="M140 132 Q170 250 228 268" marker-end="url(#arrow)" />
+    </g>
+    <!-- relay -->
+    <g>
+      <rect x="210" y="16" width="140" height="44" rx="10" class="fill-card stroke-border" stroke-width="1.5" />
+      <text x="280" y="36" text-anchor="middle" class="fill-foreground text-[12px] font-semibold">circuit relay</text>
+      <text x="280" y="51" text-anchor="middle" class="fill-muted-foreground font-mono text-[9px]">relay.httpeers.net</text>
+    </g>
+    <!-- tab A -->
+    <g>
+      <rect x="40" y="62" width="150" height="70" rx="10" class="fill-card stroke-primary" stroke-width="1.5" />
+      <text x="115" y="84" text-anchor="middle" class="fill-foreground text-[12px] font-semibold">browser tab</text>
+      <text x="115" y="101" text-anchor="middle" class="fill-muted-foreground font-mono text-[9px]">fetch("/peers/B/photos")</text>
+      <text x="115" y="118" text-anchor="middle" class="fill-primary font-mono text-[9px]">ServiceWorker edge</text>
+    </g>
+    <!-- tab B -->
+    <g>
+      <rect x="370" y="62" width="150" height="70" rx="10" class="fill-card stroke-primary" stroke-width="1.5" />
+      <text x="445" y="84" text-anchor="middle" class="fill-foreground text-[12px] font-semibold">another tab, a phone</text>
+      <text x="445" y="101" text-anchor="middle" class="fill-muted-foreground font-mono text-[9px]">/photos → handler</text>
+      <text x="445" y="118" text-anchor="middle" class="fill-primary font-mono text-[9px]">policy at its ingress</text>
+    </g>
+    <!-- hub -->
+    <g>
+      <rect x="205" y="232" width="150" height="70" rx="10" class="fill-card stroke-accent-2" stroke-width="1.5" />
+      <text x="280" y="254" text-anchor="middle" class="fill-foreground text-[12px] font-semibold">hub</text>
+      <text x="280" y="271" text-anchor="middle" class="fill-muted-foreground font-mono text-[9px]">invitations · tokens</text>
+      <text x="280" y="288" text-anchor="middle" class="fill-muted-foreground font-mono text-[9px]">a tab or a Node process</text>
+    </g>
+    <!-- node -->
+    <g>
+      <rect x="400" y="232" width="130" height="70" rx="10" class="fill-card stroke-primary" stroke-width="1.5" />
+      <text x="465" y="254" text-anchor="middle" class="fill-foreground text-[12px] font-semibold">Node process</text>
+      <text x="465" y="271" text-anchor="middle" class="fill-muted-foreground font-mono text-[9px]">serves an API,</text>
+      <text x="465" y="288" text-anchor="middle" class="fill-muted-foreground font-mono text-[9px]">calls the others</text>
+    </g>
+    <path d="M445 132 465 232" class="stroke-primary" stroke-width="2" fill="none" marker-end="url(#arrow)" marker-start="url(#arrow)" />
+    <text x="280" y="150" text-anchor="middle" class="fill-primary font-mono text-[10px]">HTTP over libp2p</text>
+    <text x="96" y="200" class="fill-muted-foreground font-mono text-[9px]">join: redeem</text>
+    <text x="96" y="212" class="fill-muted-foreground font-mono text-[9px]">an invitation</text>
+  </svg>
+</figure>

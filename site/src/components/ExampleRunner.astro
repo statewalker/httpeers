@@ -1,0 +1,82 @@
+---
+import Icon from "./Icon.astro";
+
+// Runs src/examples/<slug>.ts in this tab and shows what it writes. The browser check
+// (scripts/check-examples.mjs) presses the same button and reads the same status line.
+interface Props {
+  slug: string;
+}
+const { slug } = Astro.props;
+---
+
+<div data-example={slug} class="not-prose overflow-hidden rounded-xl border bg-card">
+  <div class="flex flex-wrap items-center gap-3 border-b px-4 py-3">
+    <button
+      type="button"
+      data-run-button
+      class="inline-flex h-9 items-center gap-2 rounded-md bg-primary px-4 text-sm font-medium text-primary-foreground shadow-xs hover:bg-primary/90 disabled:opacity-50"
+    >
+      <Icon name="play" class="size-4" />
+      Run in this tab
+    </button>
+    <span data-run-status class="text-sm text-muted-foreground" aria-live="polite">
+      Not run yet. Nothing leaves your browser.
+    </span>
+  </div>
+  <ol data-run-output class="min-h-24 space-y-1 bg-code px-4 py-4 font-mono text-[12.5px] leading-6 text-code-foreground">
+  </ol>
+  <div data-run-html class="hidden border-t bg-white p-4 [&_svg]:mx-auto [&_svg]:size-48"></div>
+</div>
+
+<script>
+  import type { Output } from "../examples/output";
+
+  // Every example module; Vite bundles each one as its own chunk, loaded on Run.
+  const modules = import.meta.glob<{ run(out: Output): Promise<void> }>([
+    "../examples/*.ts",
+    "!../examples/output.ts",
+  ]);
+
+  const COLOURS = { info: "", ok: "text-emerald-300", refused: "text-amber-300" } as const;
+
+  for (const root of document.querySelectorAll<HTMLElement>("[data-example]")) {
+    const button = root.querySelector<HTMLButtonElement>("[data-run-button]")!;
+    const status = root.querySelector<HTMLElement>("[data-run-status]")!;
+    const list = root.querySelector<HTMLOListElement>("[data-run-output]")!;
+    const html = root.querySelector<HTMLElement>("[data-run-html]")!;
+    button.addEventListener("click", async () => {
+      button.disabled = true;
+      list.replaceChildren();
+      html.replaceChildren();
+      html.classList.add("hidden");
+      status.textContent = "Running…";
+      const started = performance.now();
+      let lines = 0;
+      const out: Output = {
+        log(text, kind = "info") {
+          const li = document.createElement("li");
+          li.className = `whitespace-pre-wrap break-words ${COLOURS[kind]}`;
+          li.textContent = `${kind === "ok" ? "✓" : kind === "refused" ? "✗" : "·"} ${text}`;
+          list.append(li);
+          lines++;
+        },
+        html(markup) {
+          html.innerHTML = markup;
+          html.classList.remove("hidden");
+        },
+      };
+      try {
+        const load = modules[`../examples/${root.dataset.example}.ts`];
+        if (!load) throw new Error(`no example named ${root.dataset.example}`);
+        await (await load()).run(out);
+        status.textContent = `Finished: ${lines} steps in ${Math.round(performance.now() - started)} ms, all as expected.`;
+      } catch (error) {
+        out.log(String(error instanceof Error ? (error.stack ?? error.message) : error));
+        status.textContent = `Failed: ${error instanceof Error ? error.message : String(error)}`;
+        status.classList.add("text-destructive");
+      } finally {
+        button.disabled = false;
+      }
+    });
+  }
+</script>
