@@ -128,34 +128,34 @@
   .prose-doc {
     @apply text-[15px] leading-7 text-foreground/90;
   }
-  .prose-doc h1:not(.not-prose *) {
+  .prose-doc h1:not(.not-prose, .not-prose *) {
     @apply text-3xl font-semibold tracking-tight text-foreground mb-4;
   }
-  .prose-doc h2:not(.not-prose *) {
+  .prose-doc h2:not(.not-prose, .not-prose *) {
     @apply text-xl font-semibold tracking-tight text-foreground mt-10 mb-3 pb-2 border-b;
   }
-  .prose-doc h3:not(.not-prose *) {
+  .prose-doc h3:not(.not-prose, .not-prose *) {
     @apply text-base font-semibold text-foreground mt-8 mb-2;
   }
-  .prose-doc p:not(.not-prose *) {
+  .prose-doc p:not(.not-prose, .not-prose *) {
     @apply my-4;
   }
-  .prose-doc a:not(.not-prose *) {
+  .prose-doc a:not(.not-prose, .not-prose *) {
     @apply text-primary underline underline-offset-4 decoration-primary/40 hover:decoration-primary;
   }
-  .prose-doc ul:not(.not-prose *) {
+  .prose-doc ul:not(.not-prose, .not-prose *) {
     @apply my-4 list-disc pl-6 space-y-1;
   }
-  .prose-doc h4:not(.not-prose *) {
+  .prose-doc h4:not(.not-prose, .not-prose *) {
     @apply text-sm font-semibold text-foreground mt-6 mb-2;
   }
-  .prose-doc ol:not(.not-prose *) {
+  .prose-doc ol:not(.not-prose, .not-prose *) {
     @apply my-4 list-decimal pl-6 space-y-1;
   }
-  .prose-doc blockquote:not(.not-prose *) {
+  .prose-doc blockquote:not(.not-prose, .not-prose *) {
     @apply my-4 border-l-2 pl-4 text-muted-foreground;
   }
-  .prose-doc pre:not(.not-prose *) {
+  .prose-doc pre:not(.not-prose, .not-prose *) {
     @apply my-6 overflow-x-auto rounded-xl border px-4 py-4 font-mono text-[13px] leading-6;
   }
   /* A CodeBlock is the frame already: its own <pre> gets no second border, margin or radius. */
@@ -165,26 +165,26 @@
   .prose-doc .code-window pre {
     @apply m-0 rounded-none border-0;
   }
-  .prose-doc :not(pre) > code:not(.not-prose *) {
+  .prose-doc :not(pre) > code:not(.not-prose, .not-prose *) {
     @apply font-mono text-[0.85em] rounded-md bg-muted px-1.5 py-0.5 text-foreground;
     /* A long call or path breaks where it must instead of widening the page; break-word (not
        anywhere) leaves a table's columns their natural width. */
     overflow-wrap: break-word;
   }
-  .prose-doc table:not(.not-prose *) {
+  .prose-doc table:not(.not-prose, .not-prose *) {
     @apply w-full text-sm my-6;
   }
   /* On a phone, a wide table scrolls inside its own box, not the whole page. (Only there: as a
      block, a table no longer stretches its rows to the full width.) */
   @media (max-width: 767px) {
-    .prose-doc table:not(.not-prose *) {
+    .prose-doc table:not(.not-prose, .not-prose *) {
       @apply block max-w-full overflow-x-auto;
     }
   }
-  .prose-doc th:not(.not-prose *) {
+  .prose-doc th:not(.not-prose, .not-prose *) {
     @apply text-left font-medium text-muted-foreground border-b py-2 pr-4;
   }
-  .prose-doc td:not(.not-prose *) {
+  .prose-doc td:not(.not-prose, .not-prose *) {
     @apply border-b py-2 pr-4 align-top;
   }
 }
