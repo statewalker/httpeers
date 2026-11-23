@@ -39,7 +39,7 @@ catalog:
   "@radix-ui/react-tooltip": "^1.2.16"
   "@statewalker/shared-slots": "^0.2.1"
   "@statewalker/webrun-http-browser": "^0.17.1"
-  "@statewalker/webrun-http-proxy": "^0.2.1"
+  "@statewalker/webrun-http-proxy": "^0.4.0"
   "@statewalker/webrun-http-streams": "^0.8.1"
   "@statewalker/webrun-rpc": "^0.15.1"
   "@statewalker/webrun-msgpack": "^0.14.1"
