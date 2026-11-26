@@ -35,6 +35,7 @@
  * real usage rather than below it.
  */
 import type { CircuitRelayServerInit } from "@libp2p/circuit-relay-v2";
+import type { ConnectionManagerInit } from "libp2p";
 
 /** Library default is 15 -- a demo number. */
 export const MAX_RESERVATIONS = 512;
@@ -74,5 +75,36 @@ export function relayServerInit(): CircuitRelayServerInit {
       defaultDataLimit: DEFAULT_DATA_LIMIT_BYTES,
       defaultDurationLimit: DEFAULT_DURATION_LIMIT_MS,
     },
+  };
+}
+
+/**
+ * New inbound connections admitted per host per second. Library default 5.
+ *
+ * BEHIND THE PROXY EVERY CLIENT IS ONE HOST. libp2p keys this limit on the
+ * remote address, and the TLS-terminating proxy is the remote address of every
+ * connection, so this is the relay's whole rate of new connections, not one
+ * client's. And one client may well open several at once: a runtime that
+ * starts one node per mesh (an extension holding several hubs and
+ * memberships) dialled 8 nodes together and lost 3 to the default, each as
+ * `EncryptionFailedError: Unexpected EOF`. A connection past the limit is
+ * refused before its handshake, so the client sees a broken handshake, not a
+ * reason. Clients that start more than this many nodes at once must stagger
+ * them (300 ms apart worked).
+ */
+export const INBOUND_CONNECTION_THRESHOLD = 32;
+
+/**
+ * Inbound connections still upgrading (encryption, muxer) at once. Library
+ * default 10, which would refuse a burst of `INBOUND_CONNECTION_THRESHOLD`
+ * dials before the rate limit is even reached, so it is raised with it.
+ */
+export const MAX_INCOMING_PENDING_CONNECTIONS = INBOUND_CONNECTION_THRESHOLD;
+
+/** The connection manager's admission limits; the only place they are set. */
+export function relayConnectionManagerInit(): ConnectionManagerInit {
+  return {
+    inboundConnectionThreshold: INBOUND_CONNECTION_THRESHOLD,
+    maxIncomingPendingConnections: MAX_INCOMING_PENDING_CONNECTIONS,
   };
 }

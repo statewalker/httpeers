@@ -21,7 +21,7 @@ component. Only the second is here.
 |---|---|
 | `src/main.ts` | the process: reads the environment, starts the relay, writes the bootstrap document |
 | `src/relay.ts` | `startRelay({ privateKey, port?, announce? })` — the node itself |
-| `src/limits.ts` | the reservation and per-connection limits; the only place they are set |
+| `src/limits.ts` | the reservation, per-connection and connection-admission limits; the only place they are set |
 | `src/addresses.ts` | what it listens on, what it announces, and why announce is required |
 | `src/key.ts` | the identity: loaded from a file or seeded, never generated at start |
 | `src/bootstrap-doc.ts` | the `/.well-known/httpeers-relay.json` document |
@@ -76,6 +76,19 @@ use.
 
 `applyDefaultLimit` attaches both figures or neither, which is why both are
 declared. Declaring one would suggest a ceiling that is not enforced.
+
+### New connections: 32 per host per second, 32 upgrading at once
+
+libp2p admits at most `inboundConnectionThreshold` new connections per remote
+host per second (default 5) and `maxIncomingPendingConnections` still upgrading
+(default 10). Behind the reverse proxy every client arrives from the proxy's
+address, so the per-host figure is the relay's whole rate of new connections.
+And one client may open several at once: a runtime that starts one node per
+mesh dialled 8 nodes together and lost 3 to the default, each failing as
+`EncryptionFailedError: Unexpected EOF`. The relay sets both to **32**
+(`src/limits.ts`). A client that starts more nodes than that at once must
+stagger them (300 ms apart worked); a refused connection fails its handshake
+with no reason given.
 
 ### It refuses to start without an announce address
 
@@ -157,6 +170,9 @@ a hub, whose peerId is the mesh identity.
   be owned by it.
 - **Truncated transfers with no error** are what a spent per-connection budget
   looks like (see above).
+- **`EncryptionFailedError: Unexpected EOF` on dial** is a connection the relay
+  refused for arriving past its admission limits (32 new per host per second,
+  32 upgrading at once; see above).
 
 ## Reference
 

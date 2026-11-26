@@ -21,7 +21,7 @@ import type { Ed25519PrivateKey } from "@libp2p/interface";
 import { webSockets } from "@libp2p/websockets";
 import { createLibp2p, type Libp2p } from "libp2p";
 import { assertAnnounceAddr, DEFAULT_RELAY_PORT, listenAddrs } from "./addresses.js";
-import { relayServerInit } from "./limits.js";
+import { relayConnectionManagerInit, relayServerInit } from "./limits.js";
 
 export interface StartRelayInit {
   /** The relay's identity. Obtained via `key.ts`; never generated here. */
@@ -55,6 +55,8 @@ export async function startRelay(init: StartRelayInit): Promise<Relay> {
     transports: [webSockets()],
     connectionEncrypters: [noise()],
     streamMuxers: [yamux()],
+    // Many clients reach the relay through one proxy address: see limits.ts.
+    connectionManager: relayConnectionManagerInit(),
     services: {
       identify: identify(),
       relay: circuitRelayServer(relayServerInit()),
