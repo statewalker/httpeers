@@ -2,8 +2,10 @@ import { describe, expect, it } from "vitest";
 import {
   DEFAULT_DATA_LIMIT_BYTES,
   DEFAULT_DURATION_LIMIT_MS,
+  INBOUND_CONNECTION_THRESHOLD,
   MAX_RESERVATIONS,
   RESERVATION_TTL_MS,
+  relayConnectionManagerInit,
   relayServerInit,
 } from "../src/limits.js";
 
@@ -48,5 +50,16 @@ describe("relayServerInit", () => {
     const r = relayServerInit().reservations ?? {};
     expect(r.reservationTtl).toBe(RESERVATION_TTL_MS);
     expect(r.reservationClearInterval).toBeDefined();
+  });
+});
+
+// statewalker/httpeers#164: libp2p's defaults are 5 new connections per host
+// per second and 10 upgrading at once.
+describe("relayConnectionManagerInit", () => {
+  it("raises the admission limits above libp2p's defaults, together", () => {
+    const init = relayConnectionManagerInit();
+    expect(INBOUND_CONNECTION_THRESHOLD).toBeGreaterThan(5);
+    expect(init.inboundConnectionThreshold).toBe(INBOUND_CONNECTION_THRESHOLD);
+    expect(init.maxIncomingPendingConnections).toBeGreaterThanOrEqual(INBOUND_CONNECTION_THRESHOLD);
   });
 });
