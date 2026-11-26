@@ -29,10 +29,13 @@ import {
   thirdPartyBlock,
   thirdPartyRequest,
 } from "./builder.js";
+import { printBlock } from "./print.js";
+import { isRevoked } from "./revocation.js";
 
 export * from "./authorizer.js";
 export * from "./base64.js";
 export * from "./builder.js";
+export * from "./code.js";
 export { SignatureError } from "./crypto.js";
 export {
   ExecutionError,
@@ -42,7 +45,17 @@ export {
   type Term,
 } from "./datalog.js";
 export { type Params, type ParamValue, ParseError } from "./parser.js";
+export {
+  type PrintableBlock,
+  printBlock,
+  printCheck,
+  printPolicy,
+  printPredicate,
+  printRule,
+  printTerm,
+} from "./print.js";
 export { ProtoError } from "./proto.js";
+export * from "./revocation.js";
 export * from "./version.js";
 
 /** An unverified token: it can be attenuated and re-serialized. */
@@ -100,6 +113,14 @@ export class VerifiedBiscuit {
   ) {}
   get revocationIds(): string[] {
     return this.token.revocationIds;
+  }
+  /** Whether any block's revocation id is in `revoked` — see `isRevoked`. */
+  isRevoked(revoked: ReadonlySet<string>): boolean {
+    return isRevoked(this.token, revoked);
+  }
+  /** Every block as Datalog source, authority first — see `printBlock`. */
+  print(): string[] {
+    return this.token.blocks.map(printBlock);
   }
   /** the issuer's key identifier, when the token carries one */
   get rootKeyId(): number | undefined {

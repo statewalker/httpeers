@@ -145,3 +145,28 @@ export function printRule(r: Rule, varName: (id: number) => string): string {
   ];
   return `${printPredicate(r.head, varName)} <- ${parts.join(", ")}` + printScopes(r.scopes);
 }
+
+/** The parts of a block `printBlock` reads: a loaded token's `RuntimeBlock` has them. */
+export interface PrintableBlock {
+  facts: { predicate: Predicate }[];
+  rules: Rule[];
+  checks: Check[];
+  scopes: Scope[];
+  /** variable id -> name; without it variables print as `$<id>` */
+  varNames?: Map<number, string>;
+}
+
+/**
+ * One block as Datalog source: its block-level `trusting` line, then its facts,
+ * rules and checks, one statement per line, each ending with `;`. The text parses
+ * back to the same block — show it on an approval screen or in a log.
+ */
+export function printBlock(block: PrintableBlock): string {
+  const varName = (id: number): string => block.varNames?.get(id) ?? String(id);
+  const lines: string[] = [];
+  if (block.scopes.length > 0) lines.push(`${printScopes(block.scopes).trim()};`);
+  for (const f of block.facts) lines.push(`${printPredicate(f.predicate, varName)};`);
+  for (const r of block.rules) lines.push(`${printRule(r, varName)};`);
+  for (const c of block.checks) lines.push(`${printCheck(c, varName)};`);
+  return lines.join("\n");
+}

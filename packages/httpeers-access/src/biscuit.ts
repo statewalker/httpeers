@@ -20,10 +20,10 @@
 
 import {
   type AuthorizationResult,
+  Datalog,
   type Evaluation,
   evaluate as evaluateProgram,
   type LoadedToken,
-  type ParamValue,
   parseAuthorizer,
   type RunLimits,
   type Term,
@@ -31,38 +31,8 @@ import {
 
 export type EngineLimits = RunLimits;
 
-/** Datalog source plus the parameters its interpolated values were bound to. */
-export class Datalog {
-  private readonly lines: string[] = [];
-  private readonly bound: Record<string, ParamValue> = {};
-  private next = 0;
-
-  /** Append source. Every `${value}` becomes a `{pN}` parameter — a term, never text. */
-  add(strings: TemplateStringsArray, ...values: ParamValue[]): this {
-    let line = strings[0] ?? "";
-    values.forEach((value, i) => {
-      const name = `p${this.next++}`;
-      this.bound[name] = value;
-      line += `{${name}}${strings[i + 1] ?? ""}`;
-    });
-    this.lines.push(line);
-    return this;
-  }
-
-  /** Append source that interpolates nothing — rules and policies already validated. */
-  raw(source: string): this {
-    this.lines.push(source);
-    return this;
-  }
-
-  get source(): string {
-    return this.lines.join("\n");
-  }
-
-  get params(): Readonly<Record<string, ParamValue>> {
-    return this.bound;
-  }
-}
+/** Datalog source plus the parameters its interpolated values were bound to (webrun-biscuit's builder). */
+export { Datalog };
 
 /** Run `code` against a verified token, or against no token at all. */
 export function evaluate(
