@@ -1,5 +1,24 @@
 # @statewalker/httpeers-member
 
+## 0.8.0
+
+### Minor Changes
+
+- 33e5e02: `startMember` takes `node`, a libp2p node the caller owns, and never stops it (a failed start used to stop a node it was given, taking another membership's links down), and `protocol`, forwarded to `servePeer` so one node can serve a second mesh on a protocol of its own. The README states the rule: one libp2p node per mesh.
+- 398f3f8: Add `./browser-hub` with `startBrowserHub()`: a hub assembled in a browser runtime (node, relay reservation and supervision, `createHub`, `servePeer` behind `withAccess`) with no edge, a configurable `idbStorage` name (`storageName`, or any `storage`), `mintSelfToken()`, and `serveOnLimitedConnection` for the relay-only mode of a runtime without WebRTC (documented in the README). httpeers-member now depends on `@statewalker/httpeers-hub`.
+- 4ae30a0: Add `./extension`, the browser entry without the ServiceWorker edge: `extensionPlatform()` (a `MemberPlatform` that builds the node with `createBrowserNode`, mounts no edge, and wakes on the broker's messages through `runtimeMessageWake(chrome.runtime)`), plus `createBrowserNode`, `watchPageWake`, the IndexedDB backends and `resetBrowserState`. Nothing it reaches imports `@statewalker/webrun-http-browser`, so an offscreen-document bundle builds without it. `mountEdge` also has its own entry, `./edge`; `./browser` is unchanged.
+
+### Patch Changes
+
+- c9e0b6d: `createGateway` removes a caller's mesh token (`x-httpeers-token`) before dispatch, so every call goes out with the member's own token; `forwardCallerToken: true` keeps the old pass-through.
+- Updated dependencies [ad4e554]
+- Updated dependencies [31d6746]
+- Updated dependencies [e3b74ee]
+- Updated dependencies [ab7b167]
+- Updated dependencies [4babbc5]
+  - @statewalker/httpeers-access@0.2.0
+  - @statewalker/httpeers-hub@0.2.0
+
 ## 0.7.0
 
 ### Minor Changes

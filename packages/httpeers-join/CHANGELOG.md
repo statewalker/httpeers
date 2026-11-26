@@ -1,5 +1,21 @@
 # @statewalker/httpeers-join
 
+## 0.8.0
+
+### Minor Changes
+
+- Release of the changes since the last published version:
+  
+  - @statewalker/httpeers-member crosses a breaking line
+
+### Patch Changes
+
+- Updated dependencies [33e5e02]
+- Updated dependencies [c9e0b6d]
+- Updated dependencies [398f3f8]
+- Updated dependencies [4ae30a0]
+  - @statewalker/httpeers-member@0.8.0
+
 ## 0.7.0
 
 ### Minor Changes

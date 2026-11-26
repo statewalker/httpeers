@@ -1,5 +1,19 @@
 # @statewalker/httpeers-hub
 
+## 0.2.0
+
+### Minor Changes
+
+- 4babbc5: `createHub` takes `storageKey`, the key its state is saved under (default `"snapshot"`, unchanged), so several hubs can share one storage without overwriting each other's snapshot.
+
+### Patch Changes
+
+- Updated dependencies [ad4e554]
+- Updated dependencies [31d6746]
+- Updated dependencies [e3b74ee]
+- Updated dependencies [ab7b167]
+  - @statewalker/httpeers-access@0.2.0
+
 ## 0.1.6
 
 ### Patch Changes
