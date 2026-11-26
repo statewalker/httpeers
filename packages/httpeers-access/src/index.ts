@@ -25,6 +25,7 @@ export {
 // Revocation, member side. The REGISTRY — the hub's half — is in `./issuer`.
 export {
   type ChangeEntry,
+  MeshRevocationCaches,
   RevocationCache,
   type RevocationCacheInit,
   type RevocationChecker,

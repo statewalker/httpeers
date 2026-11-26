@@ -28,7 +28,7 @@ No peer dependencies.
 
 | Import | For | Gives |
 |---|---|---|
-| `.` | a **member** (anything that serves) | `withAccess`, `access`, `verifyToken`, `ruleSet`, `roleNames`, `capabilityNames`, `deriveCapabilities`, `RevocationCache`, `selfCertifyingKeys`, `meshIdOf`, `guardStream`, `LIMITS` |
+| `.` | a **member** (anything that serves) | `withAccess`, `access`, `verifyToken`, `ruleSet`, `roleNames`, `capabilityNames`, `deriveCapabilities`, `RevocationCache`, `MeshRevocationCaches`, `selfCertifyingKeys`, `meshIdOf`, `guardStream`, `LIMITS` |
 | `./issuer` | a **hub** | `mintToken`, `generateSigner`, `RevocationRegistry` |
 | `./engine` | nobody | `initBiscuit` — deprecated no-op, kept so existing imports compile |
 
@@ -169,6 +169,11 @@ A token states its roles until it expires. `RevocationRegistry.changeRoles`
 (hub side) records the change so tokens minted before it stop verifying;
 `RevocationCache` (member side) holds the hub's list. Without the revocation, a
 demoted admin keeps admin for the life of its token.
+
+A `RevocationCache` is keyed by subject alone: one cache per mesh. A broker that
+checks tokens of several meshes uses `MeshRevocationCaches`, which routes each
+token by its `mesh` claim to that mesh's own cache (`forMesh(hubPeerId).update(...)`
+with that hub's list), so a key revoked in one mesh is still accepted in another.
 
 ### Not implemented
 
