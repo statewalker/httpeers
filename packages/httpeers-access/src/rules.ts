@@ -167,6 +167,22 @@ export interface RuleSetDefs {
 }
 
 const DECLARED_FACT = /^([a-z][a-z0-9_]*)(?:\/(\d+))?$/;
+/** Words the Biscuit parser reads as keywords: a fact named one does not parse. */
+const KEYWORDS = new Set([
+  "all",
+  "allow",
+  "authority",
+  "check",
+  "deny",
+  "false",
+  "if",
+  "null",
+  "or",
+  "previous",
+  "reject",
+  "trusting",
+  "true",
+]);
 const PARAMETER_NAME = /\{\s*([A-Za-z_][A-Za-z0-9_]*)\s*\}/g;
 
 /** The `params` a statement names, so each statement is parsed with its own. */
@@ -206,6 +222,10 @@ export function ruleSet(defs: RuleSetDefs = {}): RuleSet {
     }
     const name = match[1] as string;
     const arity = match[2] === undefined ? undefined : Number(match[2]);
+    if (KEYWORDS.has(name)) {
+      problems.push(`facts[${i}]: '${name}' is a Datalog keyword -- a fact cannot be named so`);
+      return;
+    }
     if (SUPPLIED.has(name) || name === "capability") {
       problems.push(`facts[${i}]: '${name}' is the node's or the token's -- it cannot be declared`);
       return;
@@ -545,6 +565,18 @@ function denial(
   };
 }
 
+/** Whether `value` binds as a Datalog term (webrun-biscuit's `ParamValue`). */
+function isParamValue(value: unknown): boolean {
+  if (value === null || typeof value === "string" || typeof value === "boolean") return true;
+  if (typeof value === "bigint") return true;
+  if (typeof value === "number") return Number.isSafeInteger(value);
+  if (value instanceof Date) return !Number.isNaN(value.getTime());
+  if (value instanceof Uint8Array) return true;
+  if (Array.isArray(value)) return value.every(isParamValue);
+  if (value instanceof Set) return [...value].every(isParamValue);
+  return false;
+}
+
 /** `RequestFacts.extra`, refused unless every predicate is declared by the rule set. */
 function checkedExtraFacts(
   rules: RuleSet,
@@ -563,6 +595,11 @@ function checkedExtraFacts(
     if (typeof predicate !== "string" || !declared.has(predicate)) {
       throw new TypeError(
         `authorize: extra fact ${JSON.stringify(predicate)} is not declared in the rule set's facts`,
+      );
+    }
+    if (!terms.every(isParamValue)) {
+      throw new TypeError(
+        `authorize: extra fact '${predicate}' has a term with no Datalog form (strings, safe integers, bigints, booleans, null, Dates, bytes, arrays and Sets only)`,
       );
     }
     const arity = declared.get(predicate);

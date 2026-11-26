@@ -774,6 +774,11 @@ describe("application facts and params", () => {
       [["undeclared", 1]],
       [["right", "tabs"]],
       [["target_owned"]],
+      [["target_owned", { id: 1 }]],
+      [["target_owned", undefined]],
+      [["target_owned", 2 ** 60]],
+      [["target_owned", 1.5]],
+      [["target_owned", [new Map()]]],
     ]) {
       expect(() => authorize(rules, { ...request, extra: extra as never }, claims)).toThrow(
         TypeError,
@@ -822,6 +827,12 @@ describe("application facts and params", () => {
         policies: ['allow if capability("x")'],
       }),
     ).toThrow(/params.spare: no rule or policy uses it/);
+  });
+
+  it("a declared keyword never validates into a rule set that denies everything", () => {
+    expect(() => ruleSet({ facts: ["allow/1"], policies: ['allow if allow("x")'] })).toThrow(
+      /'allow' is a Datalog keyword/,
+    );
   });
 
   it("a predicate, role or capability inside a string literal is not read as one", () => {
