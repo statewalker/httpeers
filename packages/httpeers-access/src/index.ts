@@ -69,7 +69,10 @@ export {
 // Verification.
 export {
   LIMITS,
+  RESERVED_TOKEN_PREDICATES,
+  type TokenFact,
   TokenVerificationError,
+  type VerifiedClaims,
   type VerifyTokenOptions,
   verifyToken,
   warmUpTokens,

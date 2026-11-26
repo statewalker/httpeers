@@ -9,4 +9,4 @@
 
 export { RevocationRegistry, type RevocationRegistryInit } from "./revocation.js";
 export { generateSigner, type Signer } from "./signer.js";
-export { type MintTokenOptions, mintToken } from "./tokens.js";
+export { type MintTokenOptions, mintToken, type TokenFact } from "./tokens.js";
