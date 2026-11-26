@@ -9,7 +9,7 @@
  */
 import { describe, expect, it } from "vitest";
 import type { ChangeEntry } from "../src/revocation.js";
-import { RevocationCache, RevocationRegistry } from "../src/revocation.js";
+import { MeshRevocationCaches, RevocationCache, RevocationRegistry } from "../src/revocation.js";
 
 describe("A-2 unit: registry", () => {
   it("revocation is a role change to the empty set", () => {
@@ -133,5 +133,45 @@ describe("A-2 unit: cache", () => {
     c.update(1, []);
     now += 10 ** 9;
     expect(c.check({ sub: "x", iat: 1 })).toBeNull();
+  });
+});
+
+// statewalker/httpeers#161: `RevocationCache` is keyed by subject alone, so a
+// broker checking tokens of several meshes with one cache refused a subject in
+// every mesh once one mesh revoked it.
+describe("a broker checking several meshes", () => {
+  const SUB = "12D3KooWSharedKeyMemberAAAAAAAAAAAAAAAAAAAAAAAAAAAA";
+  const MESH_A = "12D3KooWMeshAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA";
+  const MESH_B = "12D3KooWMeshBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB";
+
+  it("a subject revoked in mesh A is still accepted in mesh B", () => {
+    const caches = new MeshRevocationCaches();
+    caches.forMesh(MESH_A).update(2, [{ peerId: SUB, changedAt: 500, roles: [] }]);
+    caches.forMesh(MESH_B).update(1, []);
+
+    expect(caches.check({ mesh: MESH_A, sub: SUB, iat: 100 })).toBe("membership revoked");
+    expect(caches.check({ mesh: MESH_B, sub: SUB, iat: 100 })).toBeNull();
+  });
+
+  it("gives each mesh one cache, built with the shared settings", () => {
+    let now = 0;
+    const caches = new MeshRevocationCaches({ maxStalenessMs: 1_000, now: () => now });
+    expect(caches.forMesh(MESH_A)).toBe(caches.forMesh(MESH_A));
+    caches.forMesh(MESH_A).update(1, []);
+    now = 5_000;
+    // Stale, as a single cache would be: refused rather than guessed.
+    expect(caches.check({ mesh: MESH_A, sub: SUB, iat: 4_000 })).toMatch(/stale/);
+  });
+
+  it("refuses a mesh it has no list for when staleness is bounded", () => {
+    const caches = new MeshRevocationCaches({ maxStalenessMs: 1_000, now: () => 10_000 });
+    expect(caches.check({ mesh: MESH_B, sub: SUB, iat: 9_000 })).toMatch(/stale/);
+    // Checking does not create a cache: the list is filled only through forMesh.
+    expect(caches.check({ mesh: MESH_B, sub: SUB, iat: 9_000 })).toMatch(/stale/);
+  });
+
+  it("refuses claims that name no mesh", () => {
+    const caches = new MeshRevocationCaches();
+    expect(caches.check({ sub: SUB, iat: 1 })).toMatch(/no mesh/);
   });
 });

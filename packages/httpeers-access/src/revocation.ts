@@ -83,7 +83,8 @@ export interface ChangeEntry {
  * decision, not two mechanisms.
  */
 export interface RevocationChecker {
-  check(claims: { sub: PeerIdStr; iat: number }): string | null;
+  /** `mesh` is read only by a checker that serves several meshes (`MeshRevocationCaches`). */
+  check(claims: { sub: PeerIdStr; iat: number; mesh?: string }): string | null;
 }
 
 // ---------------------------------------------------------------------------
@@ -223,5 +224,46 @@ export class RevocationCache implements RevocationChecker {
     if (entry == null) return null;
     if (claims.iat >= entry.changedAt) return null; // minted after the change
     return entry.roles.length === 0 ? "membership revoked" : "roles changed; obtain a fresh token";
+  }
+}
+
+/**
+ * One `RevocationCache` per mesh, for a broker that checks tokens of several.
+ *
+ * A `RevocationCache` is keyed by subject alone, which is right for a member:
+ * it has one cache for its one mesh. A broker verifying tokens of several
+ * meshes through one cache would refuse a subject in every mesh once one mesh
+ * revoked it, and one key may be a member of several meshes. This checker
+ * routes by the token's `mesh` claim, the hub that issued it, to that mesh's
+ * own cache; each cache is filled from its own hub's list (`forMesh(m).update`).
+ *
+ * A mesh with no list yet is checked against an empty one with the shared
+ * settings, so with `maxStalenessMs` set it refuses as stale rather than
+ * accepting unchecked. Claims that name no mesh are refused.
+ */
+export class MeshRevocationCaches implements RevocationChecker {
+  private readonly caches = new Map<string, RevocationCache>();
+
+  constructor(private readonly init: RevocationCacheInit = {}) {}
+
+  /** The cache of one mesh (its hub's peer id), created on first use. */
+  forMesh(mesh: string): RevocationCache {
+    let cache = this.caches.get(mesh);
+    if (cache == null) {
+      cache = new RevocationCache(this.init);
+      this.caches.set(mesh, cache);
+    }
+    return cache;
+  }
+
+  check(claims: { sub: PeerIdStr; iat: number; mesh?: string }): string | null {
+    if (claims.mesh == null || claims.mesh === "") {
+      return "token names no mesh; refusing rather than guessing";
+    }
+    // Looked up, never created here: the mesh comes from the request, and a
+    // checker must not grow with whatever meshes callers name. A mesh with no
+    // list is checked against an empty one, which refuses once stale.
+    const cache = this.caches.get(claims.mesh) ?? new RevocationCache(this.init);
+    return cache.check(claims);
   }
 }
