@@ -17,15 +17,22 @@ export class RevokedTokenError extends Error {
   }
 }
 
-/** The first of the token's revocation ids (lowercase hex) found in `revoked`, if any. */
+/**
+ * The first of the token's revocation ids found in `revoked`, if any. The
+ * token's ids are lowercase hex; `revoked` may hold them lowercase or
+ * uppercase (a set of mixed-case ids should be lowercased by its owner).
+ */
 export function revokedId(
   token: HasRevocationIds,
   revoked: ReadonlySet<string>,
 ): string | undefined {
-  return token.revocationIds.find((id) => revoked.has(id));
+  return token.revocationIds.find((id) => {
+    const lower = id.toLowerCase();
+    return revoked.has(lower) || revoked.has(lower.toUpperCase());
+  });
 }
 
-/** Whether any of the token's revocation ids is in `revoked` (lowercase hex ids). */
+/** Whether any of the token's revocation ids is in `revoked` (hex ids, either case). */
 export function isRevoked(token: HasRevocationIds, revoked: ReadonlySet<string>): boolean {
   return revokedId(token, revoked) !== undefined;
 }

@@ -102,3 +102,40 @@ test("datalog`…` starts a builder, raw appends text, and the result authorizes
   const ev = evaluate(null, code.source, { params: code.params });
   assert.deepStrictEqual(ev.result, { kind: "ok", policy: 0 });
 });
+
+test("revoked ids match in either case, so an uppercase list does not fail open", () => {
+  const verified = Biscuit.build(root.secretKey, 'user("alice");').verify(root.publicKey);
+  const [id] = verified.revocationIds as [string];
+  assert.equal(id, id.toLowerCase());
+  assert.equal(isRevoked(verified, new Set([id.toUpperCase()])), true);
+  assert.throws(() => assertNotRevoked(verified, new Set([id.toUpperCase()])), RevokedTokenError);
+});
+
+test("print escapes control characters, so one string never shows as several statements", () => {
+  const spoof = 'ok");\ncheck if true;\rrole("admin\u2028\u202e\t\u0000\u0085';
+  const code = datalog`note(${spoof});`.add`check if note(${"a\nb"});`;
+  const verified = Biscuit.build(root.secretKey, code.source, { params: code.params }).verify(
+    root.publicKey,
+  );
+  const [printed] = verified.print() as [string];
+  assert.equal(printed.split("\n").length, 2, printed);
+  assert.equal(
+    printed,
+    'note("ok\\");\\ncheck if true;\\rrole(\\"admin\\u{2028}\\u{202e}\\t\\0\\u{85}");\ncheck if note("a\\nb");',
+  );
+  // the escaped text parses back to the same strings
+  const rebuilt = Biscuit.build(root.secretKey, printed).verify(root.publicKey);
+  assert.deepStrictEqual(rebuilt.print(), [printed]);
+  const ev = rebuilt.evaluate("allow if true;");
+  assert.deepStrictEqual(
+    ev.query("n($n) <- note($n)").map((f) => f.terms[0]),
+    [{ t: "str", v: spoof }],
+  );
+});
+
+test("error messages keep the reference printer's text", () => {
+  const verified = Biscuit.build(root.secretKey, 'check if note("a\nb");').verify(root.publicKey);
+  const result = verified.authorize("allow if true;");
+  assert.equal(result.kind, "unauthorized");
+  if (result.kind === "unauthorized") assert.equal(result.checks[0]?.rule, 'check if note("a\nb")');
+});
