@@ -144,7 +144,9 @@ import { ANONYMOUS } from "@statewalker/httpeers-core";
 import {
   Biscuit,
   type Evaluation,
+  type ParamValue,
   SignatureError,
+  type Term,
   type VerifiedBiscuit,
 } from "@statewalker/webrun-biscuit";
 import { Datalog, type EngineLimits, evaluate, failedCheckTexts, firstTerms } from "./biscuit.js";
@@ -318,8 +320,67 @@ export interface MintTokenOptions {
    * which is the one this file will not make.
    */
   audience?: readonly PeerIdStr[];
+  /**
+   * Extra authority facts, for an issuer that grants more than roles: for
+   * example `["origin", "https://example.org"]` or `["right", "tabs", "query"]`.
+   * Each is `[predicate, ...terms]`, written as `predicate({p0}, {p1}, …)`
+   * with every term bound as a parameter, so a value never becomes source.
+   *
+   * FACTS ONLY, never checks: an authority check that needs a fact only the
+   * issuer's own verifier asserts would make every other peer's `verifyToken`
+   * refuse the token. The predicate is a lowercase name (`[a-z][a-z0-9_]*`),
+   * not one of this package's own ({@link RESERVED_TOKEN_PREDICATES}) and not
+   * a Datalog keyword: an extra `time_ms` or `connection_peer` fact would
+   * satisfy the token's own expiry or binding check. `verifyToken` returns
+   * them as `facts`, read from the authority block alone.
+   */
+  facts?: readonly TokenFact[];
   /** Injected clock, for deterministic tests. Defaults to `Date.now`. */
   now?: () => number;
+}
+
+/** An authority fact beyond the membership claims: `[predicate, ...terms]`. */
+export type TokenFact = readonly [predicate: string, ...terms: ParamValue[]];
+
+/**
+ * The predicates `mintToken`'s extra facts may not use: the claims it writes
+ * itself, and every fact a verifier or `authorize` asserts (an authority
+ * `time_ms`, `connection_peer`, `self_peer` or `root_mesh` fact would satisfy
+ * the token's own expiry, binding, audience or self-certification check).
+ */
+export const RESERVED_TOKEN_PREDICATES: ReadonlySet<string> = new Set([
+  "mesh",
+  "subject",
+  "bound",
+  "issued_at",
+  "expires_at",
+  "role",
+  "audience",
+  "audience_unrestricted",
+  "root_mesh",
+  "time_ms",
+  "connection_peer",
+  "self_peer",
+  "operation",
+  "resource",
+  "capability",
+]);
+
+const FACT_NAME = /^[a-z][a-z0-9_]*$/;
+const KEYWORDS = new Set(["check", "allow", "deny", "reject", "trusting", "true", "false", "null"]);
+
+function extraFactProblem(fact: unknown): string | undefined {
+  if (!Array.isArray(fact) || fact.length < 2) {
+    return "each fact must be [predicate, ...terms] with at least one term";
+  }
+  const [predicate] = fact;
+  if (typeof predicate !== "string" || !FACT_NAME.test(predicate) || KEYWORDS.has(predicate)) {
+    return `fact predicate ${JSON.stringify(predicate)} must be a lowercase name ([a-z][a-z0-9_]*) and not a keyword`;
+  }
+  if (RESERVED_TOKEN_PREDICATES.has(predicate)) {
+    return `fact predicate '${predicate}' is reserved: the token's own claims and checks use it`;
+  }
+  return undefined;
 }
 
 /**
@@ -370,12 +431,25 @@ export async function mintToken(options: MintTokenOptions): Promise<string> {
       throw new TypeError("mintToken: every audience entry must be a peerId string");
     }
   }
+  if (options.facts !== undefined && !Array.isArray(options.facts)) {
+    throw new TypeError("mintToken: facts must be an array of [predicate, ...terms]");
+  }
+  for (const fact of options.facts ?? []) {
+    const problem = extraFactProblem(fact);
+    if (problem !== undefined) throw new TypeError(`mintToken: ${problem}`);
+  }
   const mesh = options.signer.mesh;
 
   const code = new Datalog()
     .add`mesh(${mesh}); subject(${options.sub}); bound(${options.sub}); issued_at(${iat}); expires_at(${exp});`;
   for (const role of options.roles) {
     code.add`role(${role});`;
+  }
+  // Extra facts: the name was checked above, so it is a plain identifier; every
+  // term is a parameter. `add` takes a template, so the call is built by hand.
+  for (const [predicate, ...terms] of options.facts ?? []) {
+    const strings = [`${predicate}(`, ...terms.slice(1).map(() => ", "), ");"];
+    code.add(Object.assign(strings, { raw: strings }), ...terms);
   }
   // ADR-0009: the token is usable only over a connection that proved its
   // subject. Stated as a check in the AUTHORITY block, where a later appended
@@ -461,8 +535,27 @@ export interface VerifyTokenOptions {
   now?: () => number;
 }
 
+/**
+ * What `verifyToken` returns: the membership claims, plus the authority
+ * block's other facts when it carries any.
+ */
+export interface VerifiedClaims extends MeshClaims {
+  /**
+   * The authority block's facts outside {@link RESERVED_TOKEN_PREDICATES}, in
+   * minting order: `mintToken`'s `facts`. Read from the authority block alone,
+   * so an appended block can neither add nor change them. Integers come back
+   * as numbers (a bigint beyond the safe range), dates as `Date` (whole
+   * seconds), sets as `Set`; a fact holding a map is left out. Absent when
+   * there are none, so the claims of a token without extra facts are as before.
+   */
+  facts?: TokenFact[];
+}
+
 /** Verify a Biscuit membership token and return the claims its authority block carries. */
-export async function verifyToken(token: string, options: VerifyTokenOptions): Promise<MeshClaims> {
+export async function verifyToken(
+  token: string,
+  options: VerifyTokenOptions,
+): Promise<VerifiedClaims> {
   // Guard the inputs before anything reaches the engine: it would refuse
   // a TypeError anyway, but naming the argument is what tells a caller on an
   // untyped path which one was wrong.
@@ -522,7 +615,58 @@ export async function verifyToken(token: string, options: VerifyTokenOptions): P
     throw denial(failedCheckTexts(result));
   }
 
-  return readClaims(evaluation, options.issuer);
+  const claims: VerifiedClaims = readClaims(evaluation, options.issuer);
+  const facts = authorityFacts(verified);
+  if (facts.length > 0) claims.facts = facts;
+  return claims;
+}
+
+/** The authority block's facts outside the reserved vocabulary, as JS values. */
+function authorityFacts(verified: VerifiedBiscuit): TokenFact[] {
+  const facts: TokenFact[] = [];
+  const seen = new Set<string>();
+  for (const { predicate } of verified.token.blocks[0]?.facts ?? []) {
+    if (RESERVED_TOKEN_PREDICATES.has(predicate.name)) continue;
+    const terms = predicate.terms.map(termValue);
+    if (terms.some((term) => term === UNREPRESENTABLE)) continue;
+    // Datalog facts are a set: a fact minted twice is one fact.
+    const key = `${predicate.name}(${predicate.terms.map((t) => JSON.stringify(t, bigintJson)).join(",")})`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    facts.push([predicate.name, ...(terms as ParamValue[])]);
+  }
+  return facts;
+}
+
+const UNREPRESENTABLE: unique symbol = Symbol("unrepresentable");
+
+function termValue(term: Term): ParamValue | typeof UNREPRESENTABLE {
+  switch (term.t) {
+    case "str":
+    case "bool":
+    case "bytes":
+      return term.v;
+    case "null":
+      return null;
+    case "int":
+      return Number.isSafeInteger(Number(term.v)) ? Number(term.v) : term.v;
+    case "date":
+      return new Date(Number(term.v) * 1000);
+    case "array":
+    case "set": {
+      const values = term.v.map(termValue);
+      if (values.some((value) => value === UNREPRESENTABLE)) return UNREPRESENTABLE;
+      return term.t === "set" ? new Set(values as ParamValue[]) : (values as ParamValue[]);
+    }
+    default:
+      return UNREPRESENTABLE;
+  }
+}
+
+function bigintJson(_key: string, value: unknown): unknown {
+  if (typeof value === "bigint") return value.toString();
+  if (value instanceof Uint8Array) return Array.from(value);
+  return value;
 }
 
 /**

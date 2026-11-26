@@ -82,6 +82,23 @@ const claims = await verifyToken(token, {
 }); // throws TokenVerificationError
 ```
 
+An issuer that grants more than roles (a broker naming an origin or a right) adds authority
+facts. They are facts only, never checks, and every term is bound as a parameter. The
+predicates the token's own claims and checks use (`time_ms`, `connection_peer`, `role`, ...;
+`RESERVED_TOKEN_PREDICATES`) are refused. `verifyToken` returns the facts as `claims.facts`,
+read from the authority block alone, so an appended block can neither add nor change them.
+`claims.iat` is what `RevocationRegistry.check(claims)` needs:
+
+```ts
+const token = await mintToken({
+  signer, sub: memberPeerId, roles: ["member"], ttlMs: 60_000,
+  facts: [["origin", "https://example.org"], ["right", "tabs", "query"]],
+});
+const claims = await verifyToken(token, { issuer: hubPeerId, connectionPeer: memberPeerId });
+claims.facts; // [["origin", "https://example.org"], ["right", "tabs", "query"]]
+claims.iat;   // mint time, in ms
+```
+
 Ask what a rule set grants:
 
 ```ts

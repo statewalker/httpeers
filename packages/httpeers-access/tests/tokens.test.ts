@@ -839,4 +839,105 @@ describe("tokens", () => {
       ).rejects.toThrow(/safe integer milliseconds/);
     });
   });
+
+  // -------------------------------------------------------------------------
+  // Extra authority facts (statewalker/httpeers#157)
+  // -------------------------------------------------------------------------
+
+  describe("extra authority facts", () => {
+    const now = () => 1_000_000;
+    const mint = (facts: unknown) =>
+      mintToken({
+        signer: hubSigner,
+        sub: MEMBER,
+        roles: ["member"],
+        ttlMs: 60_000,
+        now,
+        facts: facts as never,
+      });
+
+    it("a token minted with extra facts verifies, and the facts come back with iat", async () => {
+      const token = await mint([
+        ["origin", "https://example.org"],
+        ["tab_scope", "own"],
+        ["right", "tabs", "query"],
+        ["quota", 5, true, null],
+        ["tags", new Set(["a", "b"])],
+      ]);
+      const claims = await verifyToken(token, { issuer: hubPeerId, connectionPeer: MEMBER, now });
+      expect(claims.roles).toEqual(["member"]);
+      expect(claims.iat).toBe(1_000_000);
+      expect(claims.facts).toEqual([
+        ["origin", "https://example.org"],
+        ["tab_scope", "own"],
+        ["right", "tabs", "query"],
+        ["quota", 5, true, null],
+        ["tags", new Set(["a", "b"])],
+      ]);
+    });
+
+    it("a token without extra facts has no facts field", async () => {
+      const token = await mint(undefined);
+      const claims = await verifyToken(token, { issuer: hubPeerId, connectionPeer: MEMBER, now });
+      expect("facts" in claims).toBe(false);
+    });
+
+    it("a value is bound as a term, never spliced into the program", async () => {
+      const hostile = '"); role("admin"); check if false; origin("x';
+      const token = await mint([["origin", hostile]]);
+      const claims = await verifyToken(token, { issuer: hubPeerId, connectionPeer: MEMBER, now });
+      expect(claims.roles).toEqual(["member"]);
+      expect(claims.facts).toEqual([["origin", hostile]]);
+    });
+
+    it("an appended block can neither add nor override them", async () => {
+      const token = await mint([["origin", "https://example.org"]]);
+      const widened = appendBlock(
+        token,
+        hubKey,
+        'origin("https://evil.example"); right("tabs", "remove"); role("admin");',
+      );
+      const claims = await verifyToken(widened, {
+        issuer: hubPeerId,
+        connectionPeer: MEMBER,
+        now,
+      });
+      expect(claims.roles).toEqual(["member"]);
+      expect(claims.facts).toEqual([["origin", "https://example.org"]]);
+    });
+
+    it("refuses a reserved predicate, so a fact cannot satisfy the token's own checks", async () => {
+      for (const predicate of [
+        "time_ms",
+        "connection_peer",
+        "self_peer",
+        "root_mesh",
+        "role",
+        "mesh",
+        "subject",
+        "bound",
+        "audience",
+        "audience_unrestricted",
+      ]) {
+        await expect(mint([[predicate, MEMBER]]), predicate).rejects.toThrow(/reserved/);
+      }
+    });
+
+    it("refuses anything that is not a plain fact", async () => {
+      for (const fact of [
+        ["origin"],
+        "origin",
+        ["Origin", "x"],
+        ["check", "x"],
+        ["allow", "x"],
+        ["origin(x) <- y", "x"],
+        ['origin("a"); check if false; x', "x"],
+        ["", "x"],
+        [1, "x"],
+      ]) {
+        await expect(mint([fact]), JSON.stringify(fact)).rejects.toThrow(TypeError);
+      }
+      await expect(mint("origin")).rejects.toThrow(/facts must be an array/);
+    });
+  });
 });
