@@ -6,9 +6,14 @@
  * `/<self>/...` and unprefixed paths locally, behind `withAccess`, where the
  * token's `check if bound($k), connection_peer($k)` needs a proven peer. With
  * none, every self-call was refused `401 token subject does not match
- * connected peer`. This wires the chain the page builds, minus the browser:
- * `createHub`, the router behind `withAccess` (what `servePeer` exposes as
- * `dispatch`), and the page's edge dispatch.
+ * connected peer`.
+ *
+ * This wires the chain the page builds, minus the browser: `createHub`, the
+ * router behind `withAccess` (what `servePeer` exposes as `dispatch`), the
+ * page's edge dispatch, and between the ServiceWorker and the page the same
+ * `webrun-http-link/2` transfer `SwHttpAdapter` uses (`connectHttpLink` /
+ * `serveHttpLink` over a MessageChannel), which carries only the url, method
+ * and headers: what the edge can tell from a request is what survives it.
  */
 import { selfCertifyingKeys, withAccess } from "@statewalker/httpeers-access";
 import { generateSigner, mintToken } from "@statewalker/httpeers-access/issuer";
@@ -20,14 +25,18 @@ import {
   type PeerIdStr,
 } from "@statewalker/httpeers-core";
 import { createHub, memoryStorage, usesTransportIdentity } from "@statewalker/httpeers-hub";
-import { describe, expect, it } from "vitest";
-import { hubEdgeDispatch } from "../src/shared/hub-edge.js";
+import { connectHttpLink, serveHttpLink } from "@statewalker/webrun-http-browser";
+import { afterEach, describe, expect, it } from "vitest";
+import { asHub, HUB_SELF_HEADER, hubEdgeDispatch } from "../src/shared/hub-edge.js";
 import { meshRules } from "../src/shared/policy.js";
 
 const OTHER = "12D3KooWGzeWbY26SR3HC7tYBf9BNkJp6vyT5CevAJiZQVE29fFa";
-const PAGE_ORIGIN = "https://hub.example";
-/** What the page's own `fetch` carries: the page as its referrer. */
-const FROM_PAGE = { referrer: `${PAGE_ORIGIN}/hub.html` };
+const ORIGIN = "https://hub.example";
+
+const cleanups: Array<() => Promise<void> | void> = [];
+afterEach(async () => {
+  for (const step of cleanups.splice(0).reverse()) await step();
+});
 
 async function hubPage() {
   const signer = await generateSigner();
@@ -38,6 +47,7 @@ async function hubPage() {
     storage: memoryStorage(),
     mintToken: async (sub, roles) => mintToken({ signer, sub, roles, ttlMs: 60_000 }),
   });
+  cleanups.push(() => hub.stop());
   const forwarded: Request[] = [];
   const dispatch = createPeerRouter({
     selfPeerId: self,
@@ -57,61 +67,78 @@ async function hubPage() {
     }),
   });
   const selfToken = await mintToken({ signer, sub: self, roles: ["admin"], ttlMs: 60_000 });
+  const dispatched: Request[] = [];
   const edge = hubEdgeDispatch({
     key: "peers",
     selfPeerId: self,
-    ownOrigin: PAGE_ORIGIN,
-    dispatch,
+    dispatch: (req) => {
+      dispatched.push(req);
+      return dispatch(req);
+    },
     token: () => selfToken,
   });
-  return { self, hub, edge, forwarded };
+
+  // The page serves the edge; the "ServiceWorker" end sends into it.
+  const { port1, port2 } = new MessageChannel();
+  const serving = serveHttpLink(port2, edge);
+  const link = await connectHttpLink(port1);
+  await serving;
+  cleanups.push(() => {
+    port1.close();
+    port2.close();
+  });
+  const send = (url: string, init?: RequestInit) => link.send(new Request(url, init));
+  return { self, send, forwarded, dispatched };
 }
 
 describe("the hub page through its own edge", () => {
   it("reads its own /.well-known/mesh addressed by its peer id", async () => {
-    const { self, hub, edge } = await hubPage();
-    const res = await edge(new Request(`${PAGE_ORIGIN}/peers/${self}/.well-known/mesh`, FROM_PAGE));
+    const { self, send, dispatched } = await hubPage();
+    const res = await send(`${ORIGIN}/peers/${self}/.well-known/mesh`, asHub());
     expect(res.status).toBe(200);
-    await hub.stop();
+    // Removed before dispatch: no mount, router or peer ever sees it.
+    expect(dispatched[0]?.headers.has(HUB_SELF_HEADER)).toBe(false);
   });
 
   it("reads its own /.well-known/mesh with no peer prefix", async () => {
-    const { hub, edge } = await hubPage();
-    const res = await edge(new Request(`${PAGE_ORIGIN}/peers/.well-known/mesh`, FROM_PAGE));
+    const { send } = await hubPage();
+    const res = await send(`${ORIGIN}/peers/.well-known/mesh`, asHub());
     expect(res.status).toBe(200);
-    await hub.stop();
   });
 
-  it("still forwards a call to another peer as a local, unbound request", async () => {
-    const { hub, edge, forwarded } = await hubPage();
-    const res = await edge(new Request(`${PAGE_ORIGIN}/peers/${OTHER}/hello`, FROM_PAGE));
+  // A REQUEST ANOTHER SITE STARTED IS NOT THE HUB. Navigations (links,
+  // iframes, form POSTs) reach the ServiceWorker too and get the hub's token
+  // attached; they cannot set a header, so they are never bound to the hub.
+  it("does not give hub identity to the same call without the header", async () => {
+    const { self, send } = await hubPage();
+    const res = await send(`${ORIGIN}/peers/${self}/.well-known/mesh`);
+    expect(res.status).toBe(401);
+  });
+
+  it("does not let a POST to /.well-known/invite without the header run as the hub", async () => {
+    const { send } = await hubPage();
+    const res = await send(`${ORIGIN}/peers/.well-known/invite`, {
+      method: "POST",
+      headers: { "content-type": "text/plain" },
+      body: '{"roles":["admin"]}',
+    });
+    expect(res.status).toBe(401);
+  });
+
+  it("forwards a call to another peer unbound and without the header", async () => {
+    const { send, forwarded } = await hubPage();
+    const res = await send(`${ORIGIN}/peers/${OTHER}/hello`, asHub());
     expect(await res.text()).toBe("remote");
-    expect(lookupPeer(forwarded[0] as Request)).toBeUndefined();
-    await hub.stop();
+    const out = forwarded[0] as Request;
+    expect(lookupPeer(out)).toBeUndefined();
+    expect(out.headers.has(HUB_SELF_HEADER)).toBe(false);
   });
 
-  // A REQUEST ANOTHER SITE STARTED IS NOT THE HUB. The ServiceWorker takes
-  // navigations and cross-site requests under the key too, and the edge
-  // attaches the hub's token to them; they must not also be bound to the hub.
-  it.each([
-    ["no referrer (a navigation with no-referrer)", ""],
-    ["a cross-origin referrer", "https://evil.example/attack.html"],
-    ["the referrer a page gets for a cross-origin one", "about:client"],
-  ])("does not give hub identity to a request with %s", async (_, referrer) => {
-    const { self, hub, edge } = await hubPage();
-    const read = await edge(
-      new Request(`${PAGE_ORIGIN}/peers/${self}/.well-known/mesh`, { referrer }),
-    );
-    expect(read.status).toBe(401);
-    const invite = await edge(
-      new Request(`${PAGE_ORIGIN}/peers/.well-known/invite`, {
-        method: "POST",
-        referrer,
-        headers: { "content-type": "text/plain" },
-        body: '{"roles":["admin"]}',
-      }),
-    );
-    expect(invite.status).toBe(401);
-    await hub.stop();
+  it("binds only on the exact header value", async () => {
+    const { self, send } = await hubPage();
+    const res = await send(`${ORIGIN}/peers/${self}/.well-known/mesh`, {
+      headers: { [HUB_SELF_HEADER]: "true" },
+    });
+    expect(res.status).toBe(401);
   });
 });

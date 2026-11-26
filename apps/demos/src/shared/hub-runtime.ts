@@ -86,7 +86,10 @@ export interface HubHandle {
   relayAddr: string;
   /** The `/p2p-circuit/webrtc` address a joining page must be told. */
   circuitAddr: string;
-  /** Where this page's own `fetch()` reaches the mesh. */
+  /**
+   * Where this page's own `fetch()` reaches the mesh. A call to this hub
+   * itself passes `asHub()` (`./hub-edge.ts`), or it is not the hub's.
+   */
   baseUrl: string;
   hub: Hub;
   peer: Peer;
@@ -175,14 +178,13 @@ export async function startHub(init: StartHubInit): Promise<HubHandle> {
       ttlMs: 5 * 60_000,
     });
     // `hubEdgeDispatch`, not a bare `createEdgeDispatch`: the self-token alone
-    // fails its own peer binding on a local request (httpeers#165), and only
-    // the page's own calls may be bound to the hub.
+    // fails its own peer binding on a local request (httpeers#165). Only the
+    // page's own calls, made with `asHub`, are bound to the hub.
     const edge = await mountEdge({
       key: init.key,
       dispatch: hubEdgeDispatch({
         key: init.key,
         selfPeerId,
-        ownOrigin: location.origin,
         dispatch: peer.dispatch,
         token: () => selfToken,
       }),

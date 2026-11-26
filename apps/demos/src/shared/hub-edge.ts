@@ -9,32 +9,47 @@
  * `401 token subject does not match connected peer` on every call the page made
  * to its own hub (statewalker/httpeers#165).
  *
- * ONLY THE HUB PAGE'S OWN CALLS ARE BOUND TO THE HUB. The ServiceWorker takes
- * every same-origin request under the edge's key, navigations included, so
- * any other site can START a request here: a link, an iframe, a form POST, an
- * `<img>`. Binding by path alone would hand those the hub's admin identity.
- * So a request is bound only when its referrer is this page's own origin
- * (`ownOrigin`): the transfer from the ServiceWorker keeps the referrer, and a
- * page rebuilding a request with a cross-origin referrer gets `about:client`
- * instead, so a cross-site request fails closed. Everything else goes through
- * unbound, as before, and is refused where a token is needed.
+ * ONLY THE HUB PAGE'S OWN CALLS ARE BOUND TO THE HUB, AND THEY SAY SO. The
+ * ServiceWorker takes every same-origin request under the edge's key, and
+ * navigations too, so another site can START a request here (a link, an
+ * iframe, a form POST). Binding by path alone would hand those the hub's admin
+ * identity. What another site cannot do is set a header: a cross-site `fetch`
+ * or `<img>` never reaches this origin's ServiceWorker, and a navigation
+ * carries no custom header. So the page's own calls carry `HUB_SELF_HEADER`
+ * (`asHub`), and only a request carrying it is bound. Neither the request's
+ * `mode` nor its referrer is usable: `webrun-http-link/2` carries only the
+ * url, method and headers from the ServiceWorker to the page.
  *
- * A request for another peer is never bound: the router forwards only local
- * requests (`forwardLocalOnly`), and an outbound call carries no identity of
- * the caller's. The binding happens after the edge has stripped whatever the
- * caller claimed.
+ * The header is removed before anything is dispatched, so it never reaches the
+ * router, a mount, or another peer. A request for another peer is never bound:
+ * the router forwards only local requests (`forwardLocalOnly`), and an outbound
+ * call carries no identity of the caller's. The binding happens after the edge
+ * has stripped whatever the caller claimed.
  */
 
-import { type FetchHandler, type PeerIdStr, registerPeer } from "@statewalker/httpeers-core";
+import {
+  bodyOf,
+  type FetchHandler,
+  type PeerIdStr,
+  registerPeer,
+} from "@statewalker/httpeers-core";
 import { createEdgeDispatch, targetPeerId } from "@statewalker/httpeers-member";
+
+/** Set by the hub page's own calls to its hub through its edge (`asHub`). Never forwarded. */
+export const HUB_SELF_HEADER = "x-httpeers-hub-self";
+
+/** `init` for a call the hub page makes to its own hub through its edge. */
+export function asHub(init: RequestInit = {}): RequestInit {
+  const headers = new Headers(init.headers);
+  headers.set(HUB_SELF_HEADER, "1");
+  return { ...init, headers };
+}
 
 export interface HubEdgeInit {
   /** The edge's mount key, the first path segment it strips. */
   key: string;
   /** The hub's own peer id. */
   selfPeerId: PeerIdStr;
-  /** The hub page's origin (`location.origin`): only requests it referred are bound to the hub. */
-  ownOrigin: string;
   /** `servePeer`'s `dispatch`: the router behind `withAccess`. */
   dispatch: FetchHandler;
   /** The hub's token for itself, read per request. */
@@ -44,8 +59,6 @@ export interface HubEdgeInit {
 export function hubEdgeDispatch(init: HubEdgeInit): FetchHandler {
   const { key, selfPeerId, dispatch, token } = init;
   const plain = createEdgeDispatch({ key, token, dispatch });
-  // The edge rebuilds the request without its referrer, so the decision is
-  // made here, on the request as it arrived, and picks the edge to run.
   const bound = createEdgeDispatch({
     key,
     token,
@@ -55,15 +68,20 @@ export function hubEdgeDispatch(init: HubEdgeInit): FetchHandler {
       return await dispatch(request);
     },
   });
-  return async (request) =>
-    referredBy(request, init.ownOrigin) ? await bound(request) : await plain(request);
-}
-
-/** Whether `request.referrer` is a URL of `origin`. `""`, `about:client` and anything else: no. */
-function referredBy(request: Request, origin: string): boolean {
-  try {
-    return new URL(request.referrer).origin === origin;
-  } catch {
-    return false;
-  }
+  return async (request) => {
+    // Decided on the request as it arrived, then removed on a copy (request
+    // headers may be immutable) before either edge sees it.
+    const asHubCall = request.headers.get(HUB_SELF_HEADER) === "1";
+    const headers = new Headers(request.headers);
+    headers.delete(HUB_SELF_HEADER);
+    const body = await bodyOf(request);
+    const stripped = new Request(request.url, {
+      method: request.method,
+      headers,
+      body,
+      ...(body instanceof ReadableStream ? { duplex: "half" as const } : {}),
+      signal: request.signal,
+    });
+    return asHubCall ? await bound(stripped) : await plain(stripped);
+  };
 }
