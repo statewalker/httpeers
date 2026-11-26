@@ -114,6 +114,18 @@ export interface StartMemberInit {
    * exchange. See `@statewalker/httpeers-libp2p`'s README.
    */
   muxPerPeer?: MuxPerPeer;
+  /**
+   * A libp2p node the caller owns, used instead of `platform.createNode`.
+   * `startMember` never stops it: not on a failed start, not on `stop()`.
+   *
+   * One node per mesh is the working rule (two memberships may share a key on
+   * two nodes, which links them publicly). A node can serve a second mesh only
+   * on a protocol of its own (`protocol`), which that mesh's hub serves too: a
+   * node takes one handler per protocol.
+   */
+  node?: Libp2p;
+  /** The libp2p protocol this member serves and calls on, forwarded to `servePeer`. Default: `servePeer`'s. */
+  protocol?: string;
 }
 
 export type MemberState =
@@ -238,9 +250,14 @@ export async function startMember(init: StartMemberInit): Promise<MemberHandle> 
   const hubPeerId = init.config.hubPeerId;
 
   onState("connecting-relay");
-  const node = await init.platform.createNode({ privateKey: init.privateKey });
+  // A BORROWED NODE IS NEVER STOPPED HERE. It may carry another membership,
+  // and stopping it on a failed start (a second handler for one protocol is
+  // refused) would take that membership's links down too.
+  const borrowed = init.node;
+  const node = borrowed ?? (await init.platform.createNode({ privateKey: init.privateKey }));
 
-  const unwind: Array<() => Promise<void>> = [async () => await node.stop()];
+  const unwind: Array<() => Promise<void>> =
+    borrowed == null ? [async () => await node.stop()] : [];
   const startFailed = async (): Promise<void> => {
     for (const step of [...unwind].reverse()) await step().catch(() => {});
   };
@@ -274,6 +291,7 @@ export async function startMember(init: StartMemberInit): Promise<MemberHandle> 
       // relay limits are what protect member-to-member traffic.
       callOnLimitedConnection: (peerId) => peerId === hubPeerId,
       ...(init.muxPerPeer == null ? {} : { muxPerPeer: init.muxPerPeer }),
+      ...(init.protocol == null ? {} : { protocol: init.protocol }),
       access: withAccess({
         issuer: hubPeerId,
         rules: init.rules,

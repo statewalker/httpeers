@@ -187,6 +187,8 @@ export interface StartMeshInit {
    * number stands in for a production hub whose store has filled up.
    */
   maxRelayReservations?: number;
+  /** The libp2p protocol the hub serves. Default: `servePeer`'s (`/httpeers/1.0.0/ports`). */
+  protocol?: string;
 }
 
 export async function startMesh(init: StartMeshInit = {}): Promise<Mesh> {
@@ -253,6 +255,7 @@ export async function startMesh(init: StartMeshInit = {}): Promise<Mesh> {
       bootstrap: usesTransportIdentity(),
     }),
     serveOnLimitedConnection: init.serveOnLimitedConnection,
+    ...(init.protocol == null ? {} : { protocol: init.protocol }),
   });
 
   return {
