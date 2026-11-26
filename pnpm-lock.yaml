@@ -1113,6 +1113,9 @@ importers:
       libp2p:
         specifier: 'catalog:'
         version: 3.5.1
+      rolldown:
+        specifier: 'catalog:'
+        version: 1.2.12
       typescript:
         specifier: 'catalog:'
         version: 7.0.2

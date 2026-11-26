@@ -9,15 +9,19 @@
  * them reachable from `./index.ts` would make a Node member fail at import
  * time, which `tests/boundary.test.ts` now measures by reachability.
  *
+ * AN EDGE-FREE RUNTIME IMPORTS `./extension` INSTEAD. This entry re-exports
+ * `mountEdge`, so bundling it needs `@statewalker/webrun-http-browser`;
+ * `./extension` has everything here but the edge and `createSession`, and
+ * `./edge` has the edge alone.
+ *
  * `createSession` IS THE ONLY THING HERE THAT IS NOT A RE-EXPORT. It is the
  * defaults `session.ts` deliberately does not carry: the platform, the two
  * stores, `location.search` and the reload. A page that wants to substitute
  * any of them passes it and this steps aside.
  */
 
-import { del, get, set } from "idb-keyval";
 import { type BrowserPlatformInit, browserPlatform } from "./browser-platform.js";
-import type { AsyncBytesBackend, AsyncKeyValueBackend } from "./kv.js";
+import { idbBackend, idbBytesBackend } from "./idb-backends.js";
 import { createMeshMemory } from "./mesh-memory.js";
 import type { PeerSession, PeerSessionInit } from "./session.js";
 import { createIdentityStore, createPeerSession } from "./session.js";
@@ -49,22 +53,7 @@ export {
 /** The page's own globals, declared locally — see `./page-wake.ts` for why not `lib: dom`. */
 declare const location: { search: string; reload(): void };
 
-/** The real thing: the same IndexedDB store `@statewalker/webrun-http-browser` already uses. */
-export function idbBackend(): AsyncKeyValueBackend {
-  return {
-    get: async (key) => (await get<string>(key)) ?? undefined,
-    set: async (key, value) => await set(key, value),
-    delete: async (key) => await del(key),
-  };
-}
-
-export function idbBytesBackend(): AsyncBytesBackend {
-  return {
-    get: async (key) => (await get<Uint8Array>(key)) ?? undefined,
-    set: async (key, value) => await set(key, value),
-    delete: async (key) => await del(key),
-  };
-}
+export { idbBackend, idbBytesBackend } from "./idb-backends.js";
 
 /**
  * `PeerSessionInit` with every browser-supplied part made optional.
