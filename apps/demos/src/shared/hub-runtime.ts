@@ -15,7 +15,7 @@
  * SEVEN PIECES, NO NEW MECHANISM:
  *   `createBrowserNode` with a membership gater · `dialRelay` ·
  *   `waitForCircuitReservation` · `circuitAddrs` · `createHub` · `servePeer` ·
- *   `createEdgeDispatch` behind `mountEdge`.
+ *   `createEdgeDispatch` (as `hubEdgeDispatch`) behind `mountEdge`.
  */
 
 import type { Ed25519PrivateKey, Libp2p } from "@libp2p/interface";
@@ -45,8 +45,8 @@ import {
   superviseRelay,
   waitForCircuitReservation,
 } from "@statewalker/httpeers-libp2p";
-import { createEdgeDispatch } from "@statewalker/httpeers-member";
 import { createBrowserNode, mountEdge } from "@statewalker/httpeers-member/browser";
+import { hubEdgeDispatch } from "./hub-edge.js";
 
 /** Coarse lifecycle states the page renders progress against; ordered, each passed once. */
 export type HubState =
@@ -174,10 +174,13 @@ export async function startHub(init: StartHubInit): Promise<HubHandle> {
       roles: ["admin"],
       ttlMs: 5 * 60_000,
     });
+    // `hubEdgeDispatch`, not a bare `createEdgeDispatch`: the self-token alone
+    // fails its own peer binding on a local request (httpeers#165).
     const edge = await mountEdge({
       key: init.key,
-      dispatch: createEdgeDispatch({
+      dispatch: hubEdgeDispatch({
         key: init.key,
+        selfPeerId,
         dispatch: peer.dispatch,
         token: () => selfToken,
       }),
