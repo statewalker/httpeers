@@ -175,12 +175,14 @@ export async function startHub(init: StartHubInit): Promise<HubHandle> {
       ttlMs: 5 * 60_000,
     });
     // `hubEdgeDispatch`, not a bare `createEdgeDispatch`: the self-token alone
-    // fails its own peer binding on a local request (httpeers#165).
+    // fails its own peer binding on a local request (httpeers#165), and only
+    // the page's own calls may be bound to the hub.
     const edge = await mountEdge({
       key: init.key,
       dispatch: hubEdgeDispatch({
         key: init.key,
         selfPeerId,
+        ownOrigin: location.origin,
         dispatch: peer.dispatch,
         token: () => selfToken,
       }),

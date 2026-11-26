@@ -9,12 +9,20 @@
  * `401 token subject does not match connected peer` on every call the page made
  * to its own hub (statewalker/httpeers#165).
  *
- * THE PAGE IS THE HUB. Its edge is reachable only from its own origin, and
- * what it calls the hub with is the hub's own token, so a request this peer
- * serves itself is bound to the hub's own peer id, after the edge has
- * stripped whatever the caller claimed. A request for another peer stays
- * unbound: the router forwards only local requests (`forwardLocalOnly`), and
- * an outbound call carries no identity of the caller's.
+ * ONLY THE HUB PAGE'S OWN CALLS ARE BOUND TO THE HUB. The ServiceWorker takes
+ * every same-origin request under the edge's key, navigations included, so
+ * any other site can START a request here: a link, an iframe, a form POST, an
+ * `<img>`. Binding by path alone would hand those the hub's admin identity.
+ * So a request is bound only when its referrer is this page's own origin
+ * (`ownOrigin`): the transfer from the ServiceWorker keeps the referrer, and a
+ * page rebuilding a request with a cross-origin referrer gets `about:client`
+ * instead, so a cross-site request fails closed. Everything else goes through
+ * unbound, as before, and is refused where a token is needed.
+ *
+ * A request for another peer is never bound: the router forwards only local
+ * requests (`forwardLocalOnly`), and an outbound call carries no identity of
+ * the caller's. The binding happens after the edge has stripped whatever the
+ * caller claimed.
  */
 
 import { type FetchHandler, type PeerIdStr, registerPeer } from "@statewalker/httpeers-core";
@@ -25,6 +33,8 @@ export interface HubEdgeInit {
   key: string;
   /** The hub's own peer id. */
   selfPeerId: PeerIdStr;
+  /** The hub page's origin (`location.origin`): only requests it referred are bound to the hub. */
+  ownOrigin: string;
   /** `servePeer`'s `dispatch`: the router behind `withAccess`. */
   dispatch: FetchHandler;
   /** The hub's token for itself, read per request. */
@@ -32,14 +42,28 @@ export interface HubEdgeInit {
 }
 
 export function hubEdgeDispatch(init: HubEdgeInit): FetchHandler {
-  const { selfPeerId, dispatch } = init;
-  return createEdgeDispatch({
-    key: init.key,
-    token: init.token,
+  const { key, selfPeerId, dispatch, token } = init;
+  const plain = createEdgeDispatch({ key, token, dispatch });
+  // The edge rebuilds the request without its referrer, so the decision is
+  // made here, on the request as it arrived, and picks the edge to run.
+  const bound = createEdgeDispatch({
+    key,
+    token,
     dispatch: async (request) => {
       const target = targetPeerId(new URL(request.url).pathname);
       if (target == null || target === selfPeerId) registerPeer(request, selfPeerId);
       return await dispatch(request);
     },
   });
+  return async (request) =>
+    referredBy(request, init.ownOrigin) ? await bound(request) : await plain(request);
+}
+
+/** Whether `request.referrer` is a URL of `origin`. `""`, `about:client` and anything else: no. */
+function referredBy(request: Request, origin: string): boolean {
+  try {
+    return new URL(request.referrer).origin === origin;
+  } catch {
+    return false;
+  }
 }
