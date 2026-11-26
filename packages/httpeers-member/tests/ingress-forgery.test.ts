@@ -165,3 +165,55 @@ describe("the gateway strips a claimed identity", () => {
     expect(received).toBe("ping");
   });
 });
+
+// statewalker/httpeers#162: the gateway is a broker that calls AS THE MEMBER.
+// The edge keeps a token a caller set (a page that set one meant it), so a
+// gateway that passed the caller's token through let its client choose the
+// credential: any token it held, or garbage that made the target answer 401.
+describe("the gateway calls with the member's token", () => {
+  function gatewayOverEdge(init: { forwardCallerToken?: boolean } = {}) {
+    let seen: Request | null = null;
+    const edge = createEdgeDispatch({
+      key: "peers",
+      dispatch: async (req) => {
+        seen = req;
+        return new Response("ok");
+      },
+      token: () => "MEMBER-TOKEN",
+    });
+    const gateway = createGateway({
+      source: { peerId: SELF_PEER, meshView: () => VIEW, fetch: edge },
+      basePath: "",
+      edgeKey: "peers",
+      ...init,
+    });
+    return { gateway, seen: () => seen as Request | null };
+  }
+
+  it("replaces a caller's mesh token with the member's", async () => {
+    const { gateway, seen } = gatewayOverEdge();
+    const response = await gateway(
+      new Request(`http://gw.example/${BOB}/hello`, {
+        headers: { [MESH_TOKEN_HEADER]: "garbage" },
+      }),
+    );
+    expect(response.status).toBe(200);
+    expect(seen()?.headers.get(MESH_TOKEN_HEADER)).toBe("MEMBER-TOKEN");
+  });
+
+  it("attaches the member's token when the caller sent none", async () => {
+    const { gateway, seen } = gatewayOverEdge();
+    await gateway(new Request(`http://gw.example/${BOB}/hello`));
+    expect(seen()?.headers.get(MESH_TOKEN_HEADER)).toBe("MEMBER-TOKEN");
+  });
+
+  it("keeps the caller's token only when told to", async () => {
+    const { gateway, seen } = gatewayOverEdge({ forwardCallerToken: true });
+    await gateway(
+      new Request(`http://gw.example/${BOB}/hello`, {
+        headers: { [MESH_TOKEN_HEADER]: "CALLER-TOKEN" },
+      }),
+    );
+    expect(seen()?.headers.get(MESH_TOKEN_HEADER)).toBe("CALLER-TOKEN");
+  });
+});

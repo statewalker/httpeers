@@ -98,6 +98,11 @@ const gateway = createGateway({ source: member, basePath: "", edgeKey: "peers" }
 // gateway is a FetchHandler serving /{peerId}/{path}
 ```
 
+The gateway calls as the member: it removes a caller's `x-httpeers-token` (and any
+proven-peer header) before dispatch, so the edge attaches the member's own token.
+Pass `forwardCallerToken: true` only where the caller is meant to choose its own
+credential.
+
 A rescue page that returns the origin to a first visit:
 
 ```ts
