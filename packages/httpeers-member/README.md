@@ -73,6 +73,13 @@ await member.fetch(new Request(`http://local/peers/${otherPeer}/hello`));
 member.hubLink();                // "direct" | "relay"
 ```
 
+Several meshes in one runtime: one libp2p node per mesh. Each `startMember` builds its
+own node through the platform; two memberships may share one key on two nodes (which
+links them publicly, since both have the same peer id). A caller may hand `startMember`
+a node it owns (`node`); `startMember` then never stops that node, not on a failed start
+and not on `stop()`. A node takes one handler per protocol, so a second mesh on the same
+node needs its own `protocol`, which that mesh's hub must serve too.
+
 A page, with the operator controls a join widget drives:
 
 ```ts

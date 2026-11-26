@@ -206,7 +206,8 @@ State that plainly, because it is a real widening and it is intended:
    (`createEdgeDispatch`), so an app can spend the viewer's authority on a call
    but cannot carry it away, replay it elsewhere, or read it out of its own
    request. It cannot *supply* one either: the edge deliberately leaves a token
-   a caller already set alone, so the session's mesh handler strips
+   a caller already set alone, so `createGateway` removes a caller's token by
+   default (httpeers#162) and the session's mesh handler also strips
    `MESH_CREDENTIAL_HEADERS` off every request entering `/peers/`
    (`session-frame.ts`'s `withoutMeshCredentials`) — exactly as `pinnedPeer`
    overwrites them on the root route. Without that strip the app picked the
