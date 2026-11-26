@@ -135,3 +135,48 @@ describe("createHub", () => {
     await restarted.stop();
   });
 });
+
+// statewalker/httpeers#160: the snapshot key was fixed, so two hubs on one
+// storage shared their state and the last writer won.
+describe("two hubs on one storage", () => {
+  const OTHER = "12D3KooWOtherCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCC";
+
+  function keyed(storage: ReturnType<typeof memoryStorage>, storageKey: string) {
+    return createHub({ selfPeerId: SELF, mintToken, policies: RULES, storage, storageKey });
+  }
+
+  it("keep separate member lists across a restart, given distinct storage keys", async () => {
+    const storage = memoryStorage();
+    const a = await keyed(storage, "mesh-a");
+    const b = await keyed(storage, "mesh-b");
+    a.members.add(MEMBER, ["member"]);
+    b.members.add(OTHER, ["member"]);
+    // An invitation's creation awaits the flush of everything before it.
+    await a.invitations.create(["member"], 60_000);
+    await b.invitations.create(["member"], 60_000);
+    await a.stop();
+    await b.stop();
+
+    const aAgain = await keyed(storage, "mesh-a");
+    const bAgain = await keyed(storage, "mesh-b");
+    expect(aAgain.isMember(MEMBER)).toBe(true);
+    expect(aAgain.isMember(OTHER)).toBe(false);
+    expect(bAgain.isMember(OTHER)).toBe(true);
+    expect(bAgain.isMember(MEMBER)).toBe(false);
+    await aAgain.stop();
+    await bAgain.stop();
+  });
+
+  it("the default key is still `snapshot`, so existing state is read", async () => {
+    const storage = memoryStorage();
+    const first = await hub(storage);
+    first.members.add(MEMBER, ["member"]);
+    await first.invitations.create(["member"], 60_000);
+    await first.stop();
+
+    expect(await storage.get("snapshot")).toContain(MEMBER);
+    const again = await keyed(storage, "snapshot");
+    expect(again.isMember(MEMBER)).toBe(true);
+    await again.stop();
+  });
+});
