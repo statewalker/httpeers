@@ -26,7 +26,7 @@
  */
 
 import type { FetchHandler, MeshView } from "@statewalker/httpeers-core";
-import { bodyOf, stripPeerBinding } from "@statewalker/httpeers-core";
+import { bodyOf, MESH_TOKEN_HEADER, stripPeerBinding } from "@statewalker/httpeers-core";
 
 /** What the gateway needs of a member. `MemberHandle` satisfies it; so does a test double. */
 export interface GatewaySource {
@@ -46,6 +46,13 @@ export interface GatewayInit {
   basePath?: string;
   /** The key the underlying edge dispatch expects as the first segment. */
   edgeKey: string;
+  /**
+   * Keep a mesh token (`MESH_TOKEN_HEADER`) the caller sent. Off by default:
+   * the gateway calls AS THE MEMBER, so the caller's token is removed and the
+   * edge attaches the member's. Turn it on only where the caller is meant to
+   * choose its own credential.
+   */
+  forwardCallerToken?: boolean;
 }
 
 /** Marks the gateway's own responses so they are never mistaken for a peer's. */
@@ -85,11 +92,18 @@ export function createGateway(init: GatewayInit): FetchHandler {
     // curl and any proven-peer header it sent is a claim about somebody else.
     // Strip before the request enters the mesh.
     stripPeerBinding(request);
+    // A BROKER THAT CALLS AS THE MEMBER. The edge keeps a token a caller set
+    // (a page that set one meant it), so a token left here would let the
+    // gateway's client pick the credential: any token it holds, or garbage
+    // that makes the target answer 401 instead of serving the member's call.
+    // Deleted on a copy: a ServiceWorker's request headers are immutable.
+    const headers = new Headers(request.headers);
+    if (init.forwardCallerToken !== true) headers.delete(MESH_TOKEN_HEADER);
 
     const body = await bodyOf(request);
     const forwarded = new Request(target, {
       method: request.method,
-      headers: request.headers,
+      headers,
       body,
       ...(body instanceof ReadableStream ? { duplex: "half" as const } : {}),
       // FORWARDED DELIBERATELY. `@hono/node-server` aborts this signal when the
