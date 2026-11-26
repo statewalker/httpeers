@@ -70,11 +70,49 @@ jobs:
       - name: Forwarded bodies in Chromium and Firefox
         run: pnpm --filter @statewalker/httpeers-browser-conformance run test:forwarded-body
 
+  # A hub in a Chrome extension's offscreen document admits a Node member (#163), its bundle built
+  # from sources without @statewalker/webrun-http-browser. A job of its own, so a failure names the
+  # extension check. It needs the FULL Chromium: the headless shell loads no extension. Loopback
+  # only: no secrets, no network beyond the installs.
+  offscreen-hub:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: pnpm/action-setup@v6
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: "24"
+          cache: pnpm
+
+      - name: Install
+        run: pnpm install --frozen-lockfile
+
+      # The Node-side relay and member come from dist/; the offscreen document is bundled from
+      # sources by the script.
+      - name: Build
+        run: pnpm --filter "@statewalker/httpeers-browser-conformance..." run build
+
+      # As forwarded-body: apt may be unreachable, and the runner image has most libraries.
+      - name: Chromium
+        run: |
+          if ! timeout -k 10 240 pnpm --filter @statewalker/httpeers-browser-conformance exec playwright install-deps chromium; then
+            echo "::warning::playwright install-deps failed or timed out (apt unreachable?); installing Chromium without system libraries"
+          fi
+          pnpm --filter @statewalker/httpeers-browser-conformance exec playwright install chromium
+
+      - name: Offscreen-document hub in Chromium
+        run: pnpm --filter @statewalker/httpeers-browser-conformance run test:offscreen-hub
+
   # The lockfile-only pull request that .github/workflows/statewalker-update.yml opens: merged
   # once every other check on it passes, after checking it changes pnpm-lock.yaml alone
   # (statewalker/statewalker-ci's merge-lockfile.yml; statewalker-root docs/process/merging.md).
   lockfile:
-    needs: [ci, forwarded-body]
+    needs: [ci, forwarded-body, offscreen-hub]
     # !cancelled(): also after a failed check job, so the pull request gets a comment saying why.
     if: ${{ !cancelled() && github.event_name == 'pull_request' && github.head_ref == 'deps/statewalker-lockfile' }}
     permissions:

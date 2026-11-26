@@ -174,6 +174,13 @@ describe("the edge-free browser entry (statewalker/httpeers#163)", () => {
     }
   });
 
+  it("./browser-hub reaches no edge either, and stays off the root", () => {
+    const hub = [...closureOf("hub-entry.ts")];
+    expect(hub.map(named)).toContain("browser-hub.ts");
+    expect(hub.map(named)).not.toContain("edge.ts");
+    expect([...rootClosure].map(named)).not.toContain("browser-hub.ts");
+  });
+
   it("./edge reaches the edge, and ./browser still re-exports it", () => {
     expect([...closureOf("edge-entry.ts")].map(named)).toContain("edge.ts");
     expect([...closureOf("browser.ts")].map(named)).toContain("edge.ts");

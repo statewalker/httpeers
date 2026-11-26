@@ -1073,6 +1073,9 @@ importers:
       '@statewalker/httpeers-core':
         specifier: workspace:^
         version: link:../httpeers-core
+      '@statewalker/httpeers-hub':
+        specifier: workspace:^
+        version: link:../httpeers-hub
       '@statewalker/httpeers-libp2p':
         specifier: workspace:^
         version: link:../httpeers-libp2p
