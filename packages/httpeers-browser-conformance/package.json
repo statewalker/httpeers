@@ -22,7 +22,8 @@
     "typecheck": "tsc --noEmit",
     "lint": "biome check tests scripts",
     "lint:check": "biome check tests scripts",
-    "test:forwarded-body": "node scripts/forwarded-body.mjs"
+    "test:forwarded-body": "node scripts/forwarded-body.mjs",
+    "test:offscreen-hub": "node scripts/offscreen-hub.mjs"
   },
   "devDependencies": {
     "@biomejs/biome": "catalog:",

@@ -41,6 +41,11 @@
       "types": "./dist/edge-entry.d.ts",
       "import": "./dist/edge-entry.js"
     },
+    "./browser-hub": {
+      "source": "./src/hub-entry.ts",
+      "types": "./dist/hub-entry.d.ts",
+      "import": "./dist/hub-entry.js"
+    },
     "./reset": {
       "source": "./src/reset.ts",
       "types": "./dist/reset.d.ts",
@@ -66,6 +71,7 @@
     "@multiformats/multiaddr": "catalog:",
     "@statewalker/httpeers-access": "workspace:^",
     "@statewalker/httpeers-core": "workspace:^",
+    "@statewalker/httpeers-hub": "workspace:^",
     "@statewalker/httpeers-libp2p": "workspace:^"
   },
   "peerDependencies": {

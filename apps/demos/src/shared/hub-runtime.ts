@@ -1,51 +1,30 @@
 /**
  * A hub in a tab — composed from the packages, not provided by one.
  *
- * WHY THIS IS APP CODE. `httpeers-hub` deliberately has no transport: a hub is
- * membership and a mount table, and keeping the wire out is exactly what lets
- * it run somewhere that has no wire of its own. Putting the lifecycle in that
- * package would mean a `httpeers-hub` → `httpeers-libp2p` dependency and
- * would undo the property it exists for. So the composition lives here, the
- * same way the Node hub's `main.ts` composes it there.
+ * WHY THE PAGE PART IS APP CODE. `httpeers-hub` deliberately has no
+ * transport, so the browser composition lives in httpeers-member
+ * (`startBrowserHub`), without an edge, for hosts that have none (an
+ * extension's offscreen document). What stays here is the page's own edge.
  *
  * `httpeers-conformance`'s `rung12_browserHub` compiles this arrangement as a
  * consumer, so if the packages ever stop being sufficient for it, a test says
  * so before this page breaks.
  *
- * SEVEN PIECES, NO NEW MECHANISM:
- *   `createBrowserNode` with a membership gater · `dialRelay` ·
- *   `waitForCircuitReservation` · `circuitAddrs` · `createHub` · `servePeer` ·
+ * TWO PIECES: `startBrowserHub` (`@statewalker/httpeers-member/browser-hub`:
+ *   node, relay, reservation, hub and `servePeer`, no edge) and
  *   `createEdgeDispatch` (as `hubEdgeDispatch`) behind `mountEdge`.
  */
 
 import type { Ed25519PrivateKey, Libp2p } from "@libp2p/interface";
-import {
-  type RuleSet,
-  roleNames,
-  selfCertifyingKeys,
-  withAccess,
-} from "@statewalker/httpeers-access";
-import { mintToken } from "@statewalker/httpeers-access/issuer";
-import {
-  ANONYMOUS,
-  forwardLocalOnly,
-  lookupPeer,
-  type PeerIdStr,
-} from "@statewalker/httpeers-core";
-import { createHub, type Hub, usesTransportIdentity } from "@statewalker/httpeers-hub";
+import type { RuleSet } from "@statewalker/httpeers-access";
+import type { PeerIdStr } from "@statewalker/httpeers-core";
+import type { Hub } from "@statewalker/httpeers-hub";
 // The IndexedDB store is behind the hub's BROWSER entry, which is the whole
 // point of that split: the root stays runnable where there is no IndexedDB.
 import { idbStorage } from "@statewalker/httpeers-hub/browser";
-import {
-  circuitAddrs,
-  dialRelay,
-  type Peer,
-  servePeer,
-  signerOf,
-  superviseRelay,
-  waitForCircuitReservation,
-} from "@statewalker/httpeers-libp2p";
-import { createBrowserNode, mountEdge } from "@statewalker/httpeers-member/browser";
+import type { Peer } from "@statewalker/httpeers-libp2p";
+import { mountEdge } from "@statewalker/httpeers-member/browser";
+import { startBrowserHub } from "@statewalker/httpeers-member/browser-hub";
 import { hubEdgeDispatch } from "./hub-edge.js";
 
 /** Coarse lifecycle states the page renders progress against; ordered, each passed once. */
@@ -100,83 +79,31 @@ export interface HubHandle {
 
 export async function startHub(init: StartHubInit): Promise<HubHandle> {
   const onState = init.onState ?? ((): void => {});
-  const relayAddr = init.relayAddrs[0];
-  if (relayAddr == null) throw new Error("startHub: no relay address");
 
-  onState("connecting-relay");
-
-  // A THUNK, because the member store does not exist until the hub is built,
-  // which is after the node. `membershipGater` reads it at decision time,
-  // which is what closes that ordering cycle.
-  let isMember = (_peerId: string): boolean => false;
-  const node = await createBrowserNode({
+  // Node, relay, reservation, hub and `servePeer`, with no edge: the package's
+  // assembly (httpeers#163). What this page adds is its own edge.
+  const base = await startBrowserHub({
     privateKey: init.privateKey,
+    relayAddrs: init.relayAddrs,
+    rules: init.rules,
+    // Survives a reload: members and spent invitation ids are the hub's
+    // durable state, and a hub that forgot them on refresh would re-admit
+    // every spent code.
+    storage: idbStorage(),
+    extraMounts: init.extraMounts,
+    ownAdvertisements: init.ownAdvertisements,
     dev: init.dev ?? false,
-    isMember: (peerId) => isMember(peerId),
+    onState: (state) => {
+      if (state !== "ready" && state !== "stopped") onState(state);
+    },
   });
 
-  const unwind: Array<() => Promise<void>> = [async () => await node.stop()];
-  const fail = async (): Promise<never> => {
-    for (const step of [...unwind].reverse()) await step().catch(() => {});
-    throw new Error("startHub: failed");
-  };
-
   try {
-    await dialRelay(node, relayAddr);
-    onState("awaiting-reservation");
-    const reserved = await waitForCircuitReservation(node);
-    // BOTH VARIANTS COME BACK AND ONLY ONE WORKS: the bare `/p2p-circuit` is a
-    // LIMITED connection on which libp2p silently refuses the protocol.
-    const addrs = circuitAddrs(node);
-    const supervisor = superviseRelay({ node, relayAddr });
-    unwind.push(async () => supervisor.stop());
-
-    onState("starting-hub");
-    // THE SAME KEY SIGNS AND SPEAKS. A node built from one key while the hub
-    // minted with another would produce tokens whose `mesh` claim named a peer
-    // nobody is talking to.
-    const signer = signerOf(init.privateKey);
-    const hub = await createHub({
-      selfPeerId: node.peerId.toString(),
-      policies: init.rules,
-      // Survives a reload: members and spent invitation ids are the hub's
-      // durable state, and a hub that forgot them on refresh would re-admit
-      // every spent code.
-      storage: idbStorage(),
-      extraMounts: init.extraMounts,
-      ownAdvertisements: init.ownAdvertisements,
-      mintToken: async (sub, roles) => mintToken({ signer, sub, roles, ttlMs: 5 * 60_000 }),
-    });
-    isMember = (peerId) => hub.isMember(peerId);
-    unwind.push(async () => await hub.stop());
-
-    const selfPeerId = node.peerId.toString();
-    const peer = await servePeer({
-      node,
-      mounts: hub.mounts,
-      allowForward: forwardLocalOnly,
-      access: withAccess({
-        issuer: selfPeerId,
-        rules: init.rules,
-        selfPeer: selfPeerId,
-        keys: selfCertifyingKeys(),
-        provenPeer: (req) => lookupPeer(req) ?? ANONYMOUS,
-        // The bootstrap routes MINT the very tokens they cannot require.
-        bootstrap: usesTransportIdentity(),
-      }),
-    });
-    unwind.push(async () => await peer.stop());
-
     onState("mounting-edge");
     // The hub mints a token FOR ITSELF: its own endpoints sit behind the same
     // guard as everyone else's, so a hub with no token could not read its own
     // mesh view through its own edge.
-    const selfToken = await mintToken({
-      signer,
-      sub: selfPeerId,
-      roles: ["admin"],
-      ttlMs: 5 * 60_000,
-    });
+    const selfToken = await base.mintSelfToken(["admin"]);
     // `hubEdgeDispatch`, not a bare `createEdgeDispatch`: the self-token alone
     // fails its own peer binding on a local request (httpeers#165). Only the
     // page's own calls, made with `asHub`, are bound to the hub.
@@ -184,31 +111,32 @@ export async function startHub(init: StartHubInit): Promise<HubHandle> {
       key: init.key,
       dispatch: hubEdgeDispatch({
         key: init.key,
-        selfPeerId,
-        dispatch: peer.dispatch,
+        selfPeerId: base.peerId,
+        dispatch: base.peer.dispatch,
         token: () => selfToken,
       }),
     });
-    unwind.push(async () => await edge.stop());
 
     onState("ready");
     return {
-      peerId: selfPeerId,
-      relayAddr,
-      circuitAddr: addrs.webrtc ?? reserved,
+      peerId: base.peerId,
+      relayAddr: base.relayAddr,
+      circuitAddr: base.circuitAddr,
       baseUrl: edge.baseUrl,
-      hub,
-      peer,
-      node,
+      hub: base.hub,
+      peer: base.peer,
+      node: base.node,
       // Read off the RULES, never a hard-coded list: a role added to the policy
       // appears in the UI with no second place to update.
-      roles: () => roleNames(hub.rules),
+      roles: () => base.roles(),
       async stop() {
         onState("stopped");
-        for (const step of [...unwind].reverse()) await step().catch(() => {});
+        await edge.stop().catch(() => {});
+        await base.stop();
       },
     };
-  } catch {
-    return await fail();
+  } catch (error) {
+    await base.stop();
+    throw error;
   }
 }

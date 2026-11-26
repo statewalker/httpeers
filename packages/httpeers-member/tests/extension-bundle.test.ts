@@ -49,6 +49,12 @@ describe("an edge-free bundle", () => {
     expect(code.length).toBeGreaterThan(100_000); // libp2p and the profile are really in it
   }, 120_000);
 
+  it("./browser-hub bundles for the browser with webrun-http-browser unresolvable", async () => {
+    const { requested, code } = await bundle("hub-entry.ts");
+    expect(requested).toEqual([]);
+    expect(code).toContain("startBrowserHub");
+  }, 120_000);
+
   it("./browser does not, because it re-exports the edge", async () => {
     await expect(bundle("browser.ts")).rejects.toThrow(/webrun-http-browser/);
   }, 120_000);

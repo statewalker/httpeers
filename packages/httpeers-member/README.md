@@ -33,6 +33,7 @@ stays free of it. Install what your entry point imports:
   `@statewalker/webrun-http-browser` (the ServiceWorker edge).
 - `./extension`: the same as `./browser` without `@statewalker/webrun-http-browser`.
 - `./edge`: `@statewalker/webrun-http-browser` alone.
+- `./browser-hub`: the same as `./extension`.
 
 Under Node, `@libp2p/webrtc` needs the native `node-datachannel` module (0.33.6
 or newer; its binary comes from the optional `@node-datachannel/<platform>`
@@ -46,6 +47,7 @@ if the loaded libdatachannel is older than 0.24.6.
 | `./browser` | `browserPlatform()`, `createSession()`, `mountEdge`, `watchPageWake`, `idbBackend`, `idbBytesBackend`, `resetBrowserState`, `UncontrolledPageError` |
 | `./extension` | `extensionPlatform()`, `runtimeMessageWake`, `createBrowserNode`, `watchPageWake`, `idbBackend`, `idbBytesBackend`, `resetBrowserState`: `./browser` without the ServiceWorker edge, for an extension's offscreen document or a worker |
 | `./edge` | `mountEdge`, `UncontrolledPageError` alone (also re-exported by `./browser`) |
+| `./browser-hub` | `startBrowserHub()`: a hub assembled in a browser runtime (node, relay reservation, hub, `servePeer`), with no edge |
 | `./reset` | `resetBrowserState()` alone, with no imports, for a rescue page |
 
 ```ts
@@ -124,6 +126,30 @@ chrome.runtime.sendMessage({ type: "httpeers:wake" }).catch(() => {});
 Keep the worker stateless: state lives in the offscreen document or IndexedDB, both sides
 send requests with `chrome.runtime.sendMessage`, and Ports are reopened lazily
 (statewalker-root's `docs/research/webrun-devtools-offscreen-hub.md`).
+
+A hub in the same offscreen document, with its own IndexedDB database (one name per hub when
+one document hosts several meshes) and no edge:
+
+```ts
+import { startBrowserHub } from "@statewalker/httpeers-member/browser-hub";
+
+const hub = await startBrowserHub({
+  privateKey,                    // keep it (IndexedDB): the hub's peerId is the mesh
+  relayAddrs,
+  rules,                         // must grant std:presence.write and std:mesh.read to members
+  storageName: "mesh-a",         // idbStorage("mesh-a"); or pass `storage`
+});
+const { id } = await hub.hub.invitations.create(["member"], 10 * 60_000);
+// hub.peer.dispatch is what an edge would mount; a page mounts one with `./edge`
+```
+
+**Relay-only mode.** A runtime without `RTCPeerConnection`, such as an extension's service
+worker, cannot upgrade a member to WebRTC, so the member stays on the relayed circuit. libp2p
+refuses protocols on such a limited connection by default, and the join dies with
+`PeerStreamResetError`. `startBrowserHub({ serveOnLimitedConnection: true })` (the same option
+on `servePeer`) serves there too. Every byte then crosses the relay, under its per-connection
+limits, and no member can reserve on the hub. Use it only where WebRTC is missing: an offscreen
+document has WebRTC.
 
 The mesh as plain HTTP, for a client that knows nothing about peers:
 

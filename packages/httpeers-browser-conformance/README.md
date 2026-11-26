@@ -36,6 +36,11 @@ pnpm --filter @statewalker/httpeers-browser-conformance test:reload
 # (reads the Node-side relay's and hub's dist/; CI runs this as ci.yml's forwarded-body job):
 pnpm --filter "@statewalker/httpeers-browser-conformance..." run build
 pnpm --filter @statewalker/httpeers-browser-conformance test:forwarded-body
+
+# A hub in a Chrome extension's offscreen document admits a Node member (full Chromium:
+# `playwright install chromium`, since the headless shell loads no extension; CI runs it as
+# ci.yml's offscreen-hub job):
+pnpm --filter @statewalker/httpeers-browser-conformance test:offscreen-hub
 ```
 
 `PLAYWRIGHT_FIREFOX_PATH` / `PLAYWRIGHT_CHROMIUM_PATH` point `test:forwarded-body` at a
@@ -51,6 +56,7 @@ per exchange, and httpeers-libp2p's default, one mux per peer, issue #56).
 | `tests/reset.test.ts` | `resetBrowserState()` removes the worker, the databases and the stored values together; is safe with nothing to remove; reports what it removed |
 | `tests/biscuit.test.ts` | a page imports `@statewalker/httpeers-access` the ordinary way and mints, verifies and authorizes tokens, and fetches no `.wasm` |
 | `scripts/forwarded-body.mjs` | a real browser member joins a loopback mesh (the deployed relay, a hub with an `/echo` stub) and POSTs 76 B, 1 MiB and — where the engine can build one — a 512 KiB stream through `fetch()` → ServiceWorker → `createGateway` → the member edge → the peer router → libp2p; the stub reports the byte count and SHA-256 that arrived. Runs on both exchange paths, and checks at the hub that the calls rode the path named |
+| `scripts/offscreen-hub.mjs` | a test extension's offscreen document (reason `WEB_RTC`) runs `startBrowserHub`, bundled from sources with `@statewalker/webrun-http-browser` unresolvable; a Node member redeems its invitation, the hub lists it as a member, and its call to the hub's `/ping` mount returns 200 |
 | `scripts/edge-reload.mjs` | first visit, normal reload, hard reload (recovered with no extra navigation), a second tab, and — against a worker that ignores `CLAIM` — the single fallback reload and its spent guard |
 
 ## Internals
