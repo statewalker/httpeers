@@ -16,7 +16,31 @@ const hex = (b: Uint8Array): string =>
 
 /** Datalog string literal: only the quote and the backslash are escaped.
  *  Control characters are emitted raw, unlike JSON.stringify. */
-const quote = (v: string): string => `"${v.replace(/\\/g, "\\\\").replace(/"/g, '\\"')}"`;
+const referenceQuote = (v: string): string => `"${v.replace(/\\/g, "\\\\").replace(/"/g, '\\"')}"`;
+
+/** Characters a display would render as a line break, hide, or reorder: C0/C1
+ *  controls, DEL, the Unicode line/paragraph separators and the bidi controls. */
+// biome-ignore lint/suspicious/noControlCharactersInRegex: matching them is the point
+const DISPLAY_UNSAFE = /[\u0000-\u001f\u007f-\u009f\u2028\u2029\u202a-\u202e\u2066-\u2069]/g;
+const NAMED_ESCAPES: Record<string, string> = {
+  "\n": "\\n",
+  "\r": "\\r",
+  "\t": "\\t",
+  "\0": "\\0",
+};
+
+/** A string literal safe to show a person: every display-unsafe character is
+ *  escaped, so one string can never look like more than one statement. The
+ *  parser reads the escapes back to the same string. */
+const displayQuote = (v: string): string =>
+  referenceQuote(v).replace(
+    DISPLAY_UNSAFE,
+    (c) => NAMED_ESCAPES[c] ?? `\\u{${(c.codePointAt(0) ?? 0).toString(16)}}`,
+  );
+
+// `printBlock` switches to `displayQuote` for its own (synchronous) call; error
+// messages and world snapshots keep the reference printer's exact text.
+let quote = referenceQuote;
 
 export function printTerm(t: Term, varName: (id: number) => string): string {
   switch (t.t) {
@@ -144,4 +168,36 @@ export function printRule(r: Rule, varName: (id: number) => string): string {
     ...r.expressions.map((e) => printExpression(e, varName)),
   ];
   return `${printPredicate(r.head, varName)} <- ${parts.join(", ")}` + printScopes(r.scopes);
+}
+
+/** The parts of a block `printBlock` reads: a loaded token's `RuntimeBlock` has them. */
+export interface PrintableBlock {
+  facts: { predicate: Predicate }[];
+  rules: Rule[];
+  checks: Check[];
+  scopes: Scope[];
+  /** variable id -> name; without it variables print as `$<id>` */
+  varNames?: Map<number, string>;
+}
+
+/**
+ * One block as Datalog source: its block-level `trusting` line, then its facts,
+ * rules and checks, one statement per line, each ending with `;`. The text parses
+ * back to the same block — show it on an approval screen or in a log. Strings
+ * have their control, line-separator and bidi characters escaped (`\n`,
+ * `\u{202e}`), so a value cannot display as extra statements.
+ */
+export function printBlock(block: PrintableBlock): string {
+  const varName = (id: number): string => block.varNames?.get(id) ?? String(id);
+  const lines: string[] = [];
+  quote = displayQuote;
+  try {
+    if (block.scopes.length > 0) lines.push(`${printScopes(block.scopes).trim()};`);
+    for (const f of block.facts) lines.push(`${printPredicate(f.predicate, varName)};`);
+    for (const r of block.rules) lines.push(`${printRule(r, varName)};`);
+    for (const c of block.checks) lines.push(`${printCheck(c, varName)};`);
+  } finally {
+    quote = referenceQuote;
+  }
+  return lines.join("\n");
 }

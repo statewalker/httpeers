@@ -72,6 +72,50 @@ arrays and `Set`s are accepted. An unbound parameter and an unused one are both 
 `ParseError`, as in the reference; `{true}`, `{false}` and `{null}` remain one-element
 sets.
 
+### Building code with values: the `Datalog` template
+
+`Datalog` turns the rule above into the easy path. `add` is a tagged template, and every
+`${value}` in it becomes a `{pN}` parameter, so a block is written as it reads and no value is
+ever spliced into its text:
+
+```ts
+import { Biscuit, datalog } from "@statewalker/webrun-biscuit";
+
+const code = datalog`user(${userId});`
+  .add`check if time($t), $t < ${new Date(Date.now() + 3_600_000)};`;
+// code.source: "user({p0});\ncheck if time($t), $t < {p1};"
+const token = Biscuit.build(root.secretKey, code.source, { params: code.params });
+```
+
+`raw(text)` appends source that interpolates nothing, for rules you wrote yourself.
+
+### Revocation
+
+Each block has a revocation id (lowercase hex), and a token is revoked when any of its ids is in
+your revoked set. Revoking an authority block's id revokes every token attenuated from it. Check
+after `verify`, before authorizing:
+
+```ts
+import { assertNotRevoked, isRevoked } from "@statewalker/webrun-biscuit";
+
+const verified = Biscuit.fromBase64(token).verify(root.publicKey);
+if (isRevoked(verified, revokedIds)) throw new Error("revoked"); // revokedIds: Set<string>
+assertNotRevoked(verified, revokedIds); // the same, throwing RevokedTokenError
+```
+
+### Showing a token: `print`
+
+`verified.print()` returns each block as Datalog source, authority first: the text an approval
+screen or a log shows, and the text that builds the same block again. `printBlock`, `printRule`,
+`printCheck`, `printPolicy`, `printPredicate` and `printTerm` are exported for pieces of it.
+
+```ts
+Biscuit.build(root.secretKey, 'user("alice");').attenuate('check if operation("read");')
+  .verify(root.publicKey)
+  .print();
+// ['user("alice");', 'check if operation("read");']
+```
+
 ### Querying the evaluated world
 
 `evaluate` is `authorize` that keeps the world, so facts can be read back — the
@@ -147,11 +191,13 @@ Each module depends only on the ones above it.
 | `src/crypto.ts` | Ed25519 + secp256r1 chain, payload v0/v1, sealing, external signatures |
 | `src/datalog.ts` | term model, canonical keys, origin-tracked fixpoint engine, expression VM |
 | `src/parser.ts` | Datalog text syntax to the runtime model |
-| `src/print.ts` | pretty-printer for error messages and world snapshots |
+| `src/print.ts` | pretty-printer for error messages, world snapshots and `print()` |
 | `src/version.ts` | block version bounds and Datalog feature gates |
 | `src/authorizer.ts` | symbol resolution, block loading, authorization, world snapshots |
 | `src/builder.ts` | minting, attenuation, sealing, third-party blocks |
 | `src/base64.ts` | URL-safe base64, runtime-agnostic |
+| `src/code.ts` | the `Datalog` template: source with its values bound as parameters |
+| `src/revocation.ts` | `isRevoked`, `assertNotRevoked` against a revoked-id set |
 | `src/index.ts` | the public API — `Biscuit`, `VerifiedBiscuit` |
 
 The one awkward edge is that `builder` imports `parseAuthorizer` and `DEFAULT_SYMBOLS` from
