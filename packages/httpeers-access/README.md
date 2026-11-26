@@ -165,6 +165,27 @@ policy naming a capability no rule derives; a rule deriving a fact the node or
 the token asserts (a forged input); and a policy in `rules` or a rule in
 `policies`.
 
+An application that asserts facts of its own declares them in `facts`
+(`name` or `name/arity`), and binds values such as a mesh id through `params`:
+each `{name}` is a term, never text. `authorize` then takes the facts in
+`extra`. A predicate that is not declared is refused in the rules and in
+`extra` alike, a declared one may not be derived by a rule, and the node's
+and the token's predicates cannot be declared:
+
+```ts
+const rules = ruleSet({
+  facts: ["target_owned/1", "right/2"],
+  params: { mesh: meshId },
+  rules: [
+    'capability("tabs:query") <- mesh({mesh}), role("tabs")',
+    'capability("tabs:own") <- capability("tabs:query"), target_owned($t), right("tabs", "query")',
+  ],
+  policies: ['allow if capability("tabs:own"), operation("query")'],
+});
+authorize(rules, { operation: "query", resource: "/tabs",
+  extra: [["target_owned", tabId], ["right", "tabs", "query"]] }, claims);
+```
+
 Policies are emitted **deny first**. Biscuit evaluates policies in order and the
 first match wins, so a `deny` must beat any `allow` that also matches.
 

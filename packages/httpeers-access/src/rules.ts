@@ -71,7 +71,7 @@ import type {
   UsesTransportIdentity,
 } from "@statewalker/httpeers-core";
 import { json, lookupClaims, lookupPeer } from "@statewalker/httpeers-core";
-import type { AuthorizationResult } from "@statewalker/webrun-biscuit";
+import type { AuthorizationResult, ParamValue } from "@statewalker/webrun-biscuit";
 import { canonicalStatement, Datalog, evaluate, failedCheckTexts, firstTerms } from "./biscuit.js";
 import { ENGINE_LIMITS } from "./tokens.js";
 
@@ -126,6 +126,11 @@ export interface RuleSet {
   readonly rules: readonly string[];
   /** `deny` policies first, then `allow`, each group in authored order. */
   readonly policies: readonly string[];
+  /**
+   * The application's own fact vocabulary (`RuleSetDefs.facts`), sorted:
+   * predicates `authorize` accepts as `RequestFacts.extra`. Empty unless declared.
+   */
+  readonly facts: readonly string[];
 }
 
 /** Every problem with a rule set, never just the first. */
@@ -144,6 +149,41 @@ export interface RuleSetDefs {
   version?: number;
   rules?: readonly string[];
   policies?: readonly string[];
+  /**
+   * Predicates the APPLICATION asserts per request, as `name` or `name/arity`
+   * (`["target_owned/1", "right/2"]`). Rules and policies may read them as
+   * they read `operation`, and `authorize` takes them in `RequestFacts.extra`.
+   * Like the node's and the token's facts, no rule may derive one. A name the
+   * node or the token already asserts cannot be declared. Anything not
+   * declared is still refused as a dead predicate.
+   */
+  facts?: readonly string[];
+  /**
+   * Values for `{name}` parameters in `rules` and `policies` — a mesh id, say —
+   * bound as terms, never spliced into the text. Every parameter must be
+   * bound, and every bound value used.
+   */
+  params?: Readonly<Record<string, ParamValue>>;
+}
+
+const DECLARED_FACT = /^([a-z][a-z0-9_]*)(?:\/(\d+))?$/;
+const PARAMETER_NAME = /\{\s*([A-Za-z_][A-Za-z0-9_]*)\s*\}/g;
+
+/** The `params` a statement names, so each statement is parsed with its own. */
+function paramsFor(
+  text: string,
+  params: Readonly<Record<string, ParamValue>> | undefined,
+  used: Set<string>,
+): Record<string, ParamValue> | undefined {
+  if (params === undefined) return undefined;
+  const own: Record<string, ParamValue> = {};
+  for (const [, name] of text.matchAll(PARAMETER_NAME)) {
+    if (name !== undefined && Object.hasOwn(params, name)) {
+      own[name] = params[name] as ParamValue;
+      used.add(name);
+    }
+  }
+  return own;
 }
 
 /**
@@ -154,6 +194,32 @@ export interface RuleSetDefs {
  */
 export function ruleSet(defs: RuleSetDefs = {}): RuleSet {
   const problems: string[] = [];
+  const usedParams = new Set<string>();
+
+  // The application's vocabulary, checked before the rules that read it.
+  const declared = new Map<string, number | undefined>();
+  defs.facts?.forEach((entry, i) => {
+    const match = typeof entry === "string" ? DECLARED_FACT.exec(entry) : null;
+    if (match === null) {
+      problems.push(`facts[${i}]: ${JSON.stringify(entry)} is not 'name' or 'name/arity'`);
+      return;
+    }
+    const name = match[1] as string;
+    const arity = match[2] === undefined ? undefined : Number(match[2]);
+    if (SUPPLIED.has(name) || name === "capability") {
+      problems.push(`facts[${i}]: '${name}' is the node's or the token's -- it cannot be declared`);
+      return;
+    }
+    if (arity === 0) {
+      problems.push(`facts[${i}]: a predicate takes at least one term`);
+      return;
+    }
+    if (declared.has(name)) {
+      problems.push(`facts[${i}]: '${name}' is declared twice`);
+      return;
+    }
+    declared.set(name, arity);
+  });
 
   const rules: string[] = [];
   const heads: string[] = [];
@@ -165,13 +231,18 @@ export function ruleSet(defs: RuleSetDefs = {}): RuleSet {
     }
     let canonical: string;
     try {
-      canonical = canonicalStatement(text, "rule", ENGINE_LIMITS);
+      canonical = canonicalStatement(
+        text,
+        "rule",
+        ENGINE_LIMITS,
+        paramsFor(text, defs.params, usedParams),
+      );
     } catch (error) {
       problems.push(`rules[${i}]: ${parseProblem(text, error)}`);
       return;
     }
     rules.push(canonical);
-    heads.push(canonical.split("<-")[0] ?? "");
+    heads.push(headOf(canonical));
   });
 
   const denies: string[] = [];
@@ -184,7 +255,12 @@ export function ruleSet(defs: RuleSetDefs = {}): RuleSet {
     }
     let canonical: string;
     try {
-      canonical = canonicalStatement(text, "policy", ENGINE_LIMITS);
+      canonical = canonicalStatement(
+        text,
+        "policy",
+        ENGINE_LIMITS,
+        paramsFor(text, defs.params, usedParams),
+      );
     } catch (error) {
       problems.push(`policies[${i}]: ${parseProblem(text, error)}`);
       return;
@@ -192,16 +268,20 @@ export function ruleSet(defs: RuleSetDefs = {}): RuleSet {
     (canonical.startsWith("deny") ? denies : allows).push(canonical);
   });
 
+  for (const name of Object.keys(defs.params ?? {})) {
+    if (!usedParams.has(name)) problems.push(`params.${name}: no rule or policy uses it`);
+  }
+
   const policies = [...denies, ...allows];
   const derivable = new Set(heads.flatMap((head) => predicatesIn(head)));
 
   // A rule that derives what the node or the token asserts.
   heads.forEach((head, i) => {
     for (const p of predicatesIn(head)) {
-      if (UNDERIVABLE.has(p)) {
+      if (UNDERIVABLE.has(p) || declared.has(p)) {
+        const who = declared.has(p) ? "the application (facts)" : "the node or the token";
         problems.push(
-          `rules[${i}]: derives '${p}', which the node or the token asserts -- ` +
-            "a rule may not manufacture it",
+          `rules[${i}]: derives '${p}', which ${who} asserts -- a rule may not manufacture it`,
         );
       }
     }
@@ -211,7 +291,7 @@ export function ruleSet(defs: RuleSetDefs = {}): RuleSet {
   const checkBody = (where: string, head: string, whole: string): void => {
     const body = whole.slice(head.length);
     for (const p of predicatesIn(body)) {
-      if (!SUPPLIED.has(p) && !derivable.has(p)) {
+      if (!SUPPLIED.has(p) && !declared.has(p) && !derivable.has(p)) {
         problems.push(
           `${where}: names predicate '${p}', which nothing asserts and no rule derives -- ` +
             `it can never hold, so this ${where.startsWith("rules") ? "rule" : "policy"} is dead`,
@@ -253,6 +333,11 @@ export function ruleSet(defs: RuleSetDefs = {}): RuleSet {
     version: defs.version ?? 1,
     rules: Object.freeze(rules),
     policies: Object.freeze(policies),
+    facts: Object.freeze(
+      [...declared]
+        .map(([name, arity]) => (arity === undefined ? name : `${name}/${arity}`))
+        .sort(),
+    ),
   });
 }
 
@@ -283,9 +368,7 @@ export function roleNames(rules: RuleSet): string[] {
 
 /** Every capability some rule can derive, sorted. Empty when derivation is open. */
 export function capabilityNames(rules: RuleSet): string[] {
-  return [
-    ...new Set(rules.rules.flatMap((r) => literalsOf("capability", r.split("<-")[0] ?? ""))),
-  ].sort();
+  return [...new Set(rules.rules.flatMap((r) => literalsOf("capability", headOf(r))))].sort();
 }
 
 /**
@@ -329,6 +412,13 @@ export interface RequestFacts {
   connectionPeer?: PeerIdStr;
   /** Milliseconds. Asserted as `time_ms` — see the module comment on Ruling 83. */
   now?: number;
+  /**
+   * The application's own request facts, `[predicate, ...terms]`, each bound
+   * as parameters. Every predicate must be declared in the rule set's `facts`
+   * (with its arity, when one was declared); `authorize` throws otherwise, so
+   * a request can never assert the node's or the token's facts this way.
+   */
+  extra?: readonly (readonly [predicate: string, ...terms: ParamValue[]])[];
 }
 
 export interface Decision {
@@ -359,6 +449,7 @@ export function authorize(
   claims: MeshClaims | null,
 ): Decision {
   assertBuilt(rules);
+  const extra = checkedExtraFacts(rules, facts.extra);
 
   const build = (extraCapability?: string) => {
     const code = new Datalog()
@@ -375,6 +466,11 @@ export function authorize(
         if (typeof role !== "string") continue;
         code.add`role(${role});`;
       }
+    }
+    for (const [predicate, ...terms] of extra) {
+      // the predicate was checked against the declaration: a plain name
+      const strings = [`${predicate}(`, ...terms.slice(1).map(() => ", "), ");"];
+      code.add(Object.assign(strings, { raw: strings }), ...terms);
     }
     if (extraCapability != null) {
       code.add`capability(${extraCapability});`;
@@ -447,6 +543,36 @@ function denial(
     failed,
     reason: `no policy allows ${facts.operation} ${facts.resource}`,
   };
+}
+
+/** `RequestFacts.extra`, refused unless every predicate is declared by the rule set. */
+function checkedExtraFacts(
+  rules: RuleSet,
+  extra: RequestFacts["extra"],
+): readonly (readonly [string, ...ParamValue[]])[] {
+  if (extra === undefined) return [];
+  if (!Array.isArray(extra)) throw new TypeError("authorize: extra must be an array of facts");
+  const declared = new Map(
+    (rules.facts ?? []).map((entry) => {
+      const [name, arity] = entry.split("/");
+      return [name, arity === undefined ? undefined : Number(arity)] as const;
+    }),
+  );
+  for (const fact of extra) {
+    const [predicate, ...terms] = Array.isArray(fact) ? fact : [];
+    if (typeof predicate !== "string" || !declared.has(predicate)) {
+      throw new TypeError(
+        `authorize: extra fact ${JSON.stringify(predicate)} is not declared in the rule set's facts`,
+      );
+    }
+    const arity = declared.get(predicate);
+    if (terms.length === 0 || (arity !== undefined && terms.length !== arity)) {
+      throw new TypeError(
+        `authorize: extra fact '${predicate}' takes ${arity ?? "at least one"} term(s), got ${terms.length}`,
+      );
+    }
+  }
+  return extra;
 }
 
 /**
@@ -567,11 +693,40 @@ function parseProblem(text: string, error: unknown): string {
  * term, not a fact — out of the result.
  */
 function predicatesIn(text: string): string[] {
-  return [...text.matchAll(/(?<![.\w$])([a-z_][A-Za-z0-9_]*)\s*\(/g)].map((m) => m[1] as string);
+  // String literals are blanked first: a bound parameter's text is a term, and
+  // a `foo(` inside it names no predicate.
+  return [...withoutStrings(text).matchAll(/(?<![.\w$])([a-z_][A-Za-z0-9_]*)\s*\(/g)].map(
+    (m) => m[1] as string,
+  );
+}
+
+/** A canonical string literal, as the printer writes it (only `"` and `\` escaped). */
+const STRING_LITERAL = String.raw`"(?:[^"\\]|\\.)*"`;
+
+/** `text` with every string literal's content blanked, its length kept. */
+function withoutStrings(text: string): string {
+  return text.replace(new RegExp(STRING_LITERAL, "g"), (m) => `"${"_".repeat(m.length - 2)}"`);
+}
+
+/** A canonical rule's head: the text before its `<-`, never one inside a string. */
+function headOf(rule: string): string {
+  const at = withoutStrings(rule).indexOf("<-");
+  return at < 0 ? rule : rule.slice(0, at);
+}
+
+function unquote(literal: string): string {
+  return literal.slice(1, -1).replace(/\\(["\\])/g, "$1");
 }
 
 /** Every string literal appearing as the sole argument of `<predicate>("...")`. */
 function literalsOf(predicate: string, text: string): string[] {
-  const pattern = new RegExp(`${predicate}\\(\\s*"([^"]*)"\\s*\\)`, "g");
-  return [...text.matchAll(pattern)].map((m) => m[1] as string);
+  // A string literal is consumed whole where it starts, so a `role("x")`
+  // inside one is never read as a role.
+  const pattern = new RegExp(
+    `(?<![.\\w$])${predicate}\\(\\s*(${STRING_LITERAL})\\s*\\)|${STRING_LITERAL}`,
+    "g",
+  );
+  return [...text.matchAll(pattern)]
+    .filter((m) => m[1] !== undefined)
+    .map((m) => unquote(m[1] as string));
 }

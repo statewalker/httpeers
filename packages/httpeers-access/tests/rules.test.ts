@@ -696,3 +696,145 @@ describe("equivalence with DEFAULT_ACCESS_TREE + DEFAULT_VOCABULARY", () => {
     });
   }
 });
+
+// ---------------------------------------------------------------------------
+// Application vocabulary and parameters (statewalker/httpeers#158)
+// ---------------------------------------------------------------------------
+
+describe("application facts and params", () => {
+  const MESH = '12D3KooWMeshId"); role("admin';
+  const claims: MeshClaims = {
+    sub: "12D3KooWMember",
+    iss: MESH,
+    mesh: MESH,
+    roles: ["tabs"],
+    iat: 0,
+    exp: Number.MAX_SAFE_INTEGER,
+    audience: "unrestricted",
+  };
+  const broker = () =>
+    ruleSet({
+      facts: ["target_owned/1", "right/2", "tab_scope"],
+      params: { mesh: MESH },
+      rules: [
+        'capability("tabs:query") <- mesh({mesh}), role("tabs")',
+        'capability("tabs:own") <- capability("tabs:query"), target_owned($t), right("tabs", "query")',
+      ],
+      policies: ['allow if capability("tabs:own"), operation("query")'],
+    });
+
+  it("a rule set using a declared predicate and a parameterised mesh id validates", () => {
+    const rules = broker();
+    expect(rules.facts).toEqual(["right/2", "tab_scope", "target_owned/1"]);
+    // the hostile mesh id stayed one term: no `admin` role appeared anywhere
+    expect(roleNames(rules)).toEqual(["tabs"]);
+    expect(capabilityNames(rules)).toEqual(["tabs:own", "tabs:query"]);
+  });
+
+  it("authorize decides with extra request facts", () => {
+    const rules = broker();
+    const request = { operation: "query", resource: "/tabs", now: 1 };
+    expect(authorize(rules, request, claims).allowed).toBe(false);
+    expect(
+      authorize(
+        rules,
+        {
+          ...request,
+          extra: [
+            ["target_owned", 42],
+            ["right", "tabs", "query"],
+          ],
+        },
+        claims,
+      ).allowed,
+    ).toBe(true);
+    // the mesh id is bound, not matched as text: another mesh gets nothing
+    expect(
+      authorize(
+        rules,
+        {
+          ...request,
+          extra: [
+            ["target_owned", 42],
+            ["right", "tabs", "query"],
+          ],
+        },
+        { ...claims, mesh: "12D3KooWOther" },
+      ).allowed,
+    ).toBe(false);
+  });
+
+  it("refuses extra facts the rule set does not declare, or of the wrong arity", () => {
+    const rules = broker();
+    const request = { operation: "query", resource: "/tabs" };
+    for (const extra of [
+      [["role", "admin"]],
+      [["connection_peer", "x"]],
+      [["capability", "tabs:own"]],
+      [["undeclared", 1]],
+      [["right", "tabs"]],
+      [["target_owned"]],
+    ]) {
+      expect(() => authorize(rules, { ...request, extra: extra as never }, claims)).toThrow(
+        TypeError,
+      );
+    }
+  });
+
+  it("still refuses undeclared predicates, and declared ones a rule derives", () => {
+    expect(() =>
+      ruleSet({
+        facts: ["right/2"],
+        rules: ['capability("x") <- target_owned($t)'],
+        policies: ['allow if capability("x")'],
+      }),
+    ).toThrow(/names predicate 'target_owned', which nothing asserts/);
+    expect(() =>
+      ruleSet({
+        facts: ["right/2"],
+        rules: ['right("tabs", "query") <- role("tabs")', 'capability("x") <- right($a, $b)'],
+        policies: ['allow if capability("x")'],
+      }),
+    ).toThrow(/derives 'right', which the application \(facts\) asserts/);
+  });
+
+  it("refuses a bad declaration and unbound or unused params", () => {
+    for (const facts of [
+      ["role"],
+      ["connection_peer/1"],
+      ["capability"],
+      ["Bad"],
+      ["x/0"],
+      ["a", "a"],
+    ]) {
+      expect(() => ruleSet({ facts }), JSON.stringify(facts)).toThrow(RuleSetError);
+    }
+    expect(() =>
+      ruleSet({
+        rules: ['capability("x") <- mesh({mesh})'],
+        policies: ['allow if capability("x")'],
+      }),
+    ).toThrow(/does not parse/);
+    expect(() =>
+      ruleSet({
+        params: { mesh: "m", spare: 1 },
+        rules: ['capability("x") <- mesh({mesh})'],
+        policies: ['allow if capability("x")'],
+      }),
+    ).toThrow(/params.spare: no rule or policy uses it/);
+  });
+
+  it("a predicate, role or capability inside a string literal is not read as one", () => {
+    const rules = ruleSet({
+      params: { label: 'x"), role("admin"), unknown_thing(1' },
+      rules: [
+        'capability("a") <- role("r"), resource({label})',
+        'capability("b") <- has_role("q")',
+      ],
+      facts: ["has_role/1"],
+      policies: ['allow if capability("a")', 'allow if capability("b")'],
+    });
+    // `unknown_thing(` is text in a term, not a dead predicate; `has_role("q")` names no role
+    expect(roleNames(rules)).toEqual(["r"]);
+  });
+});

@@ -24,6 +24,7 @@ import {
   type Evaluation,
   evaluate as evaluateProgram,
   type LoadedToken,
+  type ParamValue,
   parseAuthorizer,
   type RunLimits,
   type Term,
@@ -82,16 +83,19 @@ export function canonicalStatement(
   text: string,
   kind: "rule" | "policy",
   limits: EngineLimits,
+  params?: Readonly<Record<string, ParamValue>>,
 ): string {
   const code = `${text};`;
-  const parsed = parseAuthorizer(code); // throws ParseError on bad syntax
+  // `{name}` parameters are bound as terms and come back inlined, printed as
+  // literals, in the canonical text.
+  const parsed = parseAuthorizer(code, params); // throws ParseError on bad syntax
   const count =
     parsed.facts.length + parsed.rules.length + parsed.checks.length + parsed.policies.length;
   const wanted = kind === "rule" ? parsed.rules.length : parsed.policies.length;
   if (count !== 1 || wanted !== 1) {
     throw new Error(`expected exactly one ${kind}`);
   }
-  const world = evaluateProgram(null, code, { limits }).snapshot();
+  const world = evaluateProgram(null, code, { limits, params }).snapshot();
   const canonical = kind === "rule" ? world.rules[0]?.rules[0] : world.policies[0];
   if (canonical === undefined) throw new Error(`expected exactly one ${kind}`);
   return canonical;
