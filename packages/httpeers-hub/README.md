@@ -70,6 +70,15 @@ const storage = fileStorage("./.httpeers/hub");   // Node: one file per key, ./.
 const storage2 = idbStorage();                    // page: database "httpeers-hub", store "state"
 ```
 
+A hub saves its state under one key, `"snapshot"` by default. Several hubs in one runtime
+(one storage, or the default `idbStorage()` name) must not share it, or they share their
+members and the last writer wins: give each its own `storageKey` (or its own storage).
+
+```ts
+const hubA = await createHub({ ...init, storage, storageKey: `snapshot:${meshA}` });
+const hubB = await createHub({ ...init, storage, storageKey: `snapshot:${meshB}` });
+```
+
 Demote a member so it takes effect before its token expires:
 
 ```ts

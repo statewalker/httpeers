@@ -43,6 +43,12 @@ export interface CreateHubInit {
   mintToken: HubEndpointsInit["mintToken"];
   /** Where members and spent invitation ids are persisted. Defaults to memory. */
   storage?: KeyValueStorage;
+  /**
+   * The key this hub's state is saved under in `storage`. Default `"snapshot"`.
+   * Two hubs on one storage need distinct keys (or distinct storages): under
+   * one key they share their members and the last writer wins.
+   */
+  storageKey?: string;
   /** This mesh's Datalog rules. Injected, never global — there is no default rule set. */
   policies: RuleSet;
   now?: () => number;
@@ -112,7 +118,7 @@ export async function createHub(init: CreateHubInit): Promise<Hub> {
   // copy with serialised flushes behind it is what lets `SnapshotStore.write`
   // stay synchronous while the durable write is still awaited by whoever
   // mutated — so a caller is never told "added" before it is.
-  const snapshots = await asyncSnapshotStore(storage);
+  const snapshots = await asyncSnapshotStore(storage, init.storageKey);
 
   const state = createHubState({
     store: snapshots,
