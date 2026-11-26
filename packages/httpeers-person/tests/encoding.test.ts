@@ -47,3 +47,15 @@ describe("canonicalJson", () => {
     expect(utf8(canonicalJson({ name: decomposed }))).toEqual(utf8(`{"name":"${composed}"}`));
   });
 });
+
+// statewalker/httpeers#166: a consumer signing a related multi-part payload
+// (the webrun-devtools hello challenge) must use the same encoding, not a copy.
+describe("lengthPrefixed from the package root", () => {
+  it("is exported, and is the encoding the link code uses", async () => {
+    const root = await import("../src/index.js");
+    expect(root.lengthPrefixed).toBe(lengthPrefixed);
+    expect(
+      root.lengthPrefixed(["webrun-devtools/hello/v1", Uint8Array.of(1, 2), "https://a"]),
+    ).toEqual(lengthPrefixed(["webrun-devtools/hello/v1", Uint8Array.of(1, 2), "https://a"]));
+  });
+});

@@ -53,6 +53,16 @@ await checkReveal(committed, moverNonce);         // keeper checks the reveal
 await linkCode({ mesh: hubPeerId, keeper, mover, keeperNonce, moverNonce }); // "482 193" on both screens
 ```
 
+Sign or hash a multi-part payload the way the link code does:
+
+```ts
+import { lengthPrefixed } from "@statewalker/httpeers-person";
+
+// Each part as a 4-byte big-endian length and its bytes (strings as UTF-8),
+// so ("ab", "c") and ("a", "bc") never encode the same.
+const bytes = lengthPrefixed(["webrun-devtools/hello/v1", nonce, origin]);
+```
+
 ## Internals
 
 - **Signed bytes.** A statement is a flat record of strings. It is signed over its canonical

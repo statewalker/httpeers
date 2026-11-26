@@ -30,6 +30,10 @@ export function utf8(text: string): Uint8Array {
 /**
  * Each part as a 4-byte big-endian length followed by its bytes. Hashing a
  * plain concatenation would let ("ab","c") and ("a","bc") collide.
+ *
+ * The canonical encoding for any signed or hashed multi-part payload: the
+ * link code hashes it, and a consumer signing a related payload (a tag, a
+ * nonce, an origin) uses it too rather than a copy. Strings are UTF-8.
  */
 export function lengthPrefixed(parts: readonly (string | Uint8Array)[]): Uint8Array {
   const chunks = parts.map((p) => (typeof p === "string" ? utf8(p) : p));
