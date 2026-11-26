@@ -31,6 +31,8 @@ stays free of it. Install what your entry point imports:
   `@chainsafe/libp2p-yamux`.
 - `./browser`: the same minus `@libp2p/tcp`, plus `idb-keyval` and
   `@statewalker/webrun-http-browser` (the ServiceWorker edge).
+- `./extension`: the same as `./browser` without `@statewalker/webrun-http-browser`.
+- `./edge`: `@statewalker/webrun-http-browser` alone.
 
 Under Node, `@libp2p/webrtc` needs the native `node-datachannel` module (0.33.6
 or newer; its binary comes from the optional `@node-datachannel/<platform>`
@@ -42,6 +44,8 @@ if the loaded libdatachannel is older than 0.24.6.
 | `.` | `startMember`, `createPeerSession`, the join blob (`encodeJoinBlob`, `decodeJoinBlob`, `joinUrl`, `invitationFromQrText`), `createGateway`, `createEdgeDispatch`, `peerRequest`, identity and mesh memory |
 | `./node` | `nodePlatform` (a value: a Node member has nothing per-instance to build), `createNodeMemberNode` |
 | `./browser` | `browserPlatform()`, `createSession()`, `mountEdge`, `watchPageWake`, `idbBackend`, `idbBytesBackend`, `resetBrowserState`, `UncontrolledPageError` |
+| `./extension` | `extensionPlatform()`, `runtimeMessageWake`, `createBrowserNode`, `watchPageWake`, `idbBackend`, `idbBytesBackend`, `resetBrowserState`: `./browser` without the ServiceWorker edge, for an extension's offscreen document or a worker |
+| `./edge` | `mountEdge`, `UncontrolledPageError` alone (also re-exported by `./browser`) |
 | `./reset` | `resetBrowserState()` alone, with no imports, for a rescue page |
 
 ```ts
@@ -95,6 +99,31 @@ await session.start();           // resumes, or waits for an invitation
 await session.join(pastedText);  // a join blob, a bare invitation id, or a join URL
 // later: session.disconnect(), session.reconnect(), session.resetIdentity()
 ```
+
+A member in a Chrome MV3 extension's **offscreen document**. An extension cannot
+register a second ServiceWorker, so there is no `mountEdge`: the extension's own
+service worker is the edge and forwards to `member.fetch` (over `chrome.runtime`
+messages). The broker wakes the member's supervisor with a message, which also
+covers the service worker restarting. Nothing here needs
+`@statewalker/webrun-http-browser`:
+
+```ts
+// offscreen.ts, created with chrome.offscreen.createDocument({ reasons: ["WEB_RTC"], ... })
+import { startMember } from "@statewalker/httpeers-member";
+import { extensionPlatform, runtimeMessageWake } from "@statewalker/httpeers-member/extension";
+
+const member = await startMember({
+  key: "peers", mounts, rules, config, invitationId,
+  platform: extensionPlatform({ wake: runtimeMessageWake(chrome.runtime) }),
+});
+
+// service-worker.ts: wake the offscreen members when the worker starts or the network returns
+chrome.runtime.sendMessage({ type: "httpeers:wake" }).catch(() => {});
+```
+
+Keep the worker stateless: state lives in the offscreen document or IndexedDB, both sides
+send requests with `chrome.runtime.sendMessage`, and Ports are reopened lazily
+(statewalker-root's `docs/research/webrun-devtools-offscreen-hub.md`).
 
 The mesh as plain HTTP, for a client that knows nothing about peers:
 

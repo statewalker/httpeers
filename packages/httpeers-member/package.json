@@ -31,6 +31,16 @@
       "types": "./dist/browser.d.ts",
       "import": "./dist/browser.js"
     },
+    "./extension": {
+      "source": "./src/extension.ts",
+      "types": "./dist/extension.d.ts",
+      "import": "./dist/extension.js"
+    },
+    "./edge": {
+      "source": "./src/edge-entry.ts",
+      "types": "./dist/edge-entry.d.ts",
+      "import": "./dist/edge-entry.js"
+    },
     "./reset": {
       "source": "./src/reset.ts",
       "types": "./dist/reset.d.ts",
@@ -115,6 +125,7 @@
     "@types/node": "catalog:",
     "idb-keyval": "catalog:",
     "libp2p": "catalog:",
+    "rolldown": "catalog:",
     "typescript": "catalog:",
     "vitest": "catalog:"
   },

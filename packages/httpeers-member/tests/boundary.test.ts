@@ -154,3 +154,28 @@ describe("the isomorphism boundary", () => {
     expect(Object.keys(pkg.dependencies ?? {})).not.toContain("idb-keyval");
   });
 });
+
+describe("the edge-free browser entry (statewalker/httpeers#163)", () => {
+  const extension = [...closureOf("extension.ts")];
+
+  it("reaches the browser profile and the extension platform", () => {
+    const names = extension.map(named);
+    expect(names).toContain("browser-profile.ts");
+    expect(names).toContain("extension-platform.ts");
+    expect(names).toContain("idb-backends.ts");
+  });
+
+  it("never reaches the ServiceWorker edge or webrun-http-browser", () => {
+    expect(extension.map(named)).not.toContain("edge.ts");
+    for (const file of extension) {
+      expect(codeOf(file), `${named(file)} imports a ServiceWorker adapter`).not.toMatch(
+        /from\s+["']@statewalker\/webrun-http-browser/,
+      );
+    }
+  });
+
+  it("./edge reaches the edge, and ./browser still re-exports it", () => {
+    expect([...closureOf("edge-entry.ts")].map(named)).toContain("edge.ts");
+    expect([...closureOf("browser.ts")].map(named)).toContain("edge.ts");
+  });
+});
