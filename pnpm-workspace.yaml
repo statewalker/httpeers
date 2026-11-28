@@ -51,7 +51,7 @@ catalog:
   # 0.5), for interop tests of the default mux path with peers that run it.
   httpeers-libp2p-0-5: npm:@statewalker/httpeers-libp2p@0.5.0
   "@tailwindcss/vite": ^4.3.3
-  "@testing-library/jest-dom": "^7.0.1"
+  "@testing-library/jest-dom": "^8.0.0"
   "@testing-library/react": "^16.3.3"
   "@testing-library/user-event": "^14.6.7"
   "@types/react": ^19.3.0
