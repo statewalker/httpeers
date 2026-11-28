@@ -118,8 +118,8 @@ catalogs:
       specifier: ^0.17.1
       version: 0.17.2
     '@statewalker/webrun-http-proxy':
-      specifier: ^0.2.1
-      version: 0.2.3
+      specifier: ^0.4.0
+      version: 0.4.0
     '@statewalker/webrun-http-streams':
       specifier: ^0.8.1
       version: 0.8.2
@@ -346,7 +346,7 @@ importers:
         version: 0.17.2
       '@statewalker/webrun-http-proxy':
         specifier: 'catalog:'
-        version: 0.2.3
+        version: 0.4.0
       hono:
         specifier: 'catalog:'
         version: 4.13.13
@@ -416,7 +416,7 @@ importers:
         version: link:../../packages/httpeers-qr
       '@statewalker/webrun-http-proxy':
         specifier: 'catalog:'
-        version: 0.2.3
+        version: 0.4.0
       libp2p:
         specifier: 'catalog:'
         version: 3.5.1
@@ -861,7 +861,7 @@ importers:
         version: link:../../apps/relay
       '@statewalker/webrun-http-proxy':
         specifier: 'catalog:'
-        version: 0.2.3
+        version: 0.4.0
       '@types/node':
         specifier: 'catalog:'
         version: 26.6.4
@@ -1185,7 +1185,7 @@ importers:
         version: link:../httpeers-member
       '@statewalker/webrun-http-proxy':
         specifier: 'catalog:'
-        version: 0.2.3
+        version: 0.4.0
       hono:
         specifier: 'catalog:'
         version: 4.13.13
@@ -3530,8 +3530,8 @@ packages:
   '@statewalker/webrun-http-browser@0.17.2':
     resolution: {integrity: sha512-3KMqiP2RtOhQsJJntzw+8de+ANJBXONzu6JbMYtSVRv4cND5GltjbOVU9G0LIf+B5j6eoFGwq+c5WcZevBYeyg==}
 
-  '@statewalker/webrun-http-proxy@0.2.3':
-    resolution: {integrity: sha512-sV7d5VHA8raFAg6UwUCYBgchjw9Pd8gBt7UZog87ig/Efq5YanTkY1CmbS7edis6HTyc9yA/BxNh/vGzYMkmBQ==}
+  '@statewalker/webrun-http-proxy@0.4.0':
+    resolution: {integrity: sha512-BAZu320pSVDvMsdfNX6g2mmoEExEf8rXbCNGFsgLT7yV+WbAECZzVpdWgSOiT/Y83B9BMbpxm8RKuFoy77cl6A==}
 
   '@statewalker/webrun-http-streams@0.5.0':
     resolution: {integrity: sha512-3/dNpuDTffRsvYp2tLgag7J6pOcuvuUoIXS+aiV86FgHMw9iwxBmJYhHI/ZN3E3YoEp/ObhysJWQySrd6RafjA==}
@@ -9228,7 +9228,7 @@ snapshots:
       '@statewalker/webrun-streams': 0.6.2
       idb-keyval: 6.3.0
 
-  '@statewalker/webrun-http-proxy@0.2.3': {}
+  '@statewalker/webrun-http-proxy@0.4.0': {}
 
   '@statewalker/webrun-http-streams@0.5.0':
     dependencies:
